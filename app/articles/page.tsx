@@ -21,6 +21,7 @@ const initialArticles: Article[] = [
         contenace: 100,
         coeffProd: 1000,
         lastPivotPrice: 5.00,
+        vatRate: 20,
         priceHistory: [
             { date: "2023-12-01", price: 5.20 },
             { date: "2023-11-01", price: 5.00 }
@@ -37,6 +38,7 @@ const initialArticles: Article[] = [
         contenace: 25,
         coeffProd: 1000,
         lastPivotPrice: 8.50,
+        vatRate: 20,
         priceHistory: [
             { date: "2024-01-10", price: 8.50 },
             { date: "2023-12-05", price: 8.20 }
@@ -86,7 +88,8 @@ export default function ArticlesPage() {
             unitProduction: "",
             contenace: 0,
             coeffProd: 0,
-            lastPivotPrice: 0
+            lastPivotPrice: 0,
+            vatRate: 20
         });
     };
 

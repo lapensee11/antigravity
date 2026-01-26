@@ -3,7 +3,7 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { InvoiceEditor } from "@/components/achats/InvoiceEditor";
 import { Invoice } from "@/lib/types";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, Plus, X, FileText, File, Calendar, RefreshCw, Copy, Files, Trash2, Check, CloudUpload } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -72,7 +72,7 @@ const mockArticles: any[] = [
     { id: "a6", name: "Emballage Croissant", code: "EMB", unitAchat: "Carton", vatRate: 20, subFamilyId: "sf3" },
 ];
 
-export default function AchatsPage() {
+function AchatsContent() {
     const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
     const [isLoaded, setIsLoaded] = useState(false);
@@ -635,5 +635,13 @@ export default function AchatsPage() {
 
             </main>
         </div>
+    );
+}
+
+export default function AchatsPage() {
+    return (
+        <Suspense fallback={<div>Chargement...</div>}>
+            <AchatsContent />
+        </Suspense>
     );
 }

@@ -11,12 +11,12 @@ export function GlassCard({ children, className, ...props }: GlassCardProps) {
         <div
             className={cn(
                 "bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] p-6 border border-slate-100",
-                "relative overflow-hidden",
+                "relative overflow-hidden flex flex-col",
                 className
             )}
             {...props}
         >
-            <div className="relative z-10">{children}</div>
+            <div className="relative z-10 flex-1 flex flex-col min-h-0">{children}</div>
         </div>
     );
 }
