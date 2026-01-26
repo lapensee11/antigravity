@@ -1,0 +1,44 @@
+
+# Structure Modules
+type StructureType @table {
+  id: String!
+  name: String! # Achat, Fonctionnement, Production, Vente
+  color: String # hex color e.g. #FF5733
+  families: [Family!]! @relation(key: "type")
+}
+
+type Family @table {
+  id: String!
+  name: String!
+  code: String! # e.g. 01
+  type: StructureType!
+  subFamilies: [SubFamily!]! @relation(key: "family")
+}
+
+type SubFamily @table {
+  id: String!
+  name: String!
+  code: String! # e.g. 1
+  family: Family!
+  fiscalNature: String # e.g. "TVA 20%"
+  # images?
+}
+
+# Articles Module
+type Article @table {
+  id: String!
+  name: String!
+  code: String! # Generated: P[Type][Family][SubFamily]-[ProductIndex] e.g. PA011-01
+  subFamily: SubFamily!
+  
+  # Units
+  unitPivot: String! # e.g. "kg" or "l"
+  unitAchat: String!
+  unitProduction: String!
+  conversionRate: Float! # unitPivot / unitProduction ? or similar logic
+  
+  # Pricing
+  lastPivotPrice: Float # Auto-updated
+  
+  fiscalNature: String # Inherited or overridden
+}
