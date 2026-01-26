@@ -4,15 +4,115 @@ import { Sidebar } from "@/components/layout/Sidebar";
 // TopBar removed to align title with logo as requested
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SalesInputModal } from "@/components/ventes/SalesInputModal";
-import { useState, useEffect, Suspense, useRef } from "react";
+import { useState, useEffect, Suspense, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
-import { Calendar, TrendingUp, ShieldCheck } from "lucide-react";
+import { Calendar, TrendingUp, ShieldCheck, ChevronUp, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePersistedState } from "@/lib/hooks/use-persisted-state";
+
+// Define the shape of saved data for a day
+interface DayData {
+    status?: 'draft' | 'synced';
+    lastSyncAt?: string;
+    bankEntryId?: string; // ID of the bank transaction
+    sales: Record<string, string>;
+    supplements: { traiteurs: string; caisse: string };
+    payments: { nbCmi: string; mtCmi: string; nbChq: string; mtChq: string; especes: string };
+    subTotalInput: string;
+    nbTickets: string;
+    glovo: { brut: string; brutImp: string; brutExo: string; incid: string; cash: string };
+    hours: { startH: string; startM: string; endH: string; endM: string };
+    coeffExo?: string; // NEW
+    coeffImp?: string; // NEW
+    calculated: {
+        exo: string;
+        impHt: string;
+        totHt: string;
+        ttc: string;
+        esp: string;
+        cmi: string;
+        chq: string;
+        glovo: string;
+    };
+}
+
+// Helper to bridge to Finance Module via LocalStorage
+const syncToBank = (data: DayData, date: string, amount: number) => {
+    try {
+        const STORAGE_KEY = "finance_transactions";
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        let transactions: any[] = stored ? JSON.parse(stored) : [];
+
+        // Calculation: 1% Comm HT + 10% TVA on Comm
+        // Formula: Comm = Amount * 0.01; TVA = Comm * 0.10;
+        const commHT = amount * 0.01;
+        const tvaComm = commHT * 0.10;
+        const totalDeduct = commHT + tvaComm;
+        const netBank = amount - totalDeduct;
+
+        const label = `Enc. CMI ${new Date(date).toLocaleDateString('fr-FR')}`;
+
+        // ROBUST SYNC: Step 1 - Resolve ID
+        let existingId = data.bankEntryId;
+
+        // Step 2 - Fallback: Search by Date/Tier if ID not provided or not found
+        if (!existingId || !transactions.find(t => t.id === existingId)) {
+            const duplicate = transactions.find(t =>
+                t.date === date &&
+                (t.tier === "CMI" || t.label.includes("Enc. CMI")) &&
+                !t.isReconciled // Optional: Don't overwrite reconciled if we found a duplicate that is reconciled? 
+                // Actually, if it's reconciled we should catch it below.
+            );
+            if (duplicate) {
+                existingId = duplicate.id;
+            }
+        }
+
+        // Check Reconciliation on the resolved ID
+        if (existingId) {
+            const existing = transactions.find(t => t.id === existingId);
+            if (existing && existing.isReconciled) {
+                return { success: false, error: "L'écriture bancaire est déjà rapprochée pour cette date." };
+            }
+        }
+
+        // Create or Update Transaction
+        const newTx = {
+            id: existingId || `tx-cmi-${Date.now()}`,
+            date: date,
+            label: label,
+            amount: parseFloat(netBank.toFixed(2)),
+            type: "Recette",
+            category: "Vente",
+            account: "Banque",
+            tier: "CMI",
+            pieceNumber: "AUTO-CMI",
+            isReconciled: false // Always reset reconciled status on update? Or keep it? 
+            // If we are here, it's NOT reconciled (checked above).
+        };
+
+        if (existingId) {
+            transactions = transactions.map(t => t.id === existingId ? { ...t, ...newTx } : t);
+        } else {
+            transactions.unshift(newTx);
+        }
+
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+        return { success: true, txId: newTx.id };
+
+    } catch (e) {
+        console.error("Bank Sync Error:", e);
+        return { success: false, error: "Erreur de synchronisation bancaire." };
+    }
+};
 
 function VentesContent() {
     const searchParams = useSearchParams();
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [modalType, setModalType] = useState<"Real" | "Declared" | null>(null);
+
+    // PERSISTENCE STATE: Split into Real and Declared (Persisted)
+    const [salesData, setSalesData] = usePersistedState<Record<string, { real?: DayData; declared?: DayData }>>("ventes_daily_data", {});
 
     // Filters State
     const currentYear = new Date().getFullYear();
@@ -66,40 +166,256 @@ function VentesContent() {
         }
     }, [searchParams]);
 
-    // Generate Table Rows
-    const tableRows: {
-        dateObject: Date;
-        dateStr: string;
-        exo: string;
-        impHt: string;
-        totHt: string;
-        ttc: string;
-        cmi: string;
-        chq: string;
-        glovo: string;
-        esp: string;
-    }[] = [];
-    for (let day = startDay; day <= endDay; day++) {
-        const d = new Date(selectedYear, selectedMonth, day);
-        // Date Formatting: e.g. "Jeu. 01/01/26"
-        const weekday = d.toLocaleDateString('fr-FR', { weekday: 'short' });
-        const weekdayCap = weekday.charAt(0).toUpperCase() + weekday.slice(1);
-        const dayStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
-        const formattedDate = `${weekdayCap} ${dayStr}`;
+    // Handle Save from Modal
+    const handleSave = (data: DayData, isDraft: boolean) => {
+        if (!modalType) return;
+        const typeKey = modalType === "Real" ? "real" : "declared";
 
-        tableRows.push({
-            dateObject: d,
-            dateStr: formattedDate,
-            exo: "0.00",
-            impHt: "0.00",
-            totHt: "0.00",
-            ttc: "0.00",
-            cmi: "0.00",
-            chq: "0.00",
-            glovo: "0.00",
-            esp: "0.00",
+        // 1. Prepare Data Update
+        const updatedData = { ...data };
+        const now = new Date().toISOString();
+
+        if (isDraft) {
+            updatedData.status = 'draft';
+        } else {
+            // SYNC LOGIC
+            updatedData.status = 'synced';
+            updatedData.lastSyncAt = now;
+
+            // BANK LOGIC (CMI) - ONLY FOR REAL DATA
+            const mtCmi = parseFloat(data.payments.mtCmi) || 0;
+            if (modalType === "Real" && mtCmi > 0) {
+                // Call Sync Helper
+                const result = syncToBank(updatedData, selectedDate, mtCmi);
+
+                if (!result.success) {
+                    alert(`Erreur: ${result.error}`);
+                    return; // Abort sync
+                }
+
+                if (result.txId) {
+                    updatedData.bankEntryId = result.txId;
+                }
+            }
+        }
+
+        setSalesData(prev => ({
+            ...prev,
+            [selectedDate]: {
+                ...prev[selectedDate],
+                [typeKey]: updatedData
+            }
+        }));
+    };
+
+    // INLINE COEFF UPDATE (Re-Calc Declared)
+    const handleCoeffUpdate = (dateKey: string, newCoeffImp: string) => {
+        const dayReal = salesData[dateKey]?.real;
+
+        // If no real data, we can't really calc declared, but we can set the coeff.
+        const currentDeclared = salesData[dateKey]?.declared || {} as DayData;
+
+        const cImp = parseFloat(newCoeffImp) || 0;
+        const cExo = parseFloat(currentDeclared.coeffExo || "1.11") || 1.11;
+
+        // 1. Recalculate Sales based on Real Data
+        const newSales: Record<string, string> = {};
+        const sourceSales = dayReal?.sales || {};
+
+        let newTotalTTC = 0;
+        let newSumOthersTTC = 0;
+        let newValExo = 0;
+
+        if (sourceSales && Object.keys(sourceSales).length > 0) {
+            Object.entries(sourceSales).forEach(([key, val]) => {
+                const realVal = parseFloat(val as string) || 0;
+                let calcVal = 0;
+
+                if (key === "BOULANGERIE") {
+                    calcVal = realVal * cExo;
+                    newValExo = calcVal;
+                } else {
+                    calcVal = realVal * cImp;
+                    newSumOthersTTC += calcVal;
+                }
+                newSales[key] = calcVal.toFixed(2);
+            });
+            newTotalTTC = newValExo + newSumOthersTTC;
+        } else {
+            // Fallback
+            const realTTC = parseFloat(dayReal?.calculated?.ttc || "0");
+            const realExo = parseFloat(dayReal?.calculated?.exo || "0");
+            const realImpTTC = realTTC - realExo;
+
+            newValExo = realExo * cExo;
+            newSumOthersTTC = realImpTTC * cImp;
+            newTotalTTC = newValExo + newSumOthersTTC;
+        }
+
+        const newValImpHT = newSumOthersTTC / 1.2;
+        const newTotalHT = newValImpHT + newValExo;
+        const realTickets = parseFloat(dayReal?.nbTickets || "0") || 0;
+        const newDeclaredTickets = Math.round(realTickets * cImp);
+
+        // 2. Payments & Espèces
+        const payments = dayReal?.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" };
+        const mtCmi = parseFloat(payments.mtCmi) || 0;
+        const mtChq = parseFloat(payments.mtChq) || 0;
+
+        // 3. Glovo
+        const glovo = dayReal?.glovo || { brut: "0", incid: "0", cash: "0" };
+        const valEsp = newTotalTTC - mtCmi - mtChq - (parseFloat(glovo.brut) || 0) + (parseFloat(glovo.cash) || 0);
+
+        // 4. Glovo Net
+        const glovoNet = ((parseFloat(glovo.brut) || 0) * 0.82) - (parseFloat(glovo.incid) || 0) - (parseFloat(glovo.cash) || 0);
+
+        // 4. Update Declared Data State
+        const updatedDeclared: DayData = {
+            ...currentDeclared,
+            sales: newSales,
+            coeffImp: newCoeffImp,
+            coeffExo: String(cExo),
+            payments: payments,
+            glovo: currentDeclared.glovo || glovo,
+            nbTickets: String(newDeclaredTickets),
+            calculated: {
+                exo: newValExo.toFixed(2),
+                impHt: newValImpHT.toFixed(2),
+                totHt: newTotalHT.toFixed(2),
+                ttc: newTotalTTC.toFixed(2),
+                esp: valEsp.toFixed(2),
+                cmi: mtCmi.toFixed(2),
+                chq: mtChq.toFixed(2),
+                glovo: glovoNet.toFixed(2)
+            }
+        };
+
+        setSalesData(prev => ({
+            ...prev,
+            [dateKey]: {
+                ...prev[dateKey],
+                declared: updatedDeclared
+            }
+        }));
+    };
+
+    // INLINE GLOVO UPDATE (Real Data + Trigger Declared Recalc)
+    const handleGlovoUpdate = (dateKey: string, field: 'brut' | 'incid' | 'cash', value: string) => {
+        const dayReal = salesData[dateKey]?.real || {} as DayData;
+        const currentDeclared = salesData[dateKey]?.declared || {} as DayData;
+
+        // 1. Update Real Data
+        const updatedGlovo = { ...dayReal.glovo, [field]: value }; // Maintain other fields
+        // Default structure if missing
+        if (!updatedGlovo.brut) updatedGlovo.brut = "0";
+        if (!updatedGlovo.incid) updatedGlovo.incid = "0";
+        if (!updatedGlovo.cash) updatedGlovo.cash = "0";
+
+        const updatedReal: DayData = {
+            ...dayReal,
+            glovo: updatedGlovo
+        };
+
+        // 2. Recalculate Declared (Dependencies: Glovo Brut -> Esp Declared)
+        const cImp = parseFloat(currentDeclared.coeffImp || "0.60") || 0.60;
+        // Re-use logic from handleCoeffUpdate essentially, but we only really need Esp Update if sales didn't change.
+        // But wait, Total TTC (D) relies on Sales. Sales rely on Real Sales. Real Sales didn't change here.
+        // So Total TTC (D) is constant.
+        // Only Esp (D) changes: Esp = TTC - CMI - Chq - GlovoBrut.
+
+        const declaredTTC = parseFloat(currentDeclared?.calculated?.ttc || "0");
+        const payments = dayReal.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" };
+        const mtCmi = parseFloat(payments.mtCmi) || 0;
+        const mtChq = parseFloat(payments.mtChq) || 0;
+        const glovoBrut = parseFloat(updatedGlovo.brut) || 0;
+
+        const valEspDeclared = declaredTTC - mtCmi - mtChq - glovoBrut + (parseFloat(updatedGlovo.cash) || 0);
+
+        // Also update Glovo Net in Declared? No, Declared stores its own sync copy?
+        // Page logic says: "const glovo = dayReal?.glovo ...". It reads from Real day-by-day.
+        // But Declared object HAS a glovo property. Step 278 uses `currentDeclared.glovo || glovo`.
+        // We should sync them.
+
+        const updatedDeclared: DayData = {
+            ...currentDeclared,
+            glovo: updatedGlovo, // Sync Glovo to Declared
+            calculated: {
+                ...currentDeclared.calculated,
+                esp: valEspDeclared.toFixed(2)
+            }
+        };
+
+        setSalesData(prev => ({
+            ...prev,
+            [dateKey]: {
+                ...prev[dateKey],
+                real: updatedReal, // Save Real Update
+                declared: updatedDeclared // Save Declared Update
+            }
+        }));
+    };
+
+    // Generate Table Rows using Persistence
+    const tableRows = useMemo(() => {
+        const rows = [];
+        for (let day = startDay; day <= endDay; day++) {
+            const d = new Date(selectedYear, selectedMonth, day);
+            const weekday = d.toLocaleDateString('fr-FR', { weekday: 'short' });
+            const weekdayCap = weekday.charAt(0).toUpperCase() + weekday.slice(1);
+            const dayStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+            const formattedDate = `${weekdayCap} ${dayStr}`;
+            const isoKey = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+            const dayReal = salesData[isoKey]?.real;
+            const dayDeclared = salesData[isoKey]?.declared;
+
+            rows.push({
+                dateObject: d,
+                isoKey: isoKey,
+                dateStr: formattedDate,
+                status: dayReal?.status,
+                // Real Data
+                exo: dayReal?.calculated?.exo || "0.00",
+                impHt: dayReal?.calculated?.impHt || "0.00",
+                totHt: dayReal?.calculated?.totHt || "0.00",
+                ttc: dayReal?.calculated?.ttc || "0.00",
+                cmi: dayReal?.calculated?.cmi || "0.00",
+                chq: dayReal?.calculated?.chq || "0.00",
+                glovo: dayReal?.calculated?.glovo || "0.00",
+                esp: dayReal?.calculated?.esp || "0.00",
+                // Declared Data
+                declaredTTC: dayDeclared?.calculated?.ttc || "0.00",
+                declaredEsp: dayDeclared?.calculated?.esp || "0.00",
+                coeffImp: dayDeclared?.coeffImp || "0.60", // Default 0.60
+            });
+        }
+        return rows;
+    }, [selectedYear, selectedMonth, startDay, endDay, salesData]);
+
+    const periodTotals = useMemo(() => {
+        const totals = {
+            exo: 0, impHt: 0, totHt: 0, ttc: 0, cmi: 0, chq: 0, glovo: 0, esp: 0,
+            declaredTTC: 0, declaredEsp: 0
+        };
+
+        tableRows.forEach(row => {
+            totals.exo += parseFloat(row.exo) || 0;
+            totals.impHt += parseFloat(row.impHt) || 0;
+            totals.totHt += parseFloat(row.totHt) || 0;
+            totals.ttc += parseFloat(row.ttc) || 0;
+            totals.cmi += parseFloat(row.cmi) || 0;
+            totals.chq += parseFloat(row.chq) || 0;
+            totals.glovo += parseFloat(row.glovo) || 0;
+            totals.esp += parseFloat(row.esp) || 0;
+
+            // Declared
+            totals.declaredTTC += parseFloat(row.declaredTTC) || 0;
+            totals.declaredEsp += parseFloat(row.declaredEsp) || 0;
         });
-    }
+
+        return totals;
+    }, [tableRows]);
+
 
     // Keyboard Listener
     useEffect(() => {
@@ -112,6 +428,11 @@ function VentesContent() {
                     const next = Math.min(tableRows.length - 1, prev + 1);
                     const row = document.querySelector(`tr[data-index="${next}"]`);
                     row?.scrollIntoView({ block: "nearest" });
+
+                    // Sync Buttons on Arrow Nav
+                    const nextRow = tableRows[next];
+                    if (nextRow) setSelectedDate(nextRow.isoKey);
+
                     return next;
                 });
             } else if (e.key === "ArrowUp") {
@@ -120,14 +441,18 @@ function VentesContent() {
                     const next = Math.max(0, prev - 1);
                     const row = document.querySelector(`tr[data-index="${next}"]`);
                     row?.scrollIntoView({ block: "nearest" });
+
+                    // Sync Buttons on Arrow Nav
+                    const nextRow = tableRows[next];
+                    if (nextRow) setSelectedDate(nextRow.isoKey);
+
                     return next;
                 });
             } else if (e.key === "Enter") {
                 e.preventDefault();
                 if (focusedRowIndex >= 0 && focusedRowIndex < tableRows.length) {
                     const row = tableRows[focusedRowIndex];
-                    const offsetDate = new Date(row.dateObject.getTime() - (row.dateObject.getTimezoneOffset() * 60000));
-                    setSelectedDate(offsetDate.toISOString().split('T')[0]);
+                    setSelectedDate(row.isoKey);
                     setModalType("Real");
                 }
             }
@@ -136,12 +461,6 @@ function VentesContent() {
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [focusedRowIndex, tableRows, modalType]);
-
-    // Mock Data for "Today"
-    const dailyData = {
-        real: { ht: 12500, ttc: 13200 },
-        declared: { ht: 8400, ttc: 8900 }
-    };
 
     return (
         <div className="flex min-h-screen bg-slate-50/50">
@@ -159,10 +478,13 @@ function VentesContent() {
 
                     {/* Buttons & Filters - Compact Spacing */}
                     <div className="grid grid-cols-2 gap-4 mb-4">
-                        {/* REEL Button */}
+                        {/* REEL Button - Shows Selected Day's Real Data */}
                         <button
                             onClick={() => setModalType("Real")}
-                            className="group relative overflow-hidden rounded-2xl p-4 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-xl border-2 border-[#1E293B] hover:bg-[#1E293B]/5 bg-white/40 backdrop-blur-sm"
+                            className={cn(
+                                "group relative overflow-hidden rounded-2xl p-4 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-xl border-2 border-[#1E293B] hover:bg-[#1E293B]/5 backdrop-blur-sm",
+                                modalType === "Real" ? "bg-[#1E293B]/10 ring-2 ring-[#1E293B] ring-offset-2" : "bg-white/40"
+                            )}
                         >
                             <div className="absolute inset-0 bg-gradient-to-r from-[#1E293B]/5 to-blue-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                             <div className="relative z-10 flex items-center justify-between">
@@ -180,20 +502,23 @@ function VentesContent() {
                                 <div className="text-right">
                                     <div className="flex flex-col items-end">
                                         <span className="text-2xl font-bold text-[#1E293B] tracking-tight">
-                                            {dailyData.real.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs font-semibold text-slate-400">TTC</span>
+                                            {(salesData[selectedDate]?.real?.calculated?.ttc || "0.00").toLocaleString()} <span className="text-xs font-semibold text-slate-400">TTC</span>
                                         </span>
                                         <span className="text-xs font-medium text-slate-400 font-mono">
-                                            HT: {dailyData.real.ht.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            HT: {(salesData[selectedDate]?.real?.calculated?.totHt || "0.00").toLocaleString()}
                                         </span>
                                     </div>
                                 </div>
                             </div>
                         </button>
 
-                        {/* DECLARED Button */}
+                        {/* DECLARED Button - Shows Selected Day's Declared Data */}
                         <button
                             onClick={() => setModalType("Declared")}
-                            className="group relative overflow-hidden rounded-2xl p-4 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-xl border-2 border-[#CD7F32] hover:bg-[#CD7F32]/5 bg-white/40 backdrop-blur-sm"
+                            className={cn(
+                                "group relative overflow-hidden rounded-2xl p-4 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-xl border-2 border-[#CD7F32] hover:bg-[#CD7F32]/5 backdrop-blur-sm",
+                                modalType === "Declared" ? "bg-[#CD7F32]/10 ring-2 ring-[#CD7F32] ring-offset-2" : "bg-white/40"
+                            )}
                         >
                             <div className="absolute inset-0 bg-gradient-to-r from-[#CD7F32]/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                             <div className="relative z-10 flex items-center justify-between">
@@ -211,10 +536,10 @@ function VentesContent() {
                                 <div className="text-right">
                                     <div className="flex flex-col items-end">
                                         <span className="text-2xl font-bold text-[#CD7F32] tracking-tight">
-                                            {dailyData.declared.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs font-semibold text-[#CD7F32]/60">TTC</span>
+                                            {(salesData[selectedDate]?.declared?.calculated?.ttc || "0.00").toLocaleString()} <span className="text-xs font-semibold text-[#CD7F32]/60">TTC</span>
                                         </span>
                                         <span className="text-xs font-medium text-slate-400 font-mono">
-                                            HT: {dailyData.declared.ht.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            HT: {(salesData[selectedDate]?.declared?.calculated?.totHt || "0.00").toLocaleString()}
                                         </span>
                                     </div>
                                 </div>
@@ -295,17 +620,23 @@ function VentesContent() {
                             <table className="w-full text-sm text-left border-collapse" ref={tableRef}>
                                 <thead className="bg-[#1E293B] text-white text-[10px] font-bold uppercase tracking-wider sticky top-0 z-20 shadow-none border-b border-[#1E293B]">
                                     <tr>
-                                        {/* Divider applied to Date column */}
                                         <th className="px-4 py-3 border-r-[4px] border-r-[#1E293B]">Date</th>
                                         <th className="px-4 py-3 text-right border-r border-[#1E293B]/20">Exonéré</th>
                                         <th className="px-4 py-3 text-right border-r border-[#1E293B]/20">Imp. HT</th>
                                         <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 bg-[#1E293B]/5">Total HT</th>
-                                        {/* Divider applied to Total TTC column */}
                                         <th className="px-4 py-3 text-right border-r-[4px] border-r-[#1E293B] bg-[#1E293B]/10">Total TTC</th>
                                         <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 text-blue-300">CMI</th>
                                         <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 text-emerald-300">Chèques</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 text-[#FFE0B2]">Glovo Net</th>
                                         <th className="px-4 py-3 text-right font-bold h-full">Espèces</th>
+                                        <th className="px-1 py-3 bg-[#1E293B] w-[4px]"></th>
+                                        {/* GLOVO BREAKDOWN */}
+                                        <th className="px-1 py-3 text-right border-r border-[#1E293B]/20 text-yellow-500 text-[10px] font-bold w-20">Glv Brut</th>
+                                        <th className="px-1 py-3 text-right border-r border-[#1E293B]/20 text-yellow-500 text-[10px] font-bold w-20">Incid</th>
+                                        <th className="px-1 py-3 text-right border-r border-[#1E293B]/20 text-yellow-500 text-[10px] font-bold w-20">Cash</th>
+                                        <th className="px-2 py-3 text-right border-r-[4px] border-r-[#1E293B] text-yellow-500 font-bold w-24">Glovo Net</th>
+                                        <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 text-orange-200">Total TTC (D)</th>
+                                        <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 text-orange-200">Espèces (D)</th>
+                                        <th className="px-4 py-3 text-center text-purple-300 w-24">Coeff Imp</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -313,11 +644,13 @@ function VentesContent() {
                                         <tr
                                             key={i}
                                             data-index={i}
-                                            onClick={() => setFocusedRowIndex(i)}
+                                            onClick={() => {
+                                                setFocusedRowIndex(i);
+                                                setSelectedDate(row.isoKey);
+                                            }}
                                             onDoubleClick={() => {
                                                 setFocusedRowIndex(i);
-                                                const offsetDate = new Date(row.dateObject.getTime() - (row.dateObject.getTimezoneOffset() * 60000));
-                                                setSelectedDate(offsetDate.toISOString().split('T')[0]);
+                                                setSelectedDate(row.isoKey);
                                                 setModalType("Real");
                                             }}
                                             className={cn(
@@ -328,24 +661,124 @@ function VentesContent() {
                                             )}
                                         >
                                             {/* Divider applied to Date cells - Unconditional */}
-                                            <td className={cn(
-                                                "px-4 py-2.5 font-mono text-xs font-medium border-r-[4px] border-r-[#1E293B] transition-colors",
-                                                focusedRowIndex === i ? "text-white" : "text-slate-600 group-hover:text-[#1E293B]"
+
+                                            <td className={cn("px-4 py-2.5 font-medium text-xs border-r-[4px] border-r-[#1E293B] transition-colors relative",
+                                                focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#1E293B]"
                                             )}>
+                                                {/* Status Dot */}
+                                                {row.status === 'synced' && (
+                                                    <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.5)]" title="Synchronisé" />
+                                                )}
+                                                {row.status === 'draft' && (
+                                                    <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-orange-400" title="Brouillon" />
+                                                )}
                                                 {row.dateStr}
                                             </td>
-                                            <td className={cn("px-4 py-2.5 text-right font-mono border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-400 group-hover:text-[#1E293B]")}>{row.exo}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-mono border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-400 group-hover:text-[#1E293B]")}>{row.impHt}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-mono font-medium border-r border-slate-100/50 bg-slate-50/30", focusedRowIndex === i ? "text-white" : "text-slate-500 group-hover:text-[#1E293B]")}>{row.totHt}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#1E293B]")}>{row.exo}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#1E293B]")}>{row.impHt}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50 bg-slate-50/30", focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#1E293B]")}>{row.totHt}</td>
                                             {/* Divider applied to Total TTC cells - Unconditional */}
                                             <td className={cn(
-                                                "px-4 py-2.5 text-right font-mono font-bold bg-slate-100/30 border-r-[4px] border-r-[#1E293B] transition-colors",
-                                                focusedRowIndex === i ? "text-white" : "text-slate-600 group-hover:text-[#1E293B]"
+                                                "px-4 py-2.5 text-right font-bold text-sm bg-slate-100/30 border-r-[4px] border-r-[#1E293B] transition-colors",
+                                                focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#1E293B]"
                                             )}>{row.ttc}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-mono border-r border-slate-100/50", focusedRowIndex === i ? "text-blue-200" : "text-slate-400 group-hover:text-[#1E293B]")}>{row.cmi}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-mono border-r border-slate-100/50", focusedRowIndex === i ? "text-emerald-200" : "text-slate-400 group-hover:text-[#1E293B]")}>{row.chq}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-mono border-r border-slate-100/50", focusedRowIndex === i ? "text-orange-200" : "text-slate-400 group-hover:text-[#1E293B]")}>{row.glovo}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-mono font-bold", focusedRowIndex === i ? "text-white" : "text-slate-600 group-hover:text-[#1E293B]")}>{row.esp}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-blue-200" : "text-slate-600 group-hover:text-[#1E293B]")}>{row.cmi}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-emerald-200" : "text-slate-600 group-hover:text-[#1E293B]")}>{row.chq}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-bold text-sm", focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#1E293B]")}>{row.esp}</td>
+                                            <td className="px-1 py-2.5 border-l-[4px] border-l-[#1E293B] bg-slate-50/50"></td>
+
+                                            {/* GLOVO BREAKDOWN VALUES (Editable) */}
+                                            <td className={cn("px-1 py-1 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
+                                                <input
+                                                    type="text"
+                                                    value={salesData[row.isoKey]?.real?.glovo?.brut || ""}
+                                                    placeholder="0.00"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onChange={(e) => handleGlovoUpdate(row.isoKey, 'brut', e.target.value)}
+                                                    className={cn(
+                                                        "w-full h-full bg-transparent text-right font-medium text-xs focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
+                                                        focusedRowIndex === i ? "text-yellow-200 placeholder-yellow-200/50" : "text-yellow-600 group-hover/cell:text-yellow-700"
+                                                    )}
+                                                />
+                                            </td>
+                                            <td className={cn("px-1 py-1 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
+                                                <input
+                                                    type="text"
+                                                    value={salesData[row.isoKey]?.real?.glovo?.incid || ""}
+                                                    placeholder="0.00"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onChange={(e) => handleGlovoUpdate(row.isoKey, 'incid', e.target.value)}
+                                                    className={cn(
+                                                        "w-full h-full bg-transparent text-right font-medium text-xs focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
+                                                        focusedRowIndex === i ? "text-yellow-200 placeholder-yellow-200/50" : "text-yellow-600 group-hover/cell:text-yellow-700"
+                                                    )}
+                                                />
+                                            </td>
+                                            <td className={cn("px-1 py-1 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
+                                                <input
+                                                    type="text"
+                                                    value={salesData[row.isoKey]?.real?.glovo?.cash || ""}
+                                                    placeholder="0.00"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onChange={(e) => handleGlovoUpdate(row.isoKey, 'cash', e.target.value)}
+                                                    className={cn(
+                                                        "w-full h-full bg-transparent text-right font-medium text-xs focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
+                                                        focusedRowIndex === i ? "text-yellow-200 placeholder-yellow-200/50" : "text-yellow-600 group-hover/cell:text-yellow-700"
+                                                    )}
+                                                />
+                                            </td>
+
+                                            <td className={cn("px-2 py-2.5 text-right font-bold text-sm border-r-[4px] border-r-[#1E293B] w-24", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-700 group-hover:text-yellow-800")}>{row.glovo}</td>
+
+                                            {/* NEW: DECLARED CELLS */}
+
+                                            <td className={cn("px-4 py-2.5 text-right font-bold text-sm text-orange-600/80", focusedRowIndex === i && "text-orange-200")}>{row.declaredTTC}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-bold text-sm text-orange-600/80", focusedRowIndex === i && "text-orange-200")}>{row.declaredEsp}</td>
+                                            <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                <div className="relative flex items-center justify-center w-full max-w-[80px] mx-auto group/input">
+                                                    <div className="relative flex items-center bg-white/50 rounded-lg border border-purple-200">
+                                                        <input
+                                                            type="text"
+                                                            value={row.coeffImp}
+                                                            onChange={(e) => handleCoeffUpdate(row.isoKey, e.target.value)}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                                                                    e.preventDefault();
+                                                                    const val = parseFloat(row.coeffImp) || 0;
+                                                                    const step = 0.01;
+                                                                    const newVal = val + (e.key === 'ArrowUp' ? step : -step);
+                                                                    handleCoeffUpdate(row.isoKey, newVal.toFixed(2));
+                                                                }
+                                                            }}
+                                                            className="w-12 text-center bg-transparent border-none text-xs font-bold text-purple-700 py-1 pl-1 pr-0 focus:ring-0 focus:outline-none font-mono"
+                                                        />
+                                                        <div className="flex flex-col border-l border-purple-200 pl-0.5 pr-0.5 gap-px">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const val = parseFloat(row.coeffImp) || 0;
+                                                                    handleCoeffUpdate(row.isoKey, (val + 0.01).toFixed(2));
+                                                                }}
+                                                                className="hover:bg-purple-100 rounded text-purple-600 p-px"
+                                                                tabIndex={-1}
+                                                            >
+                                                                <ChevronUp className="w-2.5 h-2.5" />
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const val = parseFloat(row.coeffImp) || 0;
+                                                                    handleCoeffUpdate(row.isoKey, (val - 0.01).toFixed(2));
+                                                                }}
+                                                                className="hover:bg-purple-100 rounded text-purple-600 p-px"
+                                                                tabIndex={-1}
+                                                            >
+                                                                <ChevronDown className="w-2.5 h-2.5" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -354,15 +787,25 @@ function VentesContent() {
                                     <tr>
                                         {/* Divider applied to Footer Date cell - Unconditional */}
                                         <td className="px-4 py-3 text-right border-r-[4px] border-r-[#1E293B]">Total</td>
-                                        <td className="px-4 py-3 text-right border-r border-slate-700/50">0.00</td>
-                                        <td className="px-4 py-3 text-right border-r border-slate-700/50">0.00</td>
-                                        <td className="px-4 py-3 text-right bg-white/5 border-r border-slate-700/50">0.00</td>
+                                        <td className="px-4 py-3 text-right border-r border-slate-700/50">{periodTotals.exo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right border-r border-slate-700/50">{periodTotals.impHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right bg-white/5 border-r border-slate-700/50">{periodTotals.totHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                         {/* Divider applied to Footer TTC cell - Unconditional */}
-                                        <td className="px-4 py-3 text-right bg-white/10 border-r-[4px] border-r-[#1E293B]">0.00</td>
-                                        <td className="px-4 py-3 text-right text-blue-300 border-r border-slate-700/50">0.00</td>
-                                        <td className="px-4 py-3 text-right text-emerald-300 border-r border-slate-700/50">0.00</td>
-                                        <td className="px-4 py-3 text-right text-[#FFE0B2] border-r border-slate-700/50">0.00</td>
-                                        <td className="px-4 py-3 text-right text-white">0.00</td>
+                                        <td className="px-4 py-3 text-right bg-white/10 border-r-[4px] border-r-[#1E293B] font-bold text-emerald-400">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right text-blue-300 border-r border-slate-700/50">{periodTotals.cmi.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right text-emerald-300 border-r border-slate-700/50">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right text-white font-bold">{periodTotals.esp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-1 py-3 bg-[#1E293B] w-[4px]"></td>
+
+                                        {/* GLOVO FOOTER -- Merged or empty? Or Sums? Let's leave empty for breakdown for now to avoid clutter, or add sums if needed. User didn't specify. I'll add filler cells. */}
+                                        <td className="px-1 py-3 border-r border-slate-700/50 w-20"></td>
+                                        <td className="px-1 py-3 border-r border-slate-700/50 w-20"></td>
+                                        <td className="px-1 py-3 border-r border-slate-700/50 w-20"></td>
+
+                                        <td className="px-2 py-3 text-right text-yellow-500 font-bold border-r-[4px] border-r-[#1E293B] w-24">{periodTotals.glovo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right text-orange-200 font-bold">{periodTotals.declaredTTC.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right text-orange-200 font-bold">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-center text-purple-300 font-bold">AVG</td>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -372,8 +815,11 @@ function VentesContent() {
                     <SalesInputModal
                         isOpen={!!modalType}
                         onClose={() => setModalType(null)}
+                        onSave={handleSave}
                         date={selectedDate}
                         isDeclared={modalType === "Declared"}
+                        initialData={modalType === "Real" ? salesData[selectedDate]?.real : salesData[selectedDate]?.declared}
+                        realData={salesData[selectedDate]?.real}
                     />
                 </div>
             </main>

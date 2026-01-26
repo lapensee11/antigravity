@@ -10,6 +10,8 @@ import { GlassModal } from "@/components/ui/GlassModal";
 import { GlassInput } from "@/components/ui/GlassInput";
 import { cn } from "@/lib/utils";
 
+import { usePersistedState } from "@/lib/hooks/use-persisted-state";
+
 // Mock Data
 const initialTransactions: Transaction[] = [
     { id: "t1", date: "2024-01-24", label: "Vente Comptoir", amount: 1540, type: "Recette", category: "Vente", account: "Caisse", tier: "Client Divers", pieceNumber: "TK-001" },
@@ -18,7 +20,7 @@ const initialTransactions: Transaction[] = [
 ] as Transaction[];
 
 export default function FinancePage() {
-    const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
+    const [transactions, setTransactions] = usePersistedState<Transaction[]>("finance_transactions", initialTransactions);
     const [activeAccount, setActiveAccount] = useState<"Banque" | "Caisse" | "Coffre">("Banque");
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false); // Kept for other modals if needed, though unused for add now
