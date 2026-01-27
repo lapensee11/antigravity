@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
-import { Check, X, Clock, ChevronUp, ChevronDown } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Check, X, Clock, ChevronUp, ChevronDown, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SalesInputModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSave?: (data: any, isDraft: boolean) => void;
+    onSave?: (data: any, isDraft: boolean, targetDate?: string) => void;
     date: string;
     isDeclared?: boolean;
     initialData?: any;
@@ -46,6 +46,158 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
         endH: "20", endM: "00"
     });
 
+    // Refs for Focus Management
+    const boulangerieRef = useRef<HTMLInputElement>(null);
+
+    // Ref for Data State (Always Fresh for Escape Key)
+    const formDataRef = useRef<any>({});
+
+    // --- SYNCHRONOUS REF UPDATE HELPERS (Prevents Race Conditions) ---
+    // These ensure formDataRef is updated INSTANTLY, even before React re-renders.
+
+    const updateSales = (key: string, value: string) => {
+        setSales(prev => {
+            const next = { ...prev, [key]: value };
+            formDataRef.current.sales = next; // SYNC UPDATE
+            return next;
+        });
+    };
+
+    const updateSupplements = (field: 'traiteurs' | 'caisse', value: string) => {
+        setSupplements(prev => {
+            const next = { ...prev, [field]: value };
+            formDataRef.current.supplements = next; // SYNC UPDATE
+            return next;
+        });
+    };
+
+    const updatePayments = (field: keyof typeof payments, value: string) => {
+        setPayments(prev => {
+            const next = { ...prev, [field]: value };
+            formDataRef.current.payments = next; // SYNC UPDATE
+            return next;
+        });
+    };
+
+    const updateSubTotal = (value: string) => {
+        setSubTotalInput(value);
+        formDataRef.current.subTotalInput = value; // SYNC UPDATE
+    };
+
+    const updateNbTickets = (value: string) => {
+        setNbTickets(value);
+        formDataRef.current.nbTickets = value; // SYNC UPDATE
+    };
+
+    const updateGlovo = (field: keyof typeof glovo, value: string) => {
+        // Special logic for Brut is handled inside its specific handler below due to complexity
+        setGlovo(prev => {
+            const next = { ...prev, [field]: value };
+            formDataRef.current.glovo = next; // SYNC UPDATE
+            return next;
+        });
+    };
+
+    const updateCoeffState = (type: 'exo' | 'imp', value: string) => {
+        if (type === 'exo') {
+            setCoeffExo(value);
+            formDataRef.current.coeffExo = value; // SYNC UPDATE
+        } else {
+            setCoeffImp(value);
+            formDataRef.current.coeffImp = value; // SYNC UPDATE
+        }
+    };
+
+    const updateHours = (field: keyof typeof hours, value: string) => {
+        setHours(prev => {
+            const next = { ...prev, [field]: value };
+            formDataRef.current.hours = next; // SYNC UPDATE
+            return next;
+        });
+    };
+
+    // --- CALCULATIONS (Moved up to be available for Ref) ---
+    // 1. Exonéré = Boulangerie only
+    const valExo = parseFloat(sales["BOULANGERIE"] || "0");
+
+    // 2. Imposable HT = Sum(Others) / 1.2
+    let sumOthersTTC = 0;
+    Object.entries(sales).forEach(([key, val]) => {
+        if (key !== "BOULANGERIE") {
+            sumOthersTTC += parseFloat(val) || 0;
+        }
+    });
+    const valImpHT = sumOthersTTC / 1.2;
+
+    // 3. SubTotal
+    const manualSubTotal = parseFloat(subTotalInput) || 0;
+
+    // 4. Espèces
+    // Supplements = 0 in Declared Mode context
+    const totalSupplements = isDeclared ? 0 : (parseFloat(supplements.traiteurs) || 0) + (parseFloat(supplements.caisse) || 0);
+
+    const mtCmi = parseFloat(payments.mtCmi) || 0;
+    const mtChq = parseFloat(payments.mtChq) || 0;
+
+    // Glovo Net
+    const glovoNet = ((parseFloat(glovo.brut) || 0) * 0.82) - (parseFloat(glovo.incid) || 0) - (parseFloat(glovo.cash) || 0);
+
+    // Total HT
+    const totalHT = valImpHT + valExo;
+
+    // Total TTC
+    const totalTTC = valExo + sumOthersTTC;
+
+    // Remise
+    const valRemise = totalTTC - manualSubTotal;
+
+    // Derived Cash
+    const valEsp = isDeclared
+        ? (totalTTC - mtCmi - mtChq - (parseFloat(glovo.brut) || 0) + (parseFloat(glovo.cash) || 0))
+        : ((manualSubTotal + totalSupplements) - mtCmi - mtChq);
+
+
+
+    // Derived values for REF SYNC (Just to keep totals updated, but inputs are live)
+    useEffect(() => {
+        // We only need to sync the CALCULATED totals here, 
+        // because inputs are now synced immediately in handlers.
+        if (formDataRef.current) {
+            formDataRef.current.calculated = {
+                exo: valExo.toFixed(2),
+                impHt: valImpHT.toFixed(2),
+                totHt: totalHT.toFixed(2),
+                ttc: totalTTC.toFixed(2),
+                remise: valRemise.toFixed(2),
+                esp: valEsp.toFixed(2),
+                cmi: mtCmi.toFixed(2),
+                chq: mtChq.toFixed(2),
+                glovo: glovoNet.toFixed(2)
+            };
+            // Ensure inputs are also synced (fallback)
+            formDataRef.current.sales = sales;
+            formDataRef.current.payments = payments;
+            formDataRef.current.supplements = supplements;
+            formDataRef.current.glovo = glovo;
+            formDataRef.current.hours = hours;
+            formDataRef.current.subTotalInput = subTotalInput;
+            formDataRef.current.nbTickets = nbTickets;
+            formDataRef.current.coeffExo = coeffExo;
+            formDataRef.current.coeffImp = coeffImp;
+        }
+    }); // Run on every render to ensure derived calcs are fresh
+
+    // Auto-focus Boulangerie logic
+    useEffect(() => {
+        if (isOpen && !isDeclared) {
+            // Small timeout to allow render/animation
+            const timer = setTimeout(() => {
+                boulangerieRef.current?.focus();
+            }, 50);
+            return () => clearTimeout(timer);
+        }
+    }, [isOpen, isDeclared]);
+
     // Load initial data
     useEffect(() => {
         if (isOpen && initialData) {
@@ -56,6 +208,20 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             setNbTickets(initialData.nbTickets || "");
             setGlovo(initialData.glovo || { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" });
             setHours(initialData.hours || { startH: "07", startM: "00", endH: "20", endM: "00" });
+            setHours(initialData.hours || { startH: "07", startM: "00", endH: "20", endM: "00" });
+
+            // IMMEDIATE REF FILL (Prevent Escape key race condition on fresh load)
+            formDataRef.current = {
+                sales: initialData.sales || {},
+                supplements: initialData.supplements || { traiteurs: "", caisse: "" },
+                payments: initialData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" },
+                subTotalInput: initialData.subTotalInput || "",
+                nbTickets: initialData.nbTickets || "",
+                glovo: initialData.glovo || { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" },
+                hours: initialData.hours || { startH: "07", startM: "00", endH: "20", endM: "00" },
+                coeffExo: initialData?.coeffExo || "1.11",
+                coeffImp: initialData?.coeffImp || "0.60"
+            };
         } else if (isOpen) {
             // Reset if new/empty
             setSales({});
@@ -65,6 +231,19 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             setNbTickets("");
             setGlovo({ brut: "", brutImp: "", brutExo: "", incid: "", cash: "" });
             setHours({ startH: "07", startM: "00", endH: "20", endM: "00" });
+
+            // IMMEDIATE REF RESET
+            formDataRef.current = {
+                sales: {},
+                supplements: { traiteurs: "", caisse: "" },
+                payments: { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" },
+                subTotalInput: "",
+                nbTickets: "",
+                glovo: { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" },
+                hours: { startH: "07", startM: "00", endH: "20", endM: "00" },
+                coeffExo: "1.11",
+                coeffImp: "0.60"
+            };
         }
 
         // Initialize Coeffs with persistence check
@@ -75,14 +254,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
         }
     }, [isOpen, initialData, isDeclared]);
 
-    // AUTO-CALC EFFECT FOR DECLARED MODE
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape") onClose();
-        };
-        if (isOpen) window.addEventListener("keydown", handleKeyDown);
-        return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [isOpen, onClose]);
+
 
     // AUTO-CALC EFFECT FOR DECLARED MODE
     useEffect(() => {
@@ -115,7 +287,17 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
 
             // 3. Sync Glovo from Real Data (Locked)
             if (realData.glovo) {
-                setGlovo(realData.glovo);
+                const realGlovo = realData.glovo || { brut: "0", incid: "0", cash: "0" };
+                const gBrut = parseFloat(realGlovo.brut) || 0;
+                const gImp = (gBrut * 0.90) / 1.2;
+                const gExo = gBrut * 0.10;
+
+                const declaredGlovo = {
+                    ...realGlovo,
+                    brutImp: gImp.toFixed(2),
+                    brutExo: gExo.toFixed(2)
+                };
+                setGlovo(declaredGlovo);
             }
         }
     }, [isDeclared, realData, coeffExo, coeffImp]);
@@ -132,7 +314,11 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
 
             val = (val + direction + max) % max; // Cycle with max (24 or 60)
 
-            setHours(prev => ({ ...prev, [field]: String(val).padStart(2, '0') }));
+            setHours(prev => {
+                const next = { ...prev, [field]: String(val).padStart(2, '0') };
+                formDataRef.current.hours = next; // SYNC UPDATE
+                return next;
+            });
         }
     };
 
@@ -143,10 +329,12 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             const val = parseFloat(coeffExo) || 0;
             const newVal = val + (direction === 'up' ? step : -step);
             setCoeffExo(newVal.toFixed(2));
+            formDataRef.current.coeffExo = newVal.toFixed(2); // SYNC UPDATE
         } else {
             const val = parseFloat(coeffImp) || 0;
             const newVal = val + (direction === 'up' ? step : -step);
             setCoeffImp(newVal.toFixed(2));
+            formDataRef.current.coeffImp = newVal.toFixed(2); // SYNC UPDATE
         }
     };
 
@@ -157,77 +345,77 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
         }
     };
 
-    // --- CALCULATIONS ---
-
-    // 1. Exonéré = Boulangerie only
-    const valExo = parseFloat(sales["BOULANGERIE"] || "0");
-
-    // 2. Imposable HT = Sum(Others) / 1.2
-    let sumOthersTTC = 0;
-    Object.entries(sales).forEach(([key, val]) => {
-        if (key !== "BOULANGERIE") {
-            sumOthersTTC += parseFloat(val) || 0;
-        }
-    });
-    const valImpHT = sumOthersTTC / 1.2;
-
-    // 3. SubTotal
-    const manualSubTotal = parseFloat(subTotalInput) || 0;
-
-    // 4. Espèces
-    // Supplements = 0 in Declared Mode context
-    const totalSupplements = isDeclared ? 0 : (parseFloat(supplements.traiteurs) || 0) + (parseFloat(supplements.caisse) || 0);
-
-    const mtCmi = parseFloat(payments.mtCmi) || 0;
-    const mtChq = parseFloat(payments.mtChq) || 0;
 
 
+    const handleSave = useCallback((isDraft: boolean = false, targetDate?: string) => { // Updated sig
+        const currentData = formDataRef.current; // READ FROM REF
+        if (onSave && currentData) {
+            // ROBUST CALCULATION (Don't rely on useEffect)
+            const dSales = currentData.sales || {};
+            const dSupp = currentData.supplements || { traiteurs: "0", caisse: "0" };
+            const dPay = currentData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" };
+            const dGlovo = currentData.glovo || { brut: "0", incid: "0", cash: "0" };
+            const dSubTotal = parseFloat(currentData.subTotalInput) || 0;
 
-    // Glovo Net
-    // Glovo Net
-    const glovoNet = ((parseFloat(glovo.brut) || 0) * 0.82) - (parseFloat(glovo.incid) || 0) - (parseFloat(glovo.cash) || 0);
+            // 1. Exonéré
+            const cValExo = parseFloat(dSales["BOULANGERIE"] || "0");
 
-    // Total HT
-    const totalHT = valImpHT + valExo;
-
-    // Total TTC
-    const totalTTC = valExo + sumOthersTTC;
-
-    // Remise
-    const valRemise = totalTTC - manualSubTotal;
-
-    // Derived Cash (Moved here to access totalTTC)
-    const valEsp = isDeclared
-        ? (totalTTC - mtCmi - mtChq - (parseFloat(glovo.brut) || 0) + (parseFloat(glovo.cash) || 0))
-        : ((manualSubTotal + totalSupplements) - mtCmi - mtChq);
-
-    const handleSave = (isDraft: boolean = false) => {
-        if (onSave) {
-            onSave({
-                sales,
-                supplements,
-                payments,
-                subTotalInput,
-                nbTickets,
-                glovo,
-                hours,
-                coeffExo, // SAVE COEFFS
-                coeffImp, // SAVE COEFFS
-                calculated: {
-                    exo: valExo.toFixed(2),
-                    impHt: valImpHT.toFixed(2),
-                    totHt: totalHT.toFixed(2),
-                    ttc: totalTTC.toFixed(2),
-                    remise: valRemise.toFixed(2),
-                    esp: valEsp.toFixed(2),
-                    cmi: mtCmi.toFixed(2),
-                    chq: mtChq.toFixed(2),
-                    glovo: glovoNet.toFixed(2)
+            // 2. Imposable HT
+            let cSumOthersTTC = 0;
+            Object.entries(dSales).forEach(([key, val]) => {
+                if (key !== "BOULANGERIE") {
+                    cSumOthersTTC += parseFloat(val as string) || 0;
                 }
-            }, isDraft);
+            });
+            const cValImpHT = cSumOthersTTC / 1.2;
+
+            // 3. Totals
+            const cTotalHT = cValImpHT + cValExo;
+            const cTotalTTC = cValExo + cSumOthersTTC;
+            const cValRemise = cTotalTTC - dSubTotal;
+
+            // 4. Glovo Net
+            const cGlovoNet = ((parseFloat(dGlovo.brut) || 0) * 0.82) - (parseFloat(dGlovo.incid) || 0) - (parseFloat(dGlovo.cash) || 0);
+
+            // 5. Espèces & Supplements
+            const cTotalSupp = (parseFloat(dSupp.traiteurs) || 0) + (parseFloat(dSupp.caisse) || 0);
+            const cMtCmi = parseFloat(dPay.mtCmi) || 0;
+            const cMtChq = parseFloat(dPay.mtChq) || 0;
+
+            const cValEsp = isDeclared
+                ? (cTotalTTC - cMtCmi - cMtChq - (parseFloat(dGlovo.brut) || 0) + (parseFloat(dGlovo.cash) || 0))
+                : ((dSubTotal + cTotalSupp) - cMtCmi - cMtChq);
+
+            const freshCalculated = {
+                exo: cValExo.toFixed(2),
+                impHt: cValImpHT.toFixed(2),
+                totHt: cTotalHT.toFixed(2),
+                ttc: cTotalTTC.toFixed(2),
+                remise: cValRemise.toFixed(2),
+                esp: cValEsp.toFixed(2),
+                cmi: cMtCmi.toFixed(2),
+                chq: cMtChq.toFixed(2),
+                glovo: cGlovoNet.toFixed(2)
+            };
+
+            onSave({
+                sales: currentData.sales,
+                supplements: currentData.supplements,
+                payments: currentData.payments,
+                subTotalInput: currentData.subTotalInput,
+                nbTickets: currentData.nbTickets,
+                glovo: currentData.glovo,
+                hours: currentData.hours,
+                coeffExo: currentData.coeffExo,
+                coeffImp: currentData.coeffImp,
+                calculated: freshCalculated // PASS FRESH CALCS
+            }, isDraft, targetDate || date);
         }
         onClose();
-    };
+    }, [onSave, onClose, date, isDeclared]);
+
+    // Keyboard Handlers (Escape to Save & Close) - Moved here to access handleSave
+
 
     const formattedDate = new Date(date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     const capitalizedDate = formattedDate.charAt(0).toUpperCase() + formattedDate.slice(1);
@@ -239,7 +427,6 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             {/* Backdrop */}
             <div
                 className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in"
-                onClick={onClose}
             />
 
             {/* Modal Card */}
@@ -274,24 +461,35 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                         {/* Actions */}
                         {/* Actions */}
                         {!isDeclared && (
-                            <button
-                                onClick={() => handleSave(false)}
-                                className={cn("h-9 px-4 rounded-lg flex items-center justify-center gap-2 shadow-lg transition-transform hover:scale-105 active:scale-95 text-xs font-bold uppercase tracking-wider", buttonColor)}
-                            >
-                                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                </svg>
-                                <span className="text-white">Synchroniser</span>
-                            </button>
+                            initialData?.status === 'synced' ? (
+                                // SYNCHRONISE STATE (Green Badge)
+                                <div className="flex items-center gap-2 bg-green-500/20 border border-green-500/50 rounded-lg px-3 py-1.5 backdrop-blur-sm">
+                                    <div className="flex flex-col items-end">
+                                        <span className="text-[9px] font-bold text-white/80 uppercase tracking-widest leading-none mb-0.5">Synchronisé</span>
+                                        <span className="text-[10px] font-mono font-bold text-white leading-none">
+                                            {initialData?.lastSyncAt ? new Date(initialData.lastSyncAt).toLocaleString('fr-FR', {
+                                                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                                            }) : "--"}
+                                        </span>
+                                    </div>
+                                    <Check className="w-4 h-4 text-green-400" />
+                                </div>
+                            ) : (
+                                // PRET STATE (Orange Action Button)
+                                <button
+                                    onClick={() => handleSave(false)}
+                                    className="group flex items-center gap-3 bg-white/10 hover:bg-white/20 border border-white/10 hover:border-orange-400/50 rounded-xl px-4 py-2 transition-all duration-300"
+                                >
+                                    <span className="text-sm font-bold text-orange-400 uppercase tracking-widest group-hover:text-orange-300 transition-colors">Prêt</span>
+                                    <div className="relative">
+                                        <RefreshCw className="w-5 h-5 text-orange-400 group-hover:rotate-180 transition-transform duration-700 ease-in-out" />
+                                        <div className="absolute inset-0 bg-orange-400/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    </div>
+                                </button>
+                            )
                         )}
 
-                        <button
-                            onClick={() => handleSave(true)}
-                            className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
-                            title="Fermer et Enregistrer en Brouillon"
-                        >
-                            <X className="w-5 h-5 text-white" />
-                        </button>
+                        {/* NO X BUTTON HERE anymore - Moved to Bottom Footer */}
                     </div>
                 </div>
 
@@ -310,6 +508,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                             </span>
                                             <div className="w-1/2 border-b border-slate-100 group-hover:border-slate-300 transition-colors relative">
                                                 <input
+                                                    ref={fam === "BOULANGERIE" ? boulangerieRef : null}
                                                     type="text"
                                                     value={sales[fam] || ""}
                                                     readOnly={isDeclared} // READ ONLY IN DECLARED
@@ -318,7 +517,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                                         isDeclared ? "text-slate-500 cursor-not-allowed" : "text-slate-800"
                                                     )}
                                                     placeholder="-"
-                                                    onChange={(e) => setSales(prev => ({ ...prev, [fam]: e.target.value }))}
+                                                    onChange={(e) => updateSales(fam, e.target.value)}
                                                 />
                                             </div>
                                         </div>
@@ -331,7 +530,54 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                     {/* COL 2: Middle - Span 4 */}
                     <div className="col-span-4 flex flex-col gap-3">
 
-                        {/* Supplements OR Coefficients */}
+                        {/* Subtotal Display, Remise & Nb Tickets (MOVED UP) */}
+                        <div className="bg-[#1E293B] rounded-xl p-4 shadow-md flex items-center justify-between text-white gap-4">
+                            {isDeclared ? (
+                                // DECLARED: Show Total TTC Only
+                                <div className="flex flex-col flex-1">
+                                    <span className="text-[9px] font-bold text-orange-300 uppercase tracking-widest mb-0.5">Total TTC (D)</span>
+                                    <span className="text-2xl font-bold tracking-tight font-mono leading-none text-white">
+                                        {totalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </div>
+                            ) : (
+                                // REAL: Show SubTotal/Remise
+                                <>
+                                    <div className="flex flex-col flex-1">
+                                        <span className="text-[9px] font-bold opacity-60 uppercase tracking-widest mb-0.5">Sous-Total (Saisi)</span>
+                                        <input
+                                            type="text"
+                                            value={subTotalInput}
+                                            onChange={(e) => updateSubTotal(e.target.value)}
+                                            className="bg-transparent border-none p-0 text-xl font-bold tracking-tight font-mono leading-none text-white focus:ring-0 placeholder:text-white/20 w-full"
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-col flex-1 border-l border-white/10 pl-4">
+                                        <span className="text-[9px] font-bold text-orange-300 uppercase tracking-widest mb-0.5">Remise (Calc)</span>
+                                        <span className="text-xl font-bold tracking-tight font-mono leading-none text-orange-400">
+                                            {valRemise.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                </>
+                            )}
+
+                            <div className="flex flex-col items-end border-l border-white/20 pl-4">
+                                <span className={cn("text-[9px] font-bold uppercase tracking-widest mb-1", isDeclared && "text-slate-400")}>Nb Tickets</span>
+                                <input
+                                    value={nbTickets}
+                                    readOnly={isDeclared}
+                                    onChange={(e) => updateNbTickets(e.target.value)}
+                                    className={cn("w-12 border-none rounded text-center text-sm font-bold focus:ring-1 h-7 font-mono",
+                                        isDeclared ? "bg-white/5 text-slate-300 cursor-not-allowed focus:ring-0" : "bg-white/10 text-white focus:ring-white/30"
+                                    )}
+                                    placeholder="0"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Supplements OR Coefficients (MOVED DOWN) */}
                         <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100/60 transition-all duration-300">
                             {isDeclared ? (
                                 // COEFFICIENTS UI - Single Line Elegance with Arrows
@@ -343,7 +589,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                             <input
                                                 type="text"
                                                 value={coeffExo}
-                                                onChange={(e) => setCoeffExo(e.target.value)}
+                                                onChange={(e) => updateCoeffState('exo', e.target.value)}
                                                 onKeyDown={(e) => handleCoeffKeyDown(e, 'exo')}
                                                 className="w-full bg-transparent border-none text-center font-mono font-bold text-lg text-purple-700 p-0 focus:ring-0"
                                             />
@@ -375,7 +621,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                             <input
                                                 type="text"
                                                 value={coeffImp}
-                                                onChange={(e) => setCoeffImp(e.target.value)}
+                                                onChange={(e) => updateCoeffState('imp', e.target.value)}
                                                 onKeyDown={(e) => handleCoeffKeyDown(e, 'imp')}
                                                 className="w-full bg-transparent border-none text-center font-mono font-bold text-lg text-purple-700 p-0 focus:ring-0"
                                             />
@@ -406,7 +652,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                         <input
                                             type="text"
                                             value={supplements.traiteurs}
-                                            onChange={(e) => setSupplements(prev => ({ ...prev, traiteurs: e.target.value }))}
+                                            onChange={(e) => updateSupplements('traiteurs', e.target.value)}
                                             className="w-20 text-right bg-slate-50 rounded-md border-none focus:ring-1 focus:ring-indigo-200 text-xs font-bold text-slate-700 py-1 px-2 font-mono"
                                             placeholder="0.00"
                                         />
@@ -416,60 +662,13 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                         <input
                                             type="text"
                                             value={supplements.caisse}
-                                            onChange={(e) => setSupplements(prev => ({ ...prev, caisse: e.target.value }))}
+                                            onChange={(e) => updateSupplements('caisse', e.target.value)}
                                             className="w-20 text-right bg-slate-50 rounded-md border-none focus:ring-1 focus:ring-indigo-200 text-xs font-bold text-slate-700 py-1 px-2 font-mono"
                                             placeholder="0.00"
                                         />
                                     </div>
                                 </>
                             )}
-                        </div>
-
-                        {/* Subtotal Display, Remise & Nb Tickets */}
-                        <div className="bg-[#1E293B] rounded-xl p-4 shadow-md flex items-center justify-between text-white gap-4">
-                            {isDeclared ? (
-                                // DECLARED: Show Total TTC Only
-                                <div className="flex flex-col flex-1">
-                                    <span className="text-[9px] font-bold text-orange-300 uppercase tracking-widest mb-0.5">Total TTC (D)</span>
-                                    <span className="text-2xl font-bold tracking-tight font-mono leading-none text-white">
-                                        {totalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </span>
-                                </div>
-                            ) : (
-                                // REAL: Show SubTotal/Remise
-                                <>
-                                    <div className="flex flex-col flex-1">
-                                        <span className="text-[9px] font-bold opacity-60 uppercase tracking-widest mb-0.5">Sous-Total (Saisi)</span>
-                                        <input
-                                            type="text"
-                                            value={subTotalInput}
-                                            onChange={(e) => setSubTotalInput(e.target.value)}
-                                            className="bg-transparent border-none p-0 text-xl font-bold tracking-tight font-mono leading-none text-white focus:ring-0 placeholder:text-white/20 w-full"
-                                            placeholder="0.00"
-                                        />
-                                    </div>
-
-                                    <div className="flex flex-col flex-1 border-l border-white/10 pl-4">
-                                        <span className="text-[9px] font-bold text-orange-300 uppercase tracking-widest mb-0.5">Remise (Calc)</span>
-                                        <span className="text-xl font-bold tracking-tight font-mono leading-none text-orange-400">
-                                            {valRemise.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                        </span>
-                                    </div>
-                                </>
-                            )}
-
-                            <div className="flex flex-col items-end border-l border-white/20 pl-4">
-                                <span className={cn("text-[9px] font-bold uppercase tracking-widest mb-1", isDeclared && "text-slate-400")}>Nb Tickets</span>
-                                <input
-                                    value={nbTickets}
-                                    readOnly={isDeclared}
-                                    onChange={(e) => setNbTickets(e.target.value)}
-                                    className={cn("w-16 border-none rounded text-center text-sm font-bold focus:ring-1 h-7 font-mono",
-                                        isDeclared ? "bg-white/5 text-slate-300 cursor-not-allowed focus:ring-0" : "bg-white/10 text-white focus:ring-white/30"
-                                    )}
-                                    placeholder="0"
-                                />
-                            </div>
                         </div>
 
                         {/* Payments Block */}
@@ -554,6 +753,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 <input
                                     type="text"
                                     value={hours.startH}
+                                    onChange={(e) => updateHours('startH', e.target.value)}
                                     onKeyDown={(e) => handleTimeKeyDown(e, 'startH', 24)}
                                     className="w-6 bg-transparent border-none p-0 font-mono font-bold text-slate-700 text-center text-sm cursor-pointer outline-none hover:bg-white/50 rounded"
                                 />
@@ -561,6 +761,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 <input
                                     type="text"
                                     value={hours.startM}
+                                    onChange={(e) => updateHours('startM', e.target.value)}
                                     onKeyDown={(e) => handleTimeKeyDown(e, 'startM', 60)}
                                     className="w-6 bg-transparent border-none p-0 font-mono font-bold text-slate-700 text-center text-sm cursor-pointer outline-none hover:bg-white/50 rounded"
                                 />
@@ -577,6 +778,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 <input
                                     type="text"
                                     value={hours.endH}
+                                    onChange={(e) => updateHours('endH', e.target.value)}
                                     onKeyDown={(e) => handleTimeKeyDown(e, 'endH', 24)}
                                     className="w-6 bg-transparent border-none p-0 font-mono font-bold text-slate-700 text-center text-sm cursor-pointer outline-none hover:bg-white/50 rounded"
                                 />
@@ -584,6 +786,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 <input
                                     type="text"
                                     value={hours.endM}
+                                    onChange={(e) => updateHours('endM', e.target.value)}
                                     onKeyDown={(e) => handleTimeKeyDown(e, 'endM', 60)}
                                     className="w-6 bg-transparent border-none p-0 font-mono font-bold text-slate-700 text-center text-sm cursor-pointer outline-none hover:bg-white/50 rounded"
                                 />
@@ -606,29 +809,49 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     <input
                                         value={glovo.brut}
                                         readOnly={isDeclared}
-                                        onChange={(e) => setGlovo(prev => ({ ...prev, brut: e.target.value }))}
+                                        onChange={(e) => {
+                                            const valStr = e.target.value;
+                                            const val = parseFloat(valStr) || 0;
+                                            // Auto-calc Breakdown (90% Imp HT, 10% Exo)
+                                            const imp = (val * 0.90) / 1.2;
+                                            const exo = val * 0.10;
+
+                                            setGlovo(prev => {
+                                                const next = {
+                                                    ...prev,
+                                                    brut: valStr,
+                                                    brutImp: imp.toFixed(2),
+                                                    brutExo: exo.toFixed(2)
+                                                };
+                                                formDataRef.current.glovo = next; // SYNC UPDATE
+                                                return next;
+                                            });
+                                        }}
                                         className={cn("w-20 h-7 bg-white/60 border-none rounded-md text-right font-bold text-[#5D4037] px-2 font-mono text-sm", isDeclared && "bg-white/30 opacity-60 cursor-not-allowed")}
                                     />
                                 </div>
 
                                 <div className="pl-3 space-y-1.5 border-l-2 border-[#FBC02D]/20 my-1.5">
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-[9px] font-bold text-[#8D6E63]/70 uppercase">Brut Imp</span>
-                                        <input
-                                            value={glovo.brutImp}
-                                            readOnly={isDeclared}
-                                            onChange={(e) => setGlovo(prev => ({ ...prev, brutImp: e.target.value }))}
-                                            className={cn("w-16 h-6 bg-white/40 border-none rounded text-right font-bold text-[#5D4037]/80 px-2 text-xs font-mono", isDeclared && "opacity-60 cursor-not-allowed")}
-                                        />
-                                    </div>
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-[9px] font-bold text-[#8D6E63]/70 uppercase">Brut Exo</span>
-                                        <input
-                                            value={glovo.brutExo}
-                                            readOnly={isDeclared}
-                                            onChange={(e) => setGlovo(prev => ({ ...prev, brutExo: e.target.value }))}
-                                            className={cn("w-16 h-6 bg-white/40 border-none rounded text-right font-bold text-[#5D4037]/80 px-2 text-xs font-mono", isDeclared && "opacity-60 cursor-not-allowed")}
-                                        />
+                                    {/* Side-by-Side Layout for Imp/Exo */}
+                                    <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-[#F9E79F]/50">
+                                        <div className="space-y-1">
+                                            <span className="text-[9px] font-bold text-[#8D6E63] uppercase opacity-70">Imp. HT (90%)</span>
+                                            <input
+                                                value={glovo.brutImp}
+                                                tabIndex={-1} // NO TAB
+                                                readOnly={true} // Always Read Only (Calculated)
+                                                className={cn("w-full h-6 bg-white/40 border-none rounded text-right font-bold text-[#5D4037]/80 px-2 text-xs font-mono", "opacity-80 cursor-not-allowed")}
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <span className="text-[9px] font-bold text-[#8D6E63] uppercase opacity-70">Exo (10%)</span>
+                                            <input
+                                                value={glovo.brutExo}
+                                                tabIndex={-1} // NO TAB
+                                                readOnly={true} // Always Read Only (Calculated)
+                                                className={cn("w-full h-6 bg-white/40 border-none rounded text-right font-bold text-[#5D4037]/80 px-2 text-xs font-mono", "opacity-80 cursor-not-allowed")}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 
@@ -637,7 +860,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     <input
                                         value={glovo.incid}
                                         readOnly={isDeclared}
-                                        onChange={(e) => setGlovo(prev => ({ ...prev, incid: e.target.value }))}
+                                        onChange={(e) => updateGlovo('incid', e.target.value)}
                                         className={cn("w-20 h-7 bg-white/60 border-none rounded-md text-right font-bold text-red-500 px-2 font-mono text-sm", isDeclared && "bg-white/30 opacity-60 cursor-not-allowed")}
                                     />
                                 </div>
@@ -646,22 +869,39 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     <input
                                         value={glovo.cash}
                                         readOnly={isDeclared}
-                                        onChange={(e) => setGlovo(prev => ({ ...prev, cash: e.target.value }))}
+                                        onChange={(e) => updateGlovo('cash', e.target.value)}
                                         className={cn("w-20 h-7 bg-white/60 border-none rounded-md text-right font-bold text-[#5D4037] px-2 font-mono text-sm", isDeclared && "bg-white/30 opacity-60 cursor-not-allowed")}
                                     />
                                 </div>
                             </div>
 
-                            <div className="mt-4 flex justify-between items-end border-t border-[#FBC02D]/20 pt-3">
+                            {/* Compact Net Display */}
+                            <div className="flex justify-between items-end border-t border-[#FBC02D]/20 pt-1 mt-1">
                                 <span className="text-xs font-bold text-[#795548] uppercase tracking-wider">Net</span>
                                 <span className="text-xl font-bold text-[#3E2723] tracking-tight font-mono">{glovoNet.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
                         </div>
 
+                        {/* EXPLICIT CLOSE BUTTON (Outside, Tall, Bottom Aligned) */}
+                        <button
+                            onClick={() => handleSave(true)}
+                            className={cn(
+                                "w-full h-20 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 outline-none group mt-auto",
+                                headerColor,
+                                "hover:brightness-110 active:brightness-90 opacity-90 hover:opacity-100"
+                            )}
+                            title="Enregistrer et Fermer"
+                        >
+                            <X className="w-8 h-8 text-orange-400 group-hover:rotate-90 transition-transform duration-300" />
+                            <span className="font-bold uppercase tracking-widest text-lg text-orange-400">Fermer</span>
+                        </button>
+
                     </div>
 
                 </div>
+
             </div>
         </div>
+
     );
 }

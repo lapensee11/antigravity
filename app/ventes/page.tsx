@@ -106,6 +106,87 @@ const syncToBank = (data: DayData, date: string, amount: number) => {
     }
 };
 
+// HELPER: Master Sync Logic (Real -> Declared)
+const calculateDeclaredFromReal = (realData: DayData, currentDeclared: DayData): DayData => {
+    // 1. Get Coefficients (Default or Existing)
+    const cExo = parseFloat(currentDeclared.coeffExo || "1.11") || 1.11;
+    const cImp = parseFloat(currentDeclared.coeffImp || "0.60") || 0.60;
+
+    // 2. Recalculate Sales
+    const sourceSales = realData.sales || {};
+    const newSales: Record<string, string> = {};
+    let newValExo = 0;
+    let newSumOthersTTC = 0;
+
+    if (Object.keys(sourceSales).length > 0) {
+        Object.entries(sourceSales).forEach(([key, val]) => {
+            const realVal = parseFloat(val as string) || 0;
+            let calcVal = 0;
+            if (key === "BOULANGERIE") {
+                calcVal = realVal * cExo;
+                newValExo = calcVal;
+            } else {
+                calcVal = realVal * cImp;
+                newSumOthersTTC += calcVal;
+            }
+            newSales[key] = calcVal.toFixed(2);
+        });
+    } else {
+        // Fallback if no sales items yet, use Totals if available (rare) or 0
+        // We stick to 0 to be safe
+    }
+    const newTotalTTC = newValExo + newSumOthersTTC;
+    const newValImpHT = newSumOthersTTC / 1.2;
+    const newTotalHT = newValImpHT + newValExo;
+
+    // 3. Tickets
+    const realTickets = parseFloat(realData.nbTickets || "0") || 0;
+    const newDeclaredTickets = Math.round(realTickets * cImp);
+
+    // 4. Payments (Copy from Real)
+    const payments = realData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" };
+    const mtCmi = parseFloat(payments.mtCmi) || 0;
+    const mtChq = parseFloat(payments.mtChq) || 0;
+
+    // 5. Glovo Breakdown (10/90 Rule)
+    const realGlovo = realData.glovo || { brut: "0", incid: "0", cash: "0" };
+    const glovoBrut = parseFloat(realGlovo.brut) || 0;
+    const gImp = (glovoBrut * 0.90) / 1.2; // 90% Imposable (HT)
+    const gExo = glovoBrut * 0.10;         // 10% Exonerated
+    const declaredGlovo = {
+        ...realGlovo,
+        brutImp: gImp.toFixed(2),
+        brutExo: gExo.toFixed(2)
+    };
+
+    // 6. Espèces (D)
+    // Formula: TTC (D) - CMI - Chèques - Glovo Brut + Glovo Cash
+    const valEspDeclared = newTotalTTC - mtCmi - mtChq - glovoBrut + (parseFloat(realGlovo.cash) || 0);
+
+    // 7. Glovo Net (Standard Calc)
+    const glovoNet = (glovoBrut * 0.82) - (parseFloat(realGlovo.incid) || 0) - (parseFloat(realGlovo.cash) || 0);
+
+    return {
+        ...currentDeclared,
+        sales: newSales,
+        payments: payments,
+        glovo: declaredGlovo,
+        nbTickets: String(newDeclaredTickets),
+        coeffExo: String(cExo), // Ensure saved as string
+        coeffImp: String(cImp), // Ensure saved as string
+        calculated: {
+            exo: newValExo.toFixed(2),
+            impHt: newValImpHT.toFixed(2),
+            totHt: newTotalHT.toFixed(2),
+            ttc: newTotalTTC.toFixed(2),
+            esp: valEspDeclared.toFixed(2),
+            cmi: mtCmi.toFixed(2),
+            chq: mtChq.toFixed(2),
+            glovo: glovoNet.toFixed(2)
+        }
+    };
+};
+
 function VentesContent() {
     const searchParams = useSearchParams();
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -167,8 +248,12 @@ function VentesContent() {
     }, [searchParams]);
 
     // Handle Save from Modal
-    const handleSave = (data: DayData, isDraft: boolean) => {
+    const handleSave = (data: DayData, isDraft: boolean, targetDate?: string) => {
         if (!modalType) return;
+
+        // Use the explicitly passed date (safest) or fallback to selectedDate
+        const dateKey = targetDate || selectedDate;
+
         const typeKey = modalType === "Real" ? "real" : "declared";
 
         // 1. Prepare Data Update
@@ -186,7 +271,8 @@ function VentesContent() {
             const mtCmi = parseFloat(data.payments.mtCmi) || 0;
             if (modalType === "Real" && mtCmi > 0) {
                 // Call Sync Helper
-                const result = syncToBank(updatedData, selectedDate, mtCmi);
+                // Use dateKey
+                const result = syncToBank(updatedData, dateKey, mtCmi);
 
                 if (!result.success) {
                     alert(`Erreur: ${result.error}`);
@@ -199,96 +285,45 @@ function VentesContent() {
             }
         }
 
+        // We need to fetch the existing Declared state correctly or use defaults
+        const existingDeclared = salesData[dateKey]?.declared || {} as DayData;
+        let newDeclaredData = { ...existingDeclared };
+
+        // 5b. Force Sync if Real Data Changed (using Master Logic)
+        if (modalType === "Real") {
+            const currentReal = updatedData;
+            // We need to fetch the existing Declared state correctly or use defaults
+            const existingDeclared = salesData[dateKey]?.declared || {} as DayData;
+            newDeclaredData = calculateDeclaredFromReal(currentReal, existingDeclared);
+        } else {
+            newDeclaredData = updatedData; // If editing Declared directly (rare/coeffs)
+        }
+
         setSalesData(prev => ({
             ...prev,
-            [selectedDate]: {
-                ...prev[selectedDate],
-                [typeKey]: updatedData
+            [dateKey]: {
+                ...prev[dateKey],
+                real: modalType === "Real" ? updatedData : prev[dateKey]?.real,
+                declared: newDeclaredData
             }
         }));
     };
 
     // INLINE COEFF UPDATE (Re-Calc Declared)
     const handleCoeffUpdate = (dateKey: string, newCoeffImp: string) => {
-        const dayReal = salesData[dateKey]?.real;
+        const dayReal = salesData[dateKey]?.real || {} as DayData;
 
         // If no real data, we can't really calc declared, but we can set the coeff.
         const currentDeclared = salesData[dateKey]?.declared || {} as DayData;
 
-        const cImp = parseFloat(newCoeffImp) || 0;
-        const cExo = parseFloat(currentDeclared.coeffExo || "1.11") || 1.11;
-
-        // 1. Recalculate Sales based on Real Data
-        const newSales: Record<string, string> = {};
-        const sourceSales = dayReal?.sales || {};
-
-        let newTotalTTC = 0;
-        let newSumOthersTTC = 0;
-        let newValExo = 0;
-
-        if (sourceSales && Object.keys(sourceSales).length > 0) {
-            Object.entries(sourceSales).forEach(([key, val]) => {
-                const realVal = parseFloat(val as string) || 0;
-                let calcVal = 0;
-
-                if (key === "BOULANGERIE") {
-                    calcVal = realVal * cExo;
-                    newValExo = calcVal;
-                } else {
-                    calcVal = realVal * cImp;
-                    newSumOthersTTC += calcVal;
-                }
-                newSales[key] = calcVal.toFixed(2);
-            });
-            newTotalTTC = newValExo + newSumOthersTTC;
-        } else {
-            // Fallback
-            const realTTC = parseFloat(dayReal?.calculated?.ttc || "0");
-            const realExo = parseFloat(dayReal?.calculated?.exo || "0");
-            const realImpTTC = realTTC - realExo;
-
-            newValExo = realExo * cExo;
-            newSumOthersTTC = realImpTTC * cImp;
-            newTotalTTC = newValExo + newSumOthersTTC;
-        }
-
-        const newValImpHT = newSumOthersTTC / 1.2;
-        const newTotalHT = newValImpHT + newValExo;
-        const realTickets = parseFloat(dayReal?.nbTickets || "0") || 0;
-        const newDeclaredTickets = Math.round(realTickets * cImp);
-
-        // 2. Payments & Espèces
-        const payments = dayReal?.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" };
-        const mtCmi = parseFloat(payments.mtCmi) || 0;
-        const mtChq = parseFloat(payments.mtChq) || 0;
-
-        // 3. Glovo
-        const glovo = dayReal?.glovo || { brut: "0", incid: "0", cash: "0" };
-        const valEsp = newTotalTTC - mtCmi - mtChq - (parseFloat(glovo.brut) || 0) + (parseFloat(glovo.cash) || 0);
-
-        // 4. Glovo Net
-        const glovoNet = ((parseFloat(glovo.brut) || 0) * 0.82) - (parseFloat(glovo.incid) || 0) - (parseFloat(glovo.cash) || 0);
-
-        // 4. Update Declared Data State
-        const updatedDeclared: DayData = {
+        // Update coeff in declared data
+        const updatedDeclaredBase = {
             ...currentDeclared,
-            sales: newSales,
-            coeffImp: newCoeffImp,
-            coeffExo: String(cExo),
-            payments: payments,
-            glovo: currentDeclared.glovo || glovo,
-            nbTickets: String(newDeclaredTickets),
-            calculated: {
-                exo: newValExo.toFixed(2),
-                impHt: newValImpHT.toFixed(2),
-                totHt: newTotalHT.toFixed(2),
-                ttc: newTotalTTC.toFixed(2),
-                esp: valEsp.toFixed(2),
-                cmi: mtCmi.toFixed(2),
-                chq: mtChq.toFixed(2),
-                glovo: glovoNet.toFixed(2)
-            }
+            coeffImp: newCoeffImp
         };
+
+        // Recalculate everything using Master Logic based on Real Data
+        const updatedDeclared = calculateDeclaredFromReal(dayReal, updatedDeclaredBase);
 
         setSalesData(prev => ({
             ...prev,
@@ -305,52 +340,36 @@ function VentesContent() {
         const currentDeclared = salesData[dateKey]?.declared || {} as DayData;
 
         // 1. Update Real Data
-        const updatedGlovo = { ...dayReal.glovo, [field]: value }; // Maintain other fields
+        const updatedGlovo = { ...dayReal.glovo, [field]: value };
         // Default structure if missing
         if (!updatedGlovo.brut) updatedGlovo.brut = "0";
         if (!updatedGlovo.incid) updatedGlovo.incid = "0";
         if (!updatedGlovo.cash) updatedGlovo.cash = "0";
 
+        // 1b. Recalc Glovo Net for REAL Display
+        const glovoBrutVal = parseFloat(updatedGlovo.brut) || 0;
+        const glovoIncidVal = parseFloat(updatedGlovo.incid) || 0;
+        const glovoCashVal = parseFloat(updatedGlovo.cash) || 0;
+        const newGlovoNet = (glovoBrutVal * 0.82) - glovoIncidVal - glovoCashVal;
+
         const updatedReal: DayData = {
             ...dayReal,
-            glovo: updatedGlovo
-        };
-
-        // 2. Recalculate Declared (Dependencies: Glovo Brut -> Esp Declared)
-        const cImp = parseFloat(currentDeclared.coeffImp || "0.60") || 0.60;
-        // Re-use logic from handleCoeffUpdate essentially, but we only really need Esp Update if sales didn't change.
-        // But wait, Total TTC (D) relies on Sales. Sales rely on Real Sales. Real Sales didn't change here.
-        // So Total TTC (D) is constant.
-        // Only Esp (D) changes: Esp = TTC - CMI - Chq - GlovoBrut.
-
-        const declaredTTC = parseFloat(currentDeclared?.calculated?.ttc || "0");
-        const payments = dayReal.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" };
-        const mtCmi = parseFloat(payments.mtCmi) || 0;
-        const mtChq = parseFloat(payments.mtChq) || 0;
-        const glovoBrut = parseFloat(updatedGlovo.brut) || 0;
-
-        const valEspDeclared = declaredTTC - mtCmi - mtChq - glovoBrut + (parseFloat(updatedGlovo.cash) || 0);
-
-        // Also update Glovo Net in Declared? No, Declared stores its own sync copy?
-        // Page logic says: "const glovo = dayReal?.glovo ...". It reads from Real day-by-day.
-        // But Declared object HAS a glovo property. Step 278 uses `currentDeclared.glovo || glovo`.
-        // We should sync them.
-
-        const updatedDeclared: DayData = {
-            ...currentDeclared,
-            glovo: updatedGlovo, // Sync Glovo to Declared
+            glovo: updatedGlovo,
             calculated: {
-                ...currentDeclared.calculated,
-                esp: valEspDeclared.toFixed(2)
+                ...(dayReal.calculated || {}),
+                glovo: newGlovoNet.toFixed(2)
             }
         };
+
+        // 2. Force Master Sync for Declared Data
+        const updatedDeclared = calculateDeclaredFromReal(updatedReal, currentDeclared);
 
         setSalesData(prev => ({
             ...prev,
             [dateKey]: {
                 ...prev[dateKey],
-                real: updatedReal, // Save Real Update
-                declared: updatedDeclared // Save Declared Update
+                real: updatedReal,
+                declared: updatedDeclared
             }
         }));
     };
@@ -648,11 +667,6 @@ function VentesContent() {
                                                 setFocusedRowIndex(i);
                                                 setSelectedDate(row.isoKey);
                                             }}
-                                            onDoubleClick={() => {
-                                                setFocusedRowIndex(i);
-                                                setSelectedDate(row.isoKey);
-                                                setModalType("Real");
-                                            }}
                                             className={cn(
                                                 "transition-all duration-100 group cursor-pointer scroll-mt-10 border-b border-slate-50",
                                                 focusedRowIndex === i
@@ -744,6 +758,7 @@ function VentesContent() {
                                                             onKeyDown={(e) => {
                                                                 if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                                                                     e.preventDefault();
+                                                                    e.stopPropagation(); // Stop table navigation
                                                                     const val = parseFloat(row.coeffImp) || 0;
                                                                     const step = 0.01;
                                                                     const newVal = val + (e.key === 'ArrowUp' ? step : -step);
