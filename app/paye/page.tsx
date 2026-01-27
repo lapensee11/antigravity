@@ -76,91 +76,91 @@ export default function PayePage() {
                         <div className="overflow-x-auto h-full p-4 custom-scrollbar">
                             {viewMode === "Saisie" ? (
                                 <table className="w-full text-sm min-w-[1000px]">
-                                    <thead className="bg-white/30 text-xs text-slate-500 uppercase rounded-t-xl">
+                                    <thead className="bg-[#1E293B] text-white text-[10px] font-bold uppercase tracking-wider sticky top-0 z-20">
                                         <tr>
-                                            <th className="px-4 py-3 text-left">Employé</th>
-                                            <th className="px-4 py-3 text-right">Net Cible</th>
-                                            <th className="px-4 py-3 text-center">Jours</th>
-                                            <th className="px-4 py-3 text-right">H. Sup</th>
-                                            <th className="px-4 py-3 text-right">Primes</th>
-                                            <th className="px-4 py-3 text-right">Avances</th>
-                                            <th className="px-4 py-3 text-right text-orange-600">Remb. Crédit</th>
-                                            <th className="px-4 py-3 text-right text-green-700 font-bold">Net à Payer</th>
-                                            <th className="px-4 py-3 text-center">Status</th>
+                                            <th className="px-3 py-1.5 text-left border-r border-white/10 uppercase">Employé</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase">Net Cible</th>
+                                            <th className="px-3 py-1.5 text-center border-r border-white/10 uppercase">Jours</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase">H. Sup</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase">Primes</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase">Avances</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase text-orange-200">Remb. Crédit</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase text-green-200 font-bold">Net à Payer</th>
+                                            <th className="px-3 py-1.5 text-center uppercase">Status</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-white/20">
+                                    <tbody className="divide-y divide-slate-100">
                                         {staff.map(emp => (
-                                            <tr key={emp.id} className="hover:bg-white/40 group">
-                                                <td className="px-4 py-3">
-                                                    <div className="font-bold text-slate-800">{emp.name}</div>
-                                                    <div className="text-xs text-slate-500 font-mono">Mat: {emp.matricule}</div>
+                                            <tr key={emp.id} className="hover:bg-slate-50 group transition-colors">
+                                                <td className="px-3 py-2 border-r border-slate-100">
+                                                    <div className="font-bold text-slate-800 text-sm leading-tight">{emp.name}</div>
+                                                    <div className="text-[10px] text-slate-500 font-mono">Mat: {emp.matricule}</div>
                                                 </td>
-                                                <td className="px-4 py-3 text-right">{emp.netCible}</td>
-                                                <td className="px-4 py-3 text-center">
+                                                <td className="px-3 py-2 text-right text-sm font-medium border-r border-slate-100">{emp.netCible}</td>
+                                                <td className="px-3 py-2 text-center border-r border-slate-100">
                                                     <div className="flex items-center justify-center gap-2">
-                                                        <button className="w-6 h-6 rounded bg-slate-200 text-slate-600 hover:bg-slate-300">-</button>
-                                                        <span className="w-8 font-bold text-center">26</span>
-                                                        <button className="w-6 h-6 rounded bg-slate-200 text-slate-600 hover:bg-slate-300">+</button>
+                                                        <button className="w-5 h-5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs transition-colors">-</button>
+                                                        <span className="w-6 font-bold text-center text-sm">26</span>
+                                                        <button className="w-5 h-5 rounded bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs transition-colors">+</button>
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-3 text-right">
-                                                    <GlassInput className="w-16 h-8 text-right p-1" placeholder="0" />
+                                                <td className="px-3 py-2 text-right border-r border-slate-100">
+                                                    <input className="w-14 h-7 text-right p-1 bg-slate-50 rounded border border-slate-200 text-sm focus:ring-1 focus:ring-indigo-100 outline-none" placeholder="0" />
                                                 </td>
-                                                <td className="px-4 py-3 text-right">
-                                                    <GlassInput className="w-20 h-8 text-right p-1" placeholder="0" />
+                                                <td className="px-3 py-2 text-right border-r border-slate-100">
+                                                    <input className="w-16 h-7 text-right p-1 bg-slate-50 rounded border border-slate-200 text-sm focus:ring-1 focus:ring-indigo-100 outline-none" placeholder="0" />
                                                 </td>
-                                                <td className="px-4 py-3 text-right text-red-500">
+                                                <td className="px-3 py-2 text-right text-red-500 font-medium text-sm border-r border-slate-100">
                                                     {emp.avance > 0 ? `-${emp.avance}` : "-"}
                                                 </td>
-                                                <td className="px-4 py-3 text-right">
+                                                <td className="px-3 py-2 text-right border-r border-slate-100">
                                                     <div className="flex flex-col items-end">
-                                                        <GlassInput className="w-20 h-8 text-right p-1" placeholder="0" />
-                                                        <span className="text-[10px] text-slate-400 mt-0.5">Reste: {emp.credit}</span>
+                                                        <input className="w-16 h-7 text-right p-1 bg-slate-50 rounded border border-slate-200 text-sm focus:ring-1 focus:ring-indigo-100 outline-none" placeholder="0" />
+                                                        <span className="text-[9px] text-slate-400 mt-0.5">Reste: {emp.credit}</span>
                                                     </div>
                                                 </td>
-                                                <td className="px-4 py-3 text-right font-bold text-lg text-slate-800">
+                                                <td className="px-3 py-2 text-right font-bold text-base text-slate-800 border-r border-slate-100">
                                                     {emp.netCible - emp.avance}
                                                 </td>
-                                                <td className="px-4 py-3 text-center">
-                                                    <input type="checkbox" className="w-5 h-5 accent-indigo-600 rounded cursor-pointer" />
+                                                <td className="px-3 py-2 text-center">
+                                                    <input type="checkbox" className="w-4 h-4 accent-indigo-600 rounded cursor-pointer" />
                                                 </td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
                             ) : (
-                                <table className="w-full text-sm min-w-[1000px]">
-                                    <thead className="bg-indigo-50/50 text-xs text-indigo-800 uppercase rounded-t-xl">
+                                <table className="w-full text-sm min-w-[1000px] border-collapse">
+                                    <thead className="bg-[#1E293B] text-white text-[10px] font-bold uppercase tracking-wider sticky top-0 z-20">
                                         <tr>
-                                            <th className="px-4 py-3 text-left">Employé / Mat</th>
-                                            <th className="px-4 py-3 text-center">Jours</th>
-                                            <th className="px-4 py-3 text-right">Brut Global</th>
-                                            <th className="px-4 py-3 text-right">Brut Imp.</th>
-                                            <th className="px-4 py-3 text-right text-slate-600">CNSS</th>
-                                            <th className="px-4 py-3 text-right text-slate-600">AMO</th>
-                                            <th className="px-4 py-3 text-right">Net Imp.</th>
-                                            <th className="px-4 py-3 text-right text-slate-600">I.R.</th>
-                                            <th className="px-4 py-3 text-right font-bold bg-indigo-100/50">Net à Payer</th>
+                                            <th className="px-3 py-1.5 text-left border-r border-white/10 uppercase">Employé / Mat</th>
+                                            <th className="px-3 py-1.5 text-center border-r border-white/10 uppercase">Jours</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase">Brut Global</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase">Brut Imp.</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase text-slate-200">CNSS</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase text-slate-200">AMO</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase">Net Imp.</th>
+                                            <th className="px-3 py-1.5 text-right border-r border-white/10 uppercase text-slate-200">I.R.</th>
+                                            <th className="px-3 py-1.5 text-right font-bold bg-indigo-500/10 text-indigo-300 uppercase">Net à Payer</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-indigo-100/50">
+                                    <tbody className="divide-y divide-slate-100">
                                         {staff.map(emp => {
                                             const brut = emp.netCible * 1.25; // Dummy logic
                                             return (
-                                                <tr key={emp.id} className="hover:bg-white/40">
-                                                    <td className="px-4 py-3">
-                                                        <div className="font-bold text-slate-800">{emp.name}</div>
-                                                        <div className="text-xs text-slate-500 font-mono">{emp.matricule}</div>
+                                                <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
+                                                    <td className="px-3 py-1.5 border-r border-slate-100">
+                                                        <div className="font-bold text-slate-800 text-sm leading-tight">{emp.name}</div>
+                                                        <div className="text-[10px] text-slate-500 font-mono">{emp.matricule}</div>
                                                     </td>
-                                                    <td className="px-4 py-3 text-center">26</td>
-                                                    <td className="px-4 py-3 text-right">{brut.toFixed(2)}</td>
-                                                    <td className="px-4 py-3 text-right">{(brut * 0.9).toFixed(2)}</td>
-                                                    <td className="px-4 py-3 text-right text-slate-500">{(brut * 0.0448).toFixed(2)}</td>
-                                                    <td className="px-4 py-3 text-right text-slate-500">{(brut * 0.0226).toFixed(2)}</td>
-                                                    <td className="px-4 py-3 text-right">{(brut * 0.85).toFixed(2)}</td>
-                                                    <td className="px-4 py-3 text-right text-slate-500">{(brut * 0.1).toFixed(2)}</td>
-                                                    <td className="px-4 py-3 text-right font-bold bg-indigo-50/30 text-slate-800">
+                                                    <td className="px-3 py-1.5 text-center border-r border-slate-100 text-sm">26</td>
+                                                    <td className="px-3 py-1.5 text-right border-r border-slate-100 text-sm font-medium">{brut.toFixed(2)}</td>
+                                                    <td className="px-3 py-1.5 text-right border-r border-slate-100 text-sm font-medium">{(brut * 0.9).toFixed(2)}</td>
+                                                    <td className="px-3 py-1.5 text-right border-r border-slate-100 text-sm text-slate-500">{(brut * 0.0448).toFixed(2)}</td>
+                                                    <td className="px-3 py-1.5 text-right border-r border-slate-100 text-sm text-slate-500">{(brut * 0.0226).toFixed(2)}</td>
+                                                    <td className="px-3 py-1.5 text-right border-r border-slate-100 text-sm font-medium">{(brut * 0.85).toFixed(2)}</td>
+                                                    <td className="px-3 py-1.5 text-right border-r border-slate-100 text-sm text-slate-500">{(brut * 0.1).toFixed(2)}</td>
+                                                    <td className="px-3 py-1.5 text-right font-bold bg-indigo-50/30 text-slate-800 text-sm">
                                                         {emp.netCible.toFixed(2)}
                                                     </td>
                                                 </tr>

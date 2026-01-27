@@ -462,18 +462,22 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                         {/* Actions */}
                         {!isDeclared && (
                             initialData?.status === 'synced' ? (
-                                // SYNCHRONISE STATE (Green Badge)
-                                <div className="flex items-center gap-2 bg-green-500/20 border border-green-500/50 rounded-lg px-3 py-1.5 backdrop-blur-sm">
+                                // SYNCHRONISE STATE (Green Action Button)
+                                <button
+                                    onClick={() => handleSave(false)}
+                                    className="group flex items-center gap-2 bg-green-500/20 hover:bg-green-500/30 border border-green-500/50 hover:border-green-400 rounded-lg px-3 py-1.5 backdrop-blur-sm transition-all active:scale-95"
+                                    title="Re-synchroniser"
+                                >
                                     <div className="flex flex-col items-end">
-                                        <span className="text-[9px] font-bold text-white/80 uppercase tracking-widest leading-none mb-0.5">Synchronisé</span>
+                                        <span className="text-[9px] font-bold text-green-400 uppercase tracking-widest leading-none mb-0.5">Synchronisé</span>
                                         <span className="text-[10px] font-mono font-bold text-white leading-none">
                                             {initialData?.lastSyncAt ? new Date(initialData.lastSyncAt).toLocaleString('fr-FR', {
                                                 day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
                                             }) : "--"}
                                         </span>
                                     </div>
-                                    <Check className="w-4 h-4 text-green-400" />
-                                </div>
+                                    <RefreshCw className="w-4 h-4 text-green-400 group-hover:rotate-180 transition-transform duration-500" />
+                                </button>
                             ) : (
                                 // PRET STATE (Orange Action Button)
                                 <button
@@ -646,7 +650,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 </div>
                             ) : (
                                 // SUPPLEMENTS UI (Normal)
-                                <>
+                                <div className="space-y-4">
                                     <div className="flex justify-between items-center">
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Supp Traiteurs</span>
                                         <input
@@ -667,7 +671,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                             placeholder="0.00"
                                         />
                                     </div>
-                                </>
+                                </div>
                             )}
                         </div>
 
@@ -729,7 +733,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 </div>
                             </div>
 
-                            <div className="mt-4 flex justify-between items-end border-t border-[#E8DCC8] pt-3">
+                            <div className="mt-2 flex justify-between items-end border-t border-[#E8DCC8] pt-2">
                                 <span className="text-xs font-bold text-[#D4A674] uppercase tracking-wider">Espèces</span>
                                 <span className={cn("text-xl font-bold tracking-tight font-mono", isDeclared ? "text-slate-400" : "text-slate-800")}>
                                     {valEsp.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -884,7 +888,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
 
                         {/* EXPLICIT CLOSE BUTTON (Outside, Tall, Bottom Aligned) */}
                         <button
-                            onClick={() => handleSave(true)}
+                            onClick={() => handleSave(initialData?.status !== 'synced')}
                             className={cn(
                                 "w-full h-20 rounded-xl shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 outline-none group mt-auto",
                                 headerColor,

@@ -2,7 +2,7 @@
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { InvoiceEditor } from "@/components/achats/InvoiceEditor";
-import { Invoice } from "@/lib/types";
+import { Invoice, Transaction } from "@/lib/types";
 import { useState, useMemo, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, Plus, X, FileText, File, Calendar, RefreshCw, Copy, Files, Trash2, Check, CloudUpload } from "lucide-react";
@@ -162,11 +162,59 @@ function AchatsContent() {
 
     // Handlers
     const handleSync = (id: string) => {
+        const inv = invoices.find(i => i.id === id);
+        if (!inv) return;
+
         const now = new Date().toISOString();
-        setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, syncTime: now } : inv));
+
+        // 1. Update Invoices
+        const updatedInvoices = invoices.map(i => i.id === id ? { ...i, syncTime: now } : i);
+        setInvoices(updatedInvoices);
         if (selectedInvoice?.id === id) {
-            setSelectedInvoice(prev => prev ? { ...prev, syncTime: now } : null);
+            setSelectedInvoice({ ...inv, syncTime: now });
         }
+
+        // 2. Update Finance Transactions
+        const financeKey = 'finance_transactions';
+        const rawFinance = localStorage.getItem(financeKey);
+        let transactions: Transaction[] = [];
+        if (rawFinance) {
+            try {
+                transactions = JSON.parse(rawFinance);
+            } catch (e) {
+                console.error("Failed to parse finance transactions", e);
+            }
+        }
+
+        // Overwrite: remove existing transactions for this invoice
+        let filteredTxs = transactions.filter(t => t.invoiceId !== id);
+
+        // Add new transactions from payments
+        const isDraft = inv.status !== "Validated";
+        const newTxs: Transaction[] = (inv.payments || []).map(p => {
+            let account: "Banque" | "Caisse" | "Coffre" = "Coffre";
+
+            if (!isDraft) {
+                account = p.mode === "Especes" ? "Caisse" : "Banque";
+            }
+
+            return {
+                id: `t_sync_${id}_${p.id}`,
+                date: p.date,
+                label: `Achat: ${inv.supplierId || 'Inconnu'} (${inv.number})`,
+                amount: p.amount,
+                type: "Depense",
+                category: "Achat",
+                account: account,
+                invoiceId: id,
+                tier: inv.supplierId,
+                pieceNumber: inv.number,
+                isReconciled: false
+            };
+        });
+
+        const finalTxs = [...newTxs, ...filteredTxs];
+        localStorage.setItem(financeKey, JSON.stringify(finalTxs));
     };
 
     const handleCreateNew = () => {
@@ -223,9 +271,32 @@ function AchatsContent() {
     };
 
     const handleUpdate = (updatedInvoice: Invoice) => {
-        setInvoices(prev => prev.map(inv => inv.id === updatedInvoice.id ? updatedInvoice : inv));
-        if (selectedInvoice?.id === updatedInvoice.id) {
-            setSelectedInvoice(updatedInvoice);
+        // Desynchronization logic: if a synced invoice is modified, we clear syncTime and remove finance transactions
+        const existing = invoices.find(i => i.id === updatedInvoice.id);
+        let finalInvoice = updatedInvoice;
+
+        if (existing?.syncTime) {
+            // Check if it's a real change (simplistic check: compare stringified versions of relevant data)
+            // For now, assume any update call from Editor means modification
+            finalInvoice = { ...updatedInvoice, syncTime: undefined };
+
+            // Remove from finance
+            const financeKey = 'finance_transactions';
+            const rawFinance = localStorage.getItem(financeKey);
+            if (rawFinance) {
+                try {
+                    const transactions: Transaction[] = JSON.parse(rawFinance);
+                    const filtered = transactions.filter(t => t.invoiceId !== updatedInvoice.id);
+                    localStorage.setItem(financeKey, JSON.stringify(filtered));
+                } catch (e) {
+                    console.error("Failed to update finance on desync", e);
+                }
+            }
+        }
+
+        setInvoices(prev => prev.map(inv => inv.id === finalInvoice.id ? finalInvoice : inv));
+        if (selectedInvoice?.id === finalInvoice.id) {
+            setSelectedInvoice(finalInvoice);
         }
     };
 

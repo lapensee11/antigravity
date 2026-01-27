@@ -639,23 +639,23 @@ function VentesContent() {
                             <table className="w-full text-sm text-left border-collapse" ref={tableRef}>
                                 <thead className="bg-[#C07070] text-white text-[10px] font-bold uppercase tracking-wider sticky top-0 z-20 shadow-none border-b border-[#C07070]">
                                     <tr>
-                                        <th className="px-4 py-3 border-r-[4px] border-r-[#C07070]">Date</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20">Exonéré</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20">Imp. HT</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20 bg-[#C07070]/5">Total HT</th>
-                                        <th className="px-4 py-3 text-right border-r-[4px] border-r-[#C07070] bg-[#C07070]/10">Total TTC</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20 text-blue-100">CMI</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20 text-emerald-100">Chèques</th>
-                                        <th className="px-4 py-3 text-right font-bold h-full">Espèces</th>
-                                        <th className="px-1 py-3 bg-[#C07070] w-[4px]"></th>
+                                        <th className="px-2 py-1.5 border-r-[4px] border-r-[#C07070]">Date</th>
+                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20">Exonéré</th>
+                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20">Imp. HT</th>
+                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20 bg-[#C07070]/5">Total HT</th>
+                                        <th className="px-2 py-1.5 text-right border-r-[4px] border-r-[#C07070] bg-[#C07070]/10">Total TTC</th>
+                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20 text-blue-100">CMI</th>
+                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20 text-emerald-100">Chèques</th>
+                                        <th className="px-2 py-1.5 text-right font-bold h-full">Espèces</th>
+                                        <th className="px-1 py-1.5 bg-[#C07070] w-[4px]"></th>
                                         {/* GLOVO BREAKDOWN */}
-                                        <th className="px-1 py-3 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Glv Brut</th>
-                                        <th className="px-1 py-3 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Incid</th>
-                                        <th className="px-1 py-3 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Cash</th>
-                                        <th className="px-2 py-3 text-right border-r-[4px] border-r-[#C07070] text-yellow-200 font-bold w-24">Glovo Net</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20 text-orange-200">Total TTC (D)</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20 text-orange-200">Espèces (D)</th>
-                                        <th className="px-4 py-3 text-center text-purple-200 w-24">Coeff Imp</th>
+                                        <th className="px-1 py-1.5 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Glv Brut</th>
+                                        <th className="px-1 py-1.5 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Incid</th>
+                                        <th className="px-1 py-1.5 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Cash</th>
+                                        <th className="px-2 py-1.5 text-right border-r-[4px] border-r-[#C07070] text-yellow-200 font-bold w-24">Glovo Net</th>
+                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20 text-orange-200">Total TTC (D)</th>
+                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20 text-orange-200">Espèces (D)</th>
+                                        <th className="px-2 py-1.5 text-center text-purple-200 w-24">Coeff Imp</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -676,7 +676,7 @@ function VentesContent() {
                                         >
                                             {/* Divider applied to Date cells - Unconditional */}
 
-                                            <td className={cn("px-4 py-2.5 font-medium text-xs border-r-[4px] border-r-[#C07070] transition-colors relative",
+                                            <td className={cn("px-2 py-1 font-medium text-xs border-r-[4px] border-r-[#C07070] transition-colors relative",
                                                 focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#C07070]"
                                             )}>
                                                 {/* Status Dot */}
@@ -688,21 +688,21 @@ function VentesContent() {
                                                 )}
                                                 {row.dateStr}
                                             </td>
-                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#C07070]")}>{row.exo}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#C07070]")}>{row.impHt}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50 bg-slate-50/30", focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#C07070]")}>{row.totHt}</td>
+                                            <td className={cn("px-2 py-1 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#C07070]")}>{row.exo}</td>
+                                            <td className={cn("px-2 py-1 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#C07070]")}>{row.impHt}</td>
+                                            <td className={cn("px-2 py-1 text-right font-medium text-sm border-r border-slate-100/50 bg-slate-50/30", focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#C07070]")}>{row.totHt}</td>
                                             {/* Divider applied to Total TTC cells - Unconditional */}
                                             <td className={cn(
-                                                "px-4 py-2.5 text-right font-bold text-sm bg-slate-100/30 border-r-[4px] border-r-[#C07070] transition-colors",
+                                                "px-2 py-1 text-right font-bold text-sm bg-slate-100/30 border-r-[4px] border-r-[#C07070] transition-colors",
                                                 focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#C07070]"
                                             )}>{row.ttc}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-blue-200" : "text-slate-600 group-hover:text-[#C07070]")}>{row.cmi}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-emerald-200" : "text-slate-600 group-hover:text-[#C07070]")}>{row.chq}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-bold text-sm", focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#C07070]")}>{row.esp}</td>
-                                            <td className="px-1 py-2.5 border-l-[4px] border-l-[#C07070] bg-slate-50/50"></td>
+                                            <td className={cn("px-2 py-1 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-blue-200" : "text-slate-600 group-hover:text-[#C07070]")}>{row.cmi}</td>
+                                            <td className={cn("px-2 py-1 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-emerald-200" : "text-slate-600 group-hover:text-[#C07070]")}>{row.chq}</td>
+                                            <td className={cn("px-2 py-1 text-right font-bold text-sm", focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#C07070]")}>{row.esp}</td>
+                                            <td className="px-1 py-1 border-l-[4px] border-l-[#C07070] bg-slate-50/50"></td>
 
                                             {/* GLOVO BREAKDOWN VALUES (Editable) */}
-                                            <td className={cn("px-1 py-1 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
+                                            <td className={cn("px-1 py-0.5 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
                                                 <input
                                                     type="text"
                                                     value={salesData[row.isoKey]?.real?.glovo?.brut || ""}
@@ -710,12 +710,12 @@ function VentesContent() {
                                                     onClick={(e) => e.stopPropagation()}
                                                     onChange={(e) => handleGlovoUpdate(row.isoKey, 'brut', e.target.value)}
                                                     className={cn(
-                                                        "w-full h-full bg-transparent text-right font-medium text-xs focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
+                                                        "w-full h-full bg-transparent text-right font-medium text-sm focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
                                                         focusedRowIndex === i ? "text-yellow-200 placeholder-yellow-200/50" : "text-yellow-600 group-hover/cell:text-yellow-700"
                                                     )}
                                                 />
                                             </td>
-                                            <td className={cn("px-1 py-1 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
+                                            <td className={cn("px-1 py-0.5 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
                                                 <input
                                                     type="text"
                                                     value={salesData[row.isoKey]?.real?.glovo?.incid || ""}
@@ -723,12 +723,12 @@ function VentesContent() {
                                                     onClick={(e) => e.stopPropagation()}
                                                     onChange={(e) => handleGlovoUpdate(row.isoKey, 'incid', e.target.value)}
                                                     className={cn(
-                                                        "w-full h-full bg-transparent text-right font-medium text-xs focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
+                                                        "w-full h-full bg-transparent text-right font-medium text-sm focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
                                                         focusedRowIndex === i ? "text-yellow-200 placeholder-yellow-200/50" : "text-yellow-600 group-hover/cell:text-yellow-700"
                                                     )}
                                                 />
                                             </td>
-                                            <td className={cn("px-1 py-1 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
+                                            <td className={cn("px-1 py-0.5 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
                                                 <input
                                                     type="text"
                                                     value={salesData[row.isoKey]?.real?.glovo?.cash || ""}
@@ -736,19 +736,19 @@ function VentesContent() {
                                                     onClick={(e) => e.stopPropagation()}
                                                     onChange={(e) => handleGlovoUpdate(row.isoKey, 'cash', e.target.value)}
                                                     className={cn(
-                                                        "w-full h-full bg-transparent text-right font-medium text-xs focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
+                                                        "w-full h-full bg-transparent text-right font-medium text-sm focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
                                                         focusedRowIndex === i ? "text-yellow-200 placeholder-yellow-200/50" : "text-yellow-600 group-hover/cell:text-yellow-700"
                                                     )}
                                                 />
                                             </td>
 
-                                            <td className={cn("px-2 py-2.5 text-right font-bold text-sm border-r-[4px] border-r-[#C07070] w-24", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-700 group-hover:text-yellow-800")}>{row.glovo}</td>
+                                            <td className={cn("px-2 py-1 text-right font-bold text-sm border-r-[4px] border-r-[#C07070] w-24", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-700 group-hover:text-yellow-800")}>{row.glovo}</td>
 
                                             {/* NEW: DECLARED CELLS */}
 
-                                            <td className={cn("px-4 py-2.5 text-right font-bold text-sm text-orange-600/80", focusedRowIndex === i && "text-orange-200")}>{row.declaredTTC}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-bold text-sm text-orange-600/80", focusedRowIndex === i && "text-orange-200")}>{row.declaredEsp}</td>
-                                            <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                            <td className={cn("px-2 py-1 text-right font-bold text-sm text-orange-600/80", focusedRowIndex === i && "text-orange-200")}>{row.declaredTTC}</td>
+                                            <td className={cn("px-2 py-1 text-right font-bold text-sm text-orange-600/80", focusedRowIndex === i && "text-orange-200")}>{row.declaredEsp}</td>
+                                            <td className="px-2 py-1 text-center" onClick={(e) => e.stopPropagation()}>
                                                 <div className="relative flex items-center justify-center w-full max-w-[80px] mx-auto group/input">
                                                     <div className="relative flex items-center bg-white/50 rounded-lg border border-purple-200">
                                                         <input

@@ -185,22 +185,27 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
 
         if (isCurrentlyValidated) {
             // Attempting to go back to Draft
-            // Check for Reconciliation (Pointage)
+
+            // 1. Check if synchronized
+            if (invoice?.syncTime) {
+                alert("Impossible de passer en brouillon : Cette pièce est déjà synchronisée.\nVeuillez d'abord la désynchroniser ou annuler la synchronisation.");
+                return;
+            }
+
+            // 2. Check for Reconciliation (Pointage)
             const hasReconciled = formData.payments?.some(p => p.isReconciled);
             if (hasReconciled) {
                 alert("Impossible de passer en brouillon : Des paiements sont déjà pointés en banque.\nVeuillez supprimer le pointage avant de modifier la facture.");
                 return;
             }
 
-            // Switch to Draft & De-sync
-            // "réinitialiser le paiement" -> We keep the lines but they fall back to 'Coffre' logic visually and are desynced
+            // Switch to Draft & De-sync logic
             const updatedData = { ...formData, status: 'Draft' as any };
             setFormData(updatedData);
             if (onUpdate && invoice) onUpdate({ ...invoice, ...updatedData } as Invoice);
 
         } else {
             // Attempting to Validate
-            // Switch to Validated & De-sync (removes from Coffre effectively by needing new sync)
             const updatedData = { ...formData, status: 'Validated' as any };
             setFormData(updatedData);
             if (onUpdate && invoice) onUpdate({ ...invoice, ...updatedData } as Invoice);
@@ -737,26 +742,32 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                                             {/* Account (Computed & Colored) */}
                                             <td className="px-4 py-2 text-center">
                                                 {(() => {
-                                                    // Determine if "Declared" based on Number (DRAFT prefix means not declared as final invoice usually)
-                                                    // Or use status logic? User said "Si jamais elle passe de Brouillon à facture...".
-                                                    // Safer to use the toggle status.
-                                                    // But we allow Syncing Drafts.
-                                                    // If status is "Synced", we need to know if it's a Synced DRAFT or Synced FACTURE.
-                                                    // Let's use the Number prefix as the convention.
-                                                    const isDraftNumber = formData.number?.startsWith('DRAFT') || formData.number?.startsWith('draft');
-                                                    const isDeclared = !isDraftNumber;
+                                                    // Pièce Achat = Document fourni à la livraison.
+                                                    // Si déclarée (Validated) = Facture. Sinon = Brouillon.
+                                                    const isDraft = formData.status !== 'Validated';
+                                                    const isSynced = !!invoice?.syncTime;
 
-                                                    let account = "Coffre";
-                                                    let colorClass = "bg-slate-100 text-slate-500 border-slate-200";
+                                                    let account = "Caisse"; // Default appearance when not synced
+                                                    let colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
 
-                                                    if (isDeclared) {
-                                                        if (payment.mode === "Especes") {
-                                                            account = "Caisse";
-                                                            colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
+                                                    if (isSynced) {
+                                                        if (isDraft) {
+                                                            account = "Coffre";
+                                                            colorClass = "bg-slate-100 text-slate-500 border-slate-200";
                                                         } else {
-                                                            account = "Banque";
-                                                            colorClass = "bg-[#FFF8E1] text-[#A0522D] border-[#FFE0B2]";
+                                                            if (payment.mode === "Especes") {
+                                                                account = "Caisse";
+                                                                colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
+                                                            } else {
+                                                                account = "Banque";
+                                                                colorClass = "bg-[#FFF8E1] text-[#A0522D] border-[#FFE0B2]";
+                                                            }
                                                         }
+                                                    } else {
+                                                        // Non-synced Draft or Ready Invoice
+                                                        // User said: "sa ligne de paiement [...] passe au compte Caisse dans l’attente d’une synchronisation"
+                                                        account = "Caisse";
+                                                        colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
                                                     }
 
                                                     return (
