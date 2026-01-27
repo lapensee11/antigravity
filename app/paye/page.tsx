@@ -20,7 +20,8 @@ import {
     CreditCard,
     Briefcase,
     Check,
-    X
+    X,
+    Edit2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -221,6 +222,8 @@ export default function PayePage() {
     const [editData, setEditData] = useState<StaffMember | null>(null);
     const [filterType, setFilterType] = useState<"Tous" | "Actifs" | "Inactifs">("Tous");
     const [searchQuery, setSearchQuery] = useState("");
+    const [journalEditingId, setJournalEditingId] = useState<number | null>(null);
+    const [journalEditData, setJournalEditData] = useState<StaffMember | null>(null);
 
     // Helpers pour la conversion des dates (DD/MM/YYYY <-> YYYY-MM-DD)
     const toInputDate = (str: string) => {
@@ -341,6 +344,24 @@ export default function PayePage() {
         setEditData(null);
     };
 
+    const handleJournalEdit = (emp: StaffMember) => {
+        setJournalEditingId(emp.id);
+        setJournalEditData({ ...emp });
+    };
+
+    const handleJournalSave = () => {
+        if (journalEditData) {
+            setStaffMembers(prev => prev.map(s => s.id === journalEditData.id ? journalEditData : s));
+            setJournalEditingId(null);
+            setJournalEditData(null);
+        }
+    };
+
+    const handleJournalCancel = () => {
+        setJournalEditingId(null);
+        setJournalEditData(null);
+    };
+
     const handleAddNew = () => {
         const newId = Math.max(...staffMembers.map(s => s.id), 0) + 1;
         const newEmployee: StaffMember = {
@@ -449,91 +470,172 @@ export default function PayePage() {
                             <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200 h-full flex flex-col">
                                 <div className="overflow-auto custom-scrollbar flex-1">
                                     <table className="w-full border-collapse">
-                                        <thead className="sticky top-0 z-20">
-                                            <tr className="bg-[#2C3E50] text-white text-[11px] font-black uppercase tracking-[0.15em]">
-                                                <th className="px-6 py-4 text-left border-r border-white/5 w-[250px]">Salarié</th>
-                                                <th className="px-6 py-4 text-center border-r border-white/5 text-[#4ADE80]">Net Cible</th>
-                                                <th className="px-6 py-4 text-center border-r border-white/5 text-[#94A3B8]">Jours</th>
-                                                <th className="px-6 py-4 text-center border-r border-white/5 text-[#94A3B8]">H. Sup</th>
-                                                <th className="px-6 py-4 text-center border-r border-white/5 text-[#C084FC]">P. Régul</th>
-                                                <th className="px-6 py-4 text-center border-r border-white/5 text-[#60A5FA]">P. Occas</th>
-                                                <th className="px-6 py-4 text-center border-r border-white/5 text-[#FB923C]">Avances</th>
-                                                <th className="px-6 py-4 text-center border-r border-white/5 text-[#F87171]">Crédit</th>
-                                                <th className="px-6 py-4 text-right bg-[#1E293B]">Net à Payer</th>
+                                        <thead>
+                                            <tr className="bg-slate-100/50 text-[10px] text-slate-500 uppercase font-black tracking-widest border-b border-slate-200">
+                                                <th className="px-4 py-3 text-left w-10">#</th>
+                                                <th className="px-4 py-3 text-left">Salarié</th>
+                                                <th className="px-4 py-3 text-right">Net Cible</th>
+                                                <th className="px-4 py-3 text-center w-24">Jours</th>
+                                                <th className="px-4 py-3 text-center w-20">H. Sup</th>
+                                                <th className="px-4 py-3 text-right w-28">P. Régul</th>
+                                                <th className="px-4 py-3 text-right w-28">P. Occas</th>
+                                                <th className="px-4 py-3 text-right w-28 text-orange-600">Avances</th>
+                                                <th className="px-4 py-3 text-right w-28 text-red-600">Crédit</th>
+                                                <th className="px-4 py-3 text-right bg-slate-800 text-white w-32">Net à Payer</th>
+                                                <th className="px-4 py-3 text-right w-24">Actions</th>
                                             </tr>
                                         </thead>
-                                        <tbody>
-                                            {staffMembers.map((emp, idx) => (
-                                                <tr key={emp.id} className={cn(
-                                                    "border-b border-slate-100 group transition-colors",
-                                                    idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"
-                                                )}>
-                                                    <td className="px-6 py-6 border-r border-slate-100">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-xs font-black text-slate-400 border border-slate-200">
-                                                                {emp.initials}
-                                                            </div>
-                                                            <div className="font-black text-[#1E293B] text-sm tracking-tight flex items-center gap-2">
-                                                                {emp.name}
-                                                                {emp.contract.exitDate && emp.contract.exitDate !== "-" && (
-                                                                    <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-[8px] text-slate-400 border border-slate-200 uppercase font-black">Sorti</span>
-                                                                )}
-                                                            </div>
-                                                            <div className="text-[10px] text-slate-400 font-mono mt-0.5">{emp.matricule}</div>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-6 text-center border-r border-slate-100">
-                                                        <span className="text-xl font-black text-[#16A34A] tracking-tight">
-                                                            {emp.netCible.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} <span className="text-xs font-bold">Dh</span>
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-6 text-center border-r border-slate-100">
-                                                        <div className="flex items-center justify-center gap-3">
-                                                            <button className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:bg-slate-50 text-slate-400 group/btn">
-                                                                <Minus className="w-3 h-3 group-hover/btn:text-red-500" />
-                                                            </button>
-                                                            <span className="text-lg font-black text-[#1E293B] w-8">{emp.jours}</span>
-                                                            <button className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center hover:bg-slate-50 text-slate-400 group/btn">
-                                                                <Plus className="w-3 h-3 group-hover/btn:text-green-500" />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-6 text-center border-r border-slate-100">
-                                                        <span className="text-slate-300">—</span>
-                                                    </td>
-                                                    <td className="px-6 py-6 text-center border-r border-slate-100">
-                                                        <span className="text-base font-black text-[#9333EA]">
-                                                            {emp.pRegul > 0 ? `${emp.pRegul.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} Dh` : "0,00 Dh"}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-6 text-center border-r border-slate-100">
-                                                        <span className="text-slate-300">—</span>
-                                                    </td>
-                                                    <td className="px-6 py-6 text-center border-r border-slate-100">
-                                                        <span className="text-slate-300">—</span>
-                                                    </td>
-                                                    <td className="px-6 py-6 text-center border-r border-slate-100 bg-red-50/20">
-                                                        <div className="flex flex-col items-center">
-                                                            <span className="text-slate-300">—</span>
-                                                            {emp.credit > 0 && (
-                                                                <div className="mt-1 px-2 py-0.5 rounded bg-red-50 text-[9px] font-black text-red-600 uppercase tracking-tighter">
-                                                                    Reste: {emp.credit.toLocaleString("fr-FR")} Dh
+                                        <tbody className="divide-y divide-slate-100">
+                                            {staffMembers.map((emp, idx) => {
+                                                const isJournalEditing = journalEditingId === emp.id;
+                                                const currentData = isJournalEditing ? journalEditData! : emp;
+
+                                                // Net à Payer calculation
+                                                const netAPayer = currentData.netCible + currentData.pRegul + currentData.pOccas - currentData.avances;
+
+                                                return (
+                                                    <tr key={emp.id} className={cn(
+                                                        "group transition-all hover:bg-slate-50/50",
+                                                        isJournalEditing ? "bg-blue-50/30" : (idx % 2 === 0 ? "bg-white" : "bg-slate-50/20")
+                                                    )}>
+                                                        <td className="px-4 py-3 text-center text-[10px] font-bold text-slate-400">
+                                                            {emp.id}
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-[10px] font-black text-slate-400 uppercase shadow-sm">
+                                                                    {emp.initials}
                                                                 </div>
+                                                                <div className="flex flex-col">
+                                                                    <div className="font-bold text-slate-800 text-xs flex items-center gap-2">
+                                                                        {emp.name}
+                                                                        {emp.contract.exitDate && emp.contract.exitDate !== "-" && (
+                                                                            <span className="px-1 py-0.5 rounded-md bg-slate-100 text-[7px] text-slate-400 border border-slate-200 uppercase font-black">Sorti</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter mt-0.5">{emp.role}</div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right">
+                                                            <span className="text-sm font-black text-emerald-600 tracking-tight">
+                                                                {emp.netCible.toLocaleString("fr-FR")} Dh
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center">
+                                                            {isJournalEditing ? (
+                                                                <input
+                                                                    type="number"
+                                                                    value={journalEditData?.jours}
+                                                                    onChange={(e) => setJournalEditData(prev => prev ? { ...prev, jours: Number(e.target.value) } : null)}
+                                                                    className="w-14 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-black text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-sm font-black text-slate-700">{emp.jours}</span>
                                                             )}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-6 text-right font-black text-xl text-[#D97706] tracking-tight">
-                                                        {(emp.netCible + emp.pRegul + emp.pOccas - emp.avances).toLocaleString("fr-FR", { minimumFractionDigits: 2 })}
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-center">
+                                                            {isJournalEditing ? (
+                                                                <input
+                                                                    type="number"
+                                                                    value={journalEditData?.hSup}
+                                                                    onChange={(e) => setJournalEditData(prev => prev ? { ...prev, hSup: Number(e.target.value) } : null)}
+                                                                    className="w-14 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-black text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-sm font-bold text-slate-400">{emp.hSup > 0 ? emp.hSup : "—"}</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right">
+                                                            {isJournalEditing ? (
+                                                                <input
+                                                                    type="number"
+                                                                    value={journalEditData?.pRegul}
+                                                                    onChange={(e) => setJournalEditData(prev => prev ? { ...prev, pRegul: Number(e.target.value) } : null)}
+                                                                    className="w-24 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-black text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-sm font-black text-purple-600/80">
+                                                                    {emp.pRegul > 0 ? emp.pRegul.toLocaleString("fr-FR") : "—"}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right">
+                                                            {isJournalEditing ? (
+                                                                <input
+                                                                    type="number"
+                                                                    value={journalEditData?.pOccas}
+                                                                    onChange={(e) => setJournalEditData(prev => prev ? { ...prev, pOccas: Number(e.target.value) } : null)}
+                                                                    className="w-24 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-black text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-sm font-black text-blue-600/80">
+                                                                    {emp.pOccas > 0 ? emp.pOccas.toLocaleString("fr-FR") : "—"}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right">
+                                                            {isJournalEditing ? (
+                                                                <input
+                                                                    type="number"
+                                                                    value={journalEditData?.avances}
+                                                                    onChange={(e) => setJournalEditData(prev => prev ? { ...prev, avances: Number(e.target.value) } : null)}
+                                                                    className="w-24 bg-white border border-orange-200 rounded px-2 py-1 text-xs font-black text-right focus:ring-2 focus:ring-orange-500 focus:outline-none text-orange-600"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-sm font-black text-orange-600/80">
+                                                                    {emp.avances > 0 ? emp.avances.toLocaleString("fr-FR") : "—"}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right">
+                                                            <div className="flex flex-col items-end">
+                                                                <span className="text-sm font-black text-red-500/80">
+                                                                    {emp.credit > 0 ? emp.credit.toLocaleString("fr-FR") : "—"}
+                                                                </span>
+                                                                {emp.credit > 0 && <span className="text-[7px] font-bold text-slate-300 uppercase tracking-tighter">Retenu</span>}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right bg-slate-800">
+                                                            <span className="text-lg font-black text-orange-400 tracking-tight">
+                                                                {netAPayer.toLocaleString("fr-FR", { minimumFractionDigits: 2 })}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right">
+                                                            {isJournalEditing ? (
+                                                                <div className="flex justify-end gap-1.5 animate-in fade-in zoom-in duration-200">
+                                                                    <button
+                                                                        onClick={handleJournalSave}
+                                                                        className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-all"
+                                                                    >
+                                                                        <Check className="w-3.5 h-3.5 stroke-[3]" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={handleJournalCancel}
+                                                                        className="p-1.5 bg-white border border-slate-200 text-slate-400 rounded-lg hover:text-red-500 hover:border-red-200 transition-all shadow-sm"
+                                                                    >
+                                                                        <X className="w-3.5 h-3.5 stroke-[3]" />
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => handleJournalEdit(emp)}
+                                                                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                                >
+                                                                    <Edit2 className="w-4 h-4" />
+                                                                </button>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
                                 <div className="bg-[#1E293B] p-4 flex justify-between items-center text-white shrink-0">
                                     <div className="flex gap-8 text-[10px] font-black uppercase tracking-widest opacity-60">
                                         <div>Total Salariés: {staffMembers.length}</div>
-                                        <div>Masse Salariale Net: {staffMembers.reduce((acc, curr) => acc + curr.netCible + curr.pRegul, 0).toLocaleString("fr-FR")} Dh</div>
+                                        <div>Masse Salariale Net: {staffMembers.reduce((acc, curr) => acc + curr.netCible + curr.pRegul + curr.pOccas - curr.avances, 0).toLocaleString("fr-FR")} Dh</div>
                                     </div>
                                     <button className="px-4 py-2 bg-[#D97706] rounded-xl text-xs font-black uppercase tracking-widest hover:bg-[#B45309] transition-colors">
                                         Valider le Journal
