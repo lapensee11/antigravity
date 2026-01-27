@@ -516,32 +516,32 @@ function VentesContent() {
                         <button
                             onClick={() => setModalType("Declared")}
                             className={cn(
-                                "group relative overflow-hidden rounded-2xl p-4 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-xl border-2 border-[#CD7F32] hover:bg-[#CD7F32]/5 backdrop-blur-sm",
-                                modalType === "Declared" ? "bg-[#CD7F32]/10 ring-2 ring-[#CD7F32] ring-offset-2" : "bg-white/40"
+                                "group relative overflow-hidden rounded-2xl p-4 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-xl border-2 border-[#E5D1BD] hover:bg-[#E5D1BD]/5 backdrop-blur-sm",
+                                modalType === "Declared" ? "bg-[#E5D1BD]/20 ring-2 ring-[#E5D1BD] ring-offset-2" : "bg-white/40"
                             )}
                         >
-                            <div className="absolute inset-0 bg-gradient-to-r from-[#CD7F32]/10 to-orange-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                            <div className="absolute inset-0 bg-gradient-to-r from-[#E5D1BD]/20 to-[#8D6E63]/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                             <div className="relative z-10 flex items-center justify-between">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <div className="p-1.5 bg-[#CD7F32]/10 rounded-lg">
-                                            <ShieldCheck className="w-4 h-4 text-[#CD7F32]" />
+                                <div className="text-left">
+                                    <div className="flex flex-col items-start">
+                                        <span className="text-2xl font-bold text-[#5D4037] tracking-tight">
+                                            {(salesData[selectedDate]?.declared?.calculated?.ttc || "0.00").toLocaleString()} <span className="text-xs font-semibold text-[#5D4037]/60">TTC</span>
+                                        </span>
+                                        <span className="text-xs font-medium text-slate-400 font-mono">
+                                            HT: {(salesData[selectedDate]?.declared?.calculated?.totHt || "0.00").toLocaleString()}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="flex items-center justify-end gap-2 mb-1">
+                                        <div className="p-1.5 bg-[#E5D1BD]/30 rounded-lg">
+                                            <ShieldCheck className="w-4 h-4 text-[#5D4037]" />
                                         </div>
                                         <h3 className="text-lg font-bold text-slate-800">Déclaré</h3>
                                     </div>
                                     <p className="text-sm font-medium text-slate-500 capitalize">
                                         {new Date(selectedDate).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                                     </p>
-                                </div>
-                                <div className="text-right">
-                                    <div className="flex flex-col items-end">
-                                        <span className="text-2xl font-bold text-[#CD7F32] tracking-tight">
-                                            {(salesData[selectedDate]?.declared?.calculated?.ttc || "0.00").toLocaleString()} <span className="text-xs font-semibold text-[#CD7F32]/60">TTC</span>
-                                        </span>
-                                        <span className="text-xs font-medium text-slate-400 font-mono">
-                                            HT: {(salesData[selectedDate]?.declared?.calculated?.totHt || "0.00").toLocaleString()}
-                                        </span>
-                                    </div>
                                 </div>
                             </div>
                         </button>
@@ -615,28 +615,28 @@ function VentesContent() {
                 <div className="flex-1 flex flex-col min-h-0 px-0"> {/* Removed px-8 here since table is full width */}
                     {/* DETAILED JOURNAL TABLE (Full Width, Square) */}
                     {/* Added mb-6 for bottom margin as requested */}
-                    <GlassCard className="flex-1 p-0 overflow-hidden flex flex-col shadow-none border-t border-[#1E293B] border-x-0 border-b-0 rounded-none bg-white mb-6">
+                    <GlassCard className="flex-1 p-0 overflow-hidden flex flex-col shadow-none border-t border-[#C07070] border-x-0 border-b-0 rounded-none bg-white mb-6">
                         <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent bg-white relative">
                             <table className="w-full text-sm text-left border-collapse" ref={tableRef}>
-                                <thead className="bg-[#1E293B] text-white text-[10px] font-bold uppercase tracking-wider sticky top-0 z-20 shadow-none border-b border-[#1E293B]">
+                                <thead className="bg-[#C07070] text-white text-[10px] font-bold uppercase tracking-wider sticky top-0 z-20 shadow-none border-b border-[#C07070]">
                                     <tr>
-                                        <th className="px-4 py-3 border-r-[4px] border-r-[#1E293B]">Date</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#1E293B]/20">Exonéré</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#1E293B]/20">Imp. HT</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 bg-[#1E293B]/5">Total HT</th>
-                                        <th className="px-4 py-3 text-right border-r-[4px] border-r-[#1E293B] bg-[#1E293B]/10">Total TTC</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 text-blue-300">CMI</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 text-emerald-300">Chèques</th>
+                                        <th className="px-4 py-3 border-r-[4px] border-r-[#C07070]">Date</th>
+                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20">Exonéré</th>
+                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20">Imp. HT</th>
+                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20 bg-[#C07070]/5">Total HT</th>
+                                        <th className="px-4 py-3 text-right border-r-[4px] border-r-[#C07070] bg-[#C07070]/10">Total TTC</th>
+                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20 text-blue-100">CMI</th>
+                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20 text-emerald-100">Chèques</th>
                                         <th className="px-4 py-3 text-right font-bold h-full">Espèces</th>
-                                        <th className="px-1 py-3 bg-[#1E293B] w-[4px]"></th>
+                                        <th className="px-1 py-3 bg-[#C07070] w-[4px]"></th>
                                         {/* GLOVO BREAKDOWN */}
-                                        <th className="px-1 py-3 text-right border-r border-[#1E293B]/20 text-yellow-500 text-[10px] font-bold w-20">Glv Brut</th>
-                                        <th className="px-1 py-3 text-right border-r border-[#1E293B]/20 text-yellow-500 text-[10px] font-bold w-20">Incid</th>
-                                        <th className="px-1 py-3 text-right border-r border-[#1E293B]/20 text-yellow-500 text-[10px] font-bold w-20">Cash</th>
-                                        <th className="px-2 py-3 text-right border-r-[4px] border-r-[#1E293B] text-yellow-500 font-bold w-24">Glovo Net</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 text-orange-200">Total TTC (D)</th>
-                                        <th className="px-4 py-3 text-right border-r border-[#1E293B]/20 text-orange-200">Espèces (D)</th>
-                                        <th className="px-4 py-3 text-center text-purple-300 w-24">Coeff Imp</th>
+                                        <th className="px-1 py-3 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Glv Brut</th>
+                                        <th className="px-1 py-3 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Incid</th>
+                                        <th className="px-1 py-3 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Cash</th>
+                                        <th className="px-2 py-3 text-right border-r-[4px] border-r-[#C07070] text-yellow-200 font-bold w-24">Glovo Net</th>
+                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20 text-orange-200">Total TTC (D)</th>
+                                        <th className="px-4 py-3 text-right border-r border-[#C07070]/20 text-orange-200">Espèces (D)</th>
+                                        <th className="px-4 py-3 text-center text-purple-200 w-24">Coeff Imp</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -656,14 +656,14 @@ function VentesContent() {
                                             className={cn(
                                                 "transition-all duration-100 group cursor-pointer scroll-mt-10 border-b border-slate-50",
                                                 focusedRowIndex === i
-                                                    ? "bg-[#1E293B]/50 text-white"
+                                                    ? "bg-[#C07070]/90 text-white"
                                                     : "hover:bg-slate-50"
                                             )}
                                         >
                                             {/* Divider applied to Date cells - Unconditional */}
 
-                                            <td className={cn("px-4 py-2.5 font-medium text-xs border-r-[4px] border-r-[#1E293B] transition-colors relative",
-                                                focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#1E293B]"
+                                            <td className={cn("px-4 py-2.5 font-medium text-xs border-r-[4px] border-r-[#C07070] transition-colors relative",
+                                                focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#C07070]"
                                             )}>
                                                 {/* Status Dot */}
                                                 {row.status === 'synced' && (
@@ -674,18 +674,18 @@ function VentesContent() {
                                                 )}
                                                 {row.dateStr}
                                             </td>
-                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#1E293B]")}>{row.exo}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#1E293B]")}>{row.impHt}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50 bg-slate-50/30", focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#1E293B]")}>{row.totHt}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#C07070]")}>{row.exo}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#C07070]")}>{row.impHt}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50 bg-slate-50/30", focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#C07070]")}>{row.totHt}</td>
                                             {/* Divider applied to Total TTC cells - Unconditional */}
                                             <td className={cn(
-                                                "px-4 py-2.5 text-right font-bold text-sm bg-slate-100/30 border-r-[4px] border-r-[#1E293B] transition-colors",
-                                                focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#1E293B]"
+                                                "px-4 py-2.5 text-right font-bold text-sm bg-slate-100/30 border-r-[4px] border-r-[#C07070] transition-colors",
+                                                focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#C07070]"
                                             )}>{row.ttc}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-blue-200" : "text-slate-600 group-hover:text-[#1E293B]")}>{row.cmi}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-emerald-200" : "text-slate-600 group-hover:text-[#1E293B]")}>{row.chq}</td>
-                                            <td className={cn("px-4 py-2.5 text-right font-bold text-sm", focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#1E293B]")}>{row.esp}</td>
-                                            <td className="px-1 py-2.5 border-l-[4px] border-l-[#1E293B] bg-slate-50/50"></td>
+                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-blue-200" : "text-slate-600 group-hover:text-[#C07070]")}>{row.cmi}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-emerald-200" : "text-slate-600 group-hover:text-[#C07070]")}>{row.chq}</td>
+                                            <td className={cn("px-4 py-2.5 text-right font-bold text-sm", focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#C07070]")}>{row.esp}</td>
+                                            <td className="px-1 py-2.5 border-l-[4px] border-l-[#C07070] bg-slate-50/50"></td>
 
                                             {/* GLOVO BREAKDOWN VALUES (Editable) */}
                                             <td className={cn("px-1 py-1 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
@@ -728,7 +728,7 @@ function VentesContent() {
                                                 />
                                             </td>
 
-                                            <td className={cn("px-2 py-2.5 text-right font-bold text-sm border-r-[4px] border-r-[#1E293B] w-24", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-700 group-hover:text-yellow-800")}>{row.glovo}</td>
+                                            <td className={cn("px-2 py-2.5 text-right font-bold text-sm border-r-[4px] border-r-[#C07070] w-24", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-700 group-hover:text-yellow-800")}>{row.glovo}</td>
 
                                             {/* NEW: DECLARED CELLS */}
 
@@ -783,19 +783,19 @@ function VentesContent() {
                                     ))}
                                 </tbody>
                                 {/* FOOTER ROW - Sticky Bottom */}
-                                <tfoot className="sticky bottom-0 z-20 bg-[#1E293B] text-white text-[10px] font-bold uppercase tracking-wider shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] border-t-2 border-[#1E293B]">
+                                <tfoot className="sticky bottom-0 z-20 bg-[#C07070] text-white text-[10px] font-bold uppercase tracking-wider shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] border-t-2 border-[#C07070]">
                                     <tr>
                                         {/* Divider applied to Footer Date cell - Unconditional */}
-                                        <td className="px-4 py-3 text-right border-r-[4px] border-r-[#1E293B]">Total</td>
-                                        <td className="px-4 py-3 text-right border-r border-slate-700/50">{periodTotals.exo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right border-r border-slate-700/50">{periodTotals.impHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right bg-white/5 border-r border-slate-700/50">{periodTotals.totHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right border-r-[4px] border-r-[#C07070]">Total</td>
+                                        <td className="px-4 py-3 text-right border-r border-white/20">{periodTotals.exo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right border-r border-white/20">{periodTotals.impHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right bg-white/5 border-r border-white/20">{periodTotals.totHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                         {/* Divider applied to Footer TTC cell - Unconditional */}
-                                        <td className="px-4 py-3 text-right bg-white/10 border-r-[4px] border-r-[#1E293B] font-bold text-emerald-400">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right text-blue-300 border-r border-slate-700/50">{periodTotals.cmi.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right text-emerald-300 border-r border-slate-700/50">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right bg-white/10 border-r-[4px] border-r-[#C07070] font-bold text-white">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right text-blue-100 border-r border-white/20">{periodTotals.cmi.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-4 py-3 text-right text-emerald-100 border-r border-white/20">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                         <td className="px-4 py-3 text-right text-white font-bold">{periodTotals.esp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-1 py-3 bg-[#1E293B] w-[4px]"></td>
+                                        <td className="px-1 py-3 bg-[#C07070] w-[4px]"></td>
 
                                         {/* GLOVO FOOTER -- Merged or empty? Or Sums? Let's leave empty for breakdown for now to avoid clutter, or add sums if needed. User didn't specify. I'll add filler cells. */}
                                         <td className="px-1 py-3 border-r border-slate-700/50 w-20"></td>

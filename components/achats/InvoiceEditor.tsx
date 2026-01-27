@@ -373,7 +373,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
     };
 
     return (
-        <GlassCard className="h-full flex flex-col overflow-hidden">
+        <GlassCard className="h-full flex flex-col overflow-hidden rounded-none shadow-none border-0">
             {/* Content Container */}
             <div className="flex-1 flex flex-col overflow-hidden relative">
 
@@ -499,10 +499,12 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                         <div className="flex items-center justify-between">
                             <h3 className="text-sm font-bold text-slate-700">Lignes de Facture</h3>
                             <button
+                                type="button"
                                 onClick={handleAddLine}
-                                className="px-3 py-1.5 bg-[#Cca47c] rounded-lg text-xs font-bold text-white hover:bg-[#bca382] flex items-center gap-1 shadow-sm transition-all"
+                                className="px-3 py-1.5 bg-[#E5D1BD] rounded-lg text-xs font-bold text-[#5D4037] shadow-sm hover:bg-[#D7CCC8] hover:scale-105 transition-all flex items-center gap-1"
                             >
-                                <Plus className="w-3.5 h-3.5" /> Ajouter Ligne
+                                <Plus className="w-3.5 h-3.5" />
+                                Ajouter Ligne
                             </button>
                         </div>
                         <div className="bg-white rounded-xl border border-slate-200 overflow-visible shadow-sm">
@@ -676,10 +678,12 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                         <div className="flex items-center justify-between">
                             <h3 className="text-sm font-bold text-slate-700">Paiements</h3>
                             <button
+                                type="button"
                                 onClick={handleAddPayment}
-                                className="px-3 py-1.5 bg-[#Cca47c] rounded-lg text-xs font-bold text-white hover:bg-[#bca382] flex items-center gap-1 shadow-sm transition-all"
+                                className="px-3 py-1.5 bg-[#E5D1BD] rounded-lg text-xs font-bold text-[#5D4037] shadow-sm hover:bg-[#D7CCC8] hover:scale-105 transition-all flex items-center gap-1"
                             >
-                                <Plus className="w-3.5 h-3.5" /> Ajouter Paiement
+                                <Plus className="w-3.5 h-3.5" />
+                                Ajouter Paiement
                             </button>
                         </div>
                         <div className="bg-white rounded-xl border border-slate-200 overflow-visible shadow-sm">
@@ -836,7 +840,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                             onClick={() => invoice && onSync(invoice.id)}
                             className={cn(
                                 "flex flex-row items-center justify-center gap-3 rounded-lg border transition-all shadow-sm active:scale-95 group relative overflow-hidden h-16",
-                                "bg-[#Cca47c] border-[#bca382] hover:bg-[#b08d65]"
+                                "bg-[#E5D1BD] border-[#D7CCC8] hover:bg-[#D7CCC8]"
                             )}
                         >
                             <div className="relative">
@@ -851,7 +855,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                                 )}
                             </div>
 
-                            <span className="text-xs font-bold leading-none text-white">
+                            <span className="text-xs font-bold leading-none text-[#5D4037]">
                                 {(formData.status === "Synced" || formData.syncTime) ? "Synchronisé" : "Prêt"}
                             </span>
                         </button>

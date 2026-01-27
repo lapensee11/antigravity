@@ -133,26 +133,26 @@ export default function FinancePage() {
                             className={cn(
                                 "relative overflow-hidden p-5 rounded-3xl flex flex-col items-start justify-between transition-all duration-300 group h-[105px]",
                                 activeAccount === "Banque"
-                                    ? "bg-gradient-to-br from-[#d4af37] to-[#8B4513] text-white shadow-[0_10px_30px_rgba(212,175,55,0.4)] scale-[1.02] ring-2 ring-[#d4af37]/50"
-                                    : "bg-white border border-[#d4af37]/20 hover:border-[#d4af37]/50 hover:bg-[#d4af37]/5 hover:shadow-lg hover:-translate-y-1"
+                                    ? "bg-gradient-to-br from-[#F2DAC3] to-[#C8A890] text-white shadow-[0_10px_30px_rgba(242,218,195,0.6)] scale-[1.02] ring-2 ring-[#F2DAC3]/50"
+                                    : "bg-white border border-[#F2DAC3]/20 hover:border-[#F2DAC3]/50 hover:bg-[#F2DAC3]/5 hover:shadow-lg hover:-translate-y-1"
                             )}
                         >
                             {/* Decorative Background Pattern */}
                             <div className={cn("absolute inset-0 opacity-10 transition-opacity", activeAccount === "Banque" ? "bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]" : "opacity-0")} />
 
                             <div className="flex justify-between w-full relative z-10">
-                                <span className={cn("text-xs font-black uppercase tracking-widest bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm min-w-[80px] flex items-center justify-center", activeAccount === "Banque" ? "text-white" : "text-[#8B4513]")}>
+                                <span className={cn("text-xs font-black uppercase tracking-widest bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm min-w-[80px] flex items-center justify-center", activeAccount === "Banque" ? "text-white" : "text-[#C8A890]")}>
                                     Banque
                                 </span>
-                                <div className={cn("p-2 rounded-full transition-colors", activeAccount === "Banque" ? "bg-white/20 text-white" : "bg-[#d4af37]/10 text-[#8B4513]")}>
+                                <div className={cn("p-2 rounded-full transition-colors", activeAccount === "Banque" ? "bg-white/20 text-white" : "bg-[#F2DAC3]/20 text-[#C8A890]")}>
                                     <Landmark className="w-5 h-5" />
                                 </div>
                             </div>
 
                             <div className="relative z-10">
-                                <div className={cn("text-3xl font-black font-outfit tracking-tight", activeAccount === "Banque" ? "text-white" : "text-[#5D4037]")}>
+                                <div className={cn("text-3xl font-black font-outfit tracking-tight", activeAccount === "Banque" ? "text-white" : "text-[#B6967E]")}>
                                     {banqueBalance.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}
-                                    <span className={cn("text-lg font-bold ml-1 align-top", activeAccount === "Banque" ? "opacity-80" : "text-[#8B4513]/60")}>Dh</span>
+                                    <span className={cn("text-lg font-bold ml-1 align-top", activeAccount === "Banque" ? "opacity-80" : "text-[#B6967E]/60")}>Dh</span>
                                 </div>
                             </div>
                         </button>
@@ -163,25 +163,25 @@ export default function FinancePage() {
                             className={cn(
                                 "relative overflow-hidden p-5 rounded-3xl flex flex-col items-start justify-between transition-all duration-300 group h-[105px]",
                                 activeAccount === "Caisse"
-                                    ? "bg-gradient-to-br from-[#00C853] to-[#1B5E20] text-white shadow-[0_10px_30px_rgba(0,200,83,0.4)] scale-[1.02] ring-2 ring-[#00C853]/50"
-                                    : "bg-white border border-[#00C853]/20 hover:border-[#00C853]/50 hover:bg-[#00C853]/5 hover:shadow-lg hover:-translate-y-1"
+                                    ? "bg-gradient-to-br from-[#C4E4CF] to-[#93BFA2] text-white shadow-[0_10px_30px_rgba(196,228,207,0.6)] scale-[1.02] ring-2 ring-[#C4E4CF]/50"
+                                    : "bg-white border border-[#C4E4CF]/20 hover:border-[#C4E4CF]/50 hover:bg-[#C4E4CF]/5 hover:shadow-lg hover:-translate-y-1"
                             )}
                         >
                             <div className={cn("absolute inset-0 opacity-10 transition-opacity", activeAccount === "Caisse" ? "bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]" : "opacity-0")} />
 
                             <div className="flex justify-between w-full relative z-10">
-                                <span className={cn("text-xs font-black uppercase tracking-widest bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm min-w-[80px] flex items-center justify-center", activeAccount === "Caisse" ? "text-white" : "text-[#1B5E20]")}>
+                                <span className={cn("text-xs font-black uppercase tracking-widest bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm min-w-[80px] flex items-center justify-center", activeAccount === "Caisse" ? "text-white" : "text-[#93BFA2]")}>
                                     Caisse
                                 </span>
-                                <div className={cn("p-2 rounded-full transition-colors", activeAccount === "Caisse" ? "bg-white/20 text-white" : "bg-[#00C853]/10 text-[#00C853]")}>
+                                <div className={cn("p-2 rounded-full transition-colors", activeAccount === "Caisse" ? "bg-white/20 text-white" : "bg-[#C4E4CF]/20 text-[#93BFA2]")}>
                                     <Wallet className="w-5 h-5" />
                                 </div>
                             </div>
 
                             <div className="relative z-10">
-                                <div className={cn("text-3xl font-black font-outfit tracking-tight", activeAccount === "Caisse" ? "text-white" : "text-[#1B5E20]")}>
+                                <div className={cn("text-3xl font-black font-outfit tracking-tight", activeAccount === "Caisse" ? "text-white" : "text-[#82AA90]")}>
                                     {caisseBalance.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}
-                                    <span className={cn("text-lg font-bold ml-1 align-top", activeAccount === "Caisse" ? "opacity-80" : "text-[#1B5E20]/60")}>Dh</span>
+                                    <span className={cn("text-lg font-bold ml-1 align-top", activeAccount === "Caisse" ? "opacity-80" : "text-[#82AA90]/60")}>Dh</span>
                                 </div>
                             </div>
                         </button>
@@ -192,25 +192,25 @@ export default function FinancePage() {
                             className={cn(
                                 "relative overflow-hidden p-5 rounded-3xl flex flex-col items-start justify-between transition-all duration-300 group h-[105px]",
                                 activeAccount === "Coffre"
-                                    ? "bg-gradient-to-br from-[#607D8B] to-[#263238] text-white shadow-[0_10px_30px_rgba(96,125,139,0.4)] scale-[1.02] ring-2 ring-[#607D8B]/50"
-                                    : "bg-white border border-[#607D8B]/20 hover:border-[#607D8B]/50 hover:bg-[#607D8B]/5 hover:shadow-lg hover:-translate-y-1"
+                                    ? "bg-gradient-to-br from-[#D6E4EB] to-[#98B2C2] text-white shadow-[0_10px_30px_rgba(214,228,235,0.6)] scale-[1.02] ring-2 ring-[#D6E4EB]/50"
+                                    : "bg-white border border-[#D6E4EB]/20 hover:border-[#D6E4EB]/50 hover:bg-[#D6E4EB]/5 hover:shadow-lg hover:-translate-y-1"
                             )}
                         >
                             <div className={cn("absolute inset-0 opacity-10 transition-opacity", activeAccount === "Coffre" ? "bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]" : "opacity-0")} />
 
                             <div className="flex justify-between w-full relative z-10">
-                                <span className={cn("text-xs font-black uppercase tracking-widest bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm min-w-[80px] flex items-center justify-center", activeAccount === "Coffre" ? "text-white" : "text-[#263238]")}>
+                                <span className={cn("text-xs font-black uppercase tracking-widest bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm min-w-[80px] flex items-center justify-center", activeAccount === "Coffre" ? "text-white" : "text-[#98B2C2]")}>
                                     Coffre
                                 </span>
-                                <div className={cn("p-2 rounded-full transition-colors", activeAccount === "Coffre" ? "bg-white/20 text-white" : "bg-[#607D8B]/10 text-[#607D8B]")}>
+                                <div className={cn("p-2 rounded-full transition-colors", activeAccount === "Coffre" ? "bg-white/20 text-white" : "bg-[#D6E4EB]/20 text-[#98B2C2]")}>
                                     <Archive className="w-5 h-5" />
                                 </div>
                             </div>
 
                             <div className="relative z-10">
-                                <div className={cn("text-3xl font-black font-outfit tracking-tight", activeAccount === "Coffre" ? "text-white" : "text-[#263238]")}>
+                                <div className={cn("text-3xl font-black font-outfit tracking-tight", activeAccount === "Coffre" ? "text-white" : "text-[#8FA1AF]")}>
                                     {coffreBalance.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}
-                                    <span className={cn("text-lg font-bold ml-1 align-top", activeAccount === "Coffre" ? "opacity-80" : "text-[#263238]/60")}>Dh</span>
+                                    <span className={cn("text-lg font-bold ml-1 align-top", activeAccount === "Coffre" ? "opacity-80" : "text-[#8FA1AF]/60")}>Dh</span>
                                 </div>
                             </div>
                         </button>
@@ -230,7 +230,12 @@ export default function FinancePage() {
                                         className={cn(
                                             "flex-1 h-full rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center",
                                             periodFilter === p
-                                                ? "bg-slate-800 text-white shadow-sm"
+                                                ? cn(
+                                                    "text-white shadow-sm",
+                                                    activeAccount === "Banque" && "bg-[#C8A890]",
+                                                    activeAccount === "Caisse" && "bg-[#93BFA2]",
+                                                    activeAccount === "Coffre" && "bg-[#98B2C2]"
+                                                )
                                                 : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
                                         )}
                                     >
@@ -283,9 +288,9 @@ export default function FinancePage() {
                                 onClick={() => setIsAddingNew(true)}
                                 className={cn(
                                     "h-[54px] w-[54px] rounded-2xl flex items-center justify-center text-white shadow-lg transition-all hover:scale-105 active:scale-95 shrink-0",
-                                    activeAccount === "Banque" ? "bg-gradient-to-br from-[#d4af37] to-[#8B4513]" :
-                                        activeAccount === "Caisse" ? "bg-gradient-to-br from-[#00C853] to-[#1B5E20]" :
-                                            "bg-gradient-to-br from-[#607D8B] to-[#263238]"
+                                    activeAccount === "Banque" ? "bg-gradient-to-br from-[#E5D1BD] to-[#5D4037]" :
+                                        activeAccount === "Caisse" ? "bg-gradient-to-br from-[#A8D5BA] to-[#4D7C5D]" :
+                                            "bg-gradient-to-br from-[#BCCCDC] to-[#556879]"
                                 )}
                             >
                                 <Plus className="w-8 h-8 stroke-[3]" />
@@ -295,9 +300,9 @@ export default function FinancePage() {
                         {/* Col 3: Stats Pill (Under Coffre) */}
                         <div className={cn(
                             "flex items-center justify-between text-white px-6 h-[54px] rounded-2xl shadow-lg w-full",
-                            activeAccount === "Banque" ? "bg-gradient-to-r from-[#d4af37] to-[#8B4513]" :
-                                activeAccount === "Caisse" ? "bg-gradient-to-r from-[#00C853] to-[#1B5E20]" :
-                                    "bg-gradient-to-r from-[#607D8B] to-[#263238]"
+                            activeAccount === "Banque" ? "bg-gradient-to-r from-[#F2DAC3] to-[#C8A890]" :
+                                activeAccount === "Caisse" ? "bg-gradient-to-r from-[#C4E4CF] to-[#93BFA2]" :
+                                    "bg-gradient-to-r from-[#D6E4EB] to-[#98B2C2]"
                         )}
                         >
                             {/* Entrées */}

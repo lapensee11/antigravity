@@ -334,7 +334,7 @@ function AchatsContent() {
                                         className={cn(
                                             "flex-1 py-1.5 rounded-md text-[10px] font-bold tracking-wide transition-all relative overflow-hidden mb-[1px]",
                                             isActive
-                                                ? "bg-[#Cca47c] text-white shadow-md"
+                                                ? "bg-[#E5D1BD] text-[#5D4037] shadow-md"
                                                 : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
                                         )}
                                     >
@@ -365,7 +365,7 @@ function AchatsContent() {
                             </div>
                             <button
                                 onClick={handleCreateNew}
-                                className="w-9 h-9 bg-[#Cca47c] rounded-full flex items-center justify-center text-white shadow-lg hover:bg-[#b08d65] hover:scale-105 transition-all shrink-0"
+                                className="w-9 h-9 bg-[#E5D1BD] rounded-full flex items-center justify-center text-[#5D4037] shadow-lg hover:bg-[#D7CCC8] hover:scale-105 transition-all shrink-0"
                             >
                                 <Plus className="w-5 h-5" />
                             </button>
@@ -382,7 +382,7 @@ function AchatsContent() {
                                         className={cn(
                                             "flex-1 py-1.5 rounded-md text-[10px] font-bold tracking-wide transition-all relative overflow-hidden mb-[1px]",
                                             isActive
-                                                ? "bg-[#Cca47c] text-white shadow-md"
+                                                ? "bg-[#E5D1BD] text-[#5D4037] shadow-md"
                                                 : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
                                         )}
                                     >
@@ -428,7 +428,7 @@ function AchatsContent() {
                     </div>
 
                     {/* Invoices List */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar border-t border-slate-200 px-4 py-4 space-y-3 bg-white">
+                    <div className="flex-1 overflow-y-auto custom-scrollbar border-t border-slate-200 bg-white">
                         {filteredInvoices.map(inv => {
                             const isSelected = selectedInvoice?.id === inv.id;
                             const isValidated = inv.status === "Validated";
@@ -438,15 +438,15 @@ function AchatsContent() {
                                     key={inv.id}
                                     onClick={() => setSelectedInvoice(inv)}
                                     className={cn(
-                                        "relative w-full rounded-[24px] px-5 py-3 transition-all duration-300 ease-out cursor-pointer group overflow-hidden border border-transparent min-h-[76px] flex flex-col justify-center active:scale-[0.97]",
+                                        "relative w-full rounded-none px-5 py-3 transition-all duration-200 cursor-pointer group overflow-hidden border-b border-slate-100 min-h-[76px] flex flex-col justify-center",
                                         isSelected
-                                            ? "bg-white shadow-[0_10px_25px_rgba(149,117,205,0.1)] ring-1 ring-[#DEB887]/40 z-10"
-                                            : "bg-[#FAF7F2] shadow-sm hover:shadow-md hover:-translate-y-0.5 hover:bg-white z-0"
+                                            ? "bg-white z-10"
+                                            : "bg-[#FAF7F2] hover:bg-slate-50 z-0"
                                     )}
                                 >
                                     {/* Selection Bar */}
                                     {isSelected && (
-                                        <div className="absolute left-0 top-0 bottom-0 w-3 bg-[#Cca47c]" />
+                                        <div className="absolute left-0 top-0 bottom-0 w-3 bg-[#E5D1BD]" />
                                     )}
 
                                     {/* Validated Decoration */}
@@ -468,7 +468,7 @@ function AchatsContent() {
                                             <span className="text-xs font-bold text-[#B0BEC5] font-outfit tracking-wide">
                                                 {new Date(inv.date).toLocaleDateString('fr-FR')}
                                             </span>
-                                            <span className="text-[13px] font-extrabold text-[#Cca47c]">
+                                            <span className="text-[13px] font-extrabold text-[#8D6E63]">
                                                 {inv.totalTTC.toLocaleString('fr-FR')} <span className="text-[9px] font-bold opacity-70">Dh</span>
                                             </span>
                                         </div>
@@ -513,12 +513,12 @@ function AchatsContent() {
                 <div className="flex-1 bg-white h-full relative z-10 flex flex-col">
 
                     {/* TOP TOOLBAR - 6 Equal Columns */}
-                    <div className="h-20 border-b border-[#bca382] bg-[#Cca47c] shrink-0 shadow-md z-20 px-4 py-2">
+                    <div className="h-20 border-b border-[#D7CCC8]/50 bg-[#E5D1BD] shrink-0 shadow-md z-20 px-4 py-2">
                         <div className="grid grid-cols-6 gap-3 h-full w-full">
                             {/* 1. Nouvelle Facture */}
                             <button
                                 onClick={handleCreateNew}
-                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-white/10 border border-white/20 rounded-xl text-white hover:bg-white/20 transition-all shadow-sm group"
+                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-[#5D4037]/5 border border-[#5D4037]/10 rounded-xl text-[#5D4037] hover:bg-[#5D4037]/10 transition-all shadow-sm group"
                             >
                                 <div className="w-8 h-8 shrink-0 rounded-full bg-[#3E2723] flex items-center justify-center group-hover:rotate-180 transition-transform duration-500">
                                     <Plus className="w-5 h-5 text-white stroke-[3px]" />
@@ -527,10 +527,11 @@ function AchatsContent() {
                             </button>
 
                             {/* 2. Dupliquer Vide */}
+                            {/* 2. Dupliquer Vide */}
                             <button
                                 onClick={() => selectedInvoice && handleDuplicate(true)}
                                 disabled={!selectedInvoice}
-                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-white/10 border border-white/20 rounded-xl text-white hover:bg-white/20 transition-all shadow-sm disabled:opacity-30 disabled:hover:bg-transparent group"
+                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-[#5D4037]/5 border border-[#5D4037]/10 rounded-xl text-[#5D4037] hover:bg-[#5D4037]/10 transition-all shadow-sm disabled:opacity-30 disabled:hover:bg-transparent group"
                             >
                                 <div className="w-8 h-8 shrink-0 rounded-full bg-[#3E2723] flex items-center justify-center group-hover:rotate-180 transition-transform duration-500">
                                     <Copy className="w-5 h-5 text-white" />
@@ -539,10 +540,11 @@ function AchatsContent() {
                             </button>
 
                             {/* 3. Dupliquer Pleine */}
+                            {/* 3. Dupliquer Pleine */}
                             <button
                                 onClick={() => selectedInvoice && handleDuplicate(false)}
                                 disabled={!selectedInvoice}
-                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-white/10 border border-white/20 rounded-xl text-white hover:bg-white/20 transition-all shadow-sm disabled:opacity-30 disabled:hover:bg-transparent group"
+                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-[#5D4037]/5 border border-[#5D4037]/10 rounded-xl text-[#5D4037] hover:bg-[#5D4037]/10 transition-all shadow-sm disabled:opacity-30 disabled:hover:bg-transparent group"
                             >
                                 <div className="w-8 h-8 shrink-0 rounded-full bg-[#3E2723] flex items-center justify-center group-hover:rotate-180 transition-transform duration-500">
                                     <Files className="w-5 h-5 text-white" />
@@ -554,21 +556,21 @@ function AchatsContent() {
                             <button
                                 onClick={() => selectedInvoice && handleDelete(selectedInvoice.id)}
                                 disabled={!selectedInvoice}
-                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-red-600/90 border border-red-700/50 rounded-xl text-white hover:bg-red-600 hover:scale-105 hover:shadow-lg transition-all duration-200 shadow-sm disabled:opacity-30 disabled:bg-red-500/20 group"
+                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-[#5D4037]/5 border border-[#5D4037]/10 rounded-xl text-[#5D4037] hover:bg-red-50 hover:border-red-200 hover:text-red-700 transition-all shadow-sm disabled:opacity-30 disabled:hover:bg-transparent group"
                             >
-                                <div className="w-8 h-8 shrink-0 rounded-full bg-white flex items-center justify-center group-hover:rotate-180 transition-transform duration-500 shadow-sm">
-                                    <Trash2 className="w-5 h-5 text-red-600" />
+                                <div className="w-8 h-8 shrink-0 rounded-full bg-[#3E2723] group-hover:bg-red-600 flex items-center justify-center group-hover:rotate-180 transition-all duration-500">
+                                    <Trash2 className="w-5 h-5 text-white" />
                                 </div>
                                 <span className="text-xs font-bold leading-none text-left">Supprimer</span>
                             </button>
 
-                            {/* 5. Sync Button & 6. Info */}
+                            {/* Sync Button & 6. Info */}
                             {selectedInvoice ? (
                                 <>
                                     {/* Sync Action */}
                                     <button
                                         onClick={() => handleSync(selectedInvoice.id)}
-                                        className="col-span-1 flex flex-row items-center justify-center gap-3 rounded-xl border bg-white/10 border-white/20 hover:bg-white/20 transition-all shadow-sm active:scale-95 group relative overflow-hidden"
+                                        className="col-span-1 flex flex-row items-center justify-center gap-3 rounded-xl border bg-[#5D4037]/5 border-[#5D4037]/10 hover:bg-[#5D4037]/10 transition-all shadow-sm active:scale-95 group relative overflow-hidden"
                                     >
                                         <div className="relative">
                                             {(selectedInvoice.syncTime) ? (
@@ -582,22 +584,22 @@ function AchatsContent() {
                                             )}
                                         </div>
 
-                                        <span className="text-xs font-bold leading-none text-white">
+                                        <span className="text-xs font-bold leading-none text-[#5D4037]">
                                             {(selectedInvoice.syncTime) ? "Synchronisé" : "Prêt"}
                                         </span>
                                     </button>
 
                                     {/* Sync Time Info */}
-                                    <div className="col-span-1 flex flex-col items-center justify-center gap-0.5 bg-white/10 border border-white/20 rounded-xl text-white">
+                                    <div className="col-span-1 flex flex-col items-center justify-center gap-0.5 bg-[#5D4037]/5 border border-[#5D4037]/10 rounded-xl text-[#5D4037]">
                                         <span className={cn(
                                             "text-[9px] font-medium uppercase tracking-wider",
-                                            selectedInvoice.syncTime ? "text-white opacity-100" : "text-[#D7CCC8] opacity-60"
+                                            selectedInvoice.syncTime ? "text-[#5D4037] opacity-100" : "text-[#5D4037] opacity-60"
                                         )}>Heure Synchro</span>
-                                        <span className="text-xs font-mono font-bold text-white tracking-tight">
+                                        <span className="text-xs font-mono font-bold text-[#5D4037] tracking-tight">
                                             {selectedInvoice.syncTime
                                                 ? <div className="flex flex-col items-center leading-none gap-0.5">
                                                     <span>{new Date(selectedInvoice.syncTime).toLocaleDateString('fr-FR')}</span>
-                                                    <span className="text-white/80">{new Date(selectedInvoice.syncTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                                    <span className="text-[#5D4037]/80">{new Date(selectedInvoice.syncTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
                                                 </div>
                                                 : <span className="opacity-40">--/-- --:--</span>
                                             }
