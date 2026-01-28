@@ -7,6 +7,7 @@ import { useState, useMemo, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, Plus, X, FileText, File, Calendar, RefreshCw, Copy, Files, Trash2, Check, CloudUpload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 
 // Mock Data
 const initialInvoices: Invoice[] = [
@@ -73,28 +74,22 @@ const mockArticles: any[] = [
 ];
 
 function AchatsContent() {
-    const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
+    const [invoices, setInvoices, isLoaded] = usePersistedState<Invoice[]>("bakery_invoices", initialInvoices);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
-    const [isLoaded, setIsLoaded] = useState(false);
 
 
     // URL Params
     const searchParams = useSearchParams();
 
-    // Persistence
+    // Migration and Initial Load Sync
     useEffect(() => {
-        const saved = localStorage.getItem('bakery_invoices');
-        if (saved) {
-            try {
-                const loaded = JSON.parse(saved);
-                const migrated = loaded.map((inv: any) => inv.status === "Synced" ? { ...inv, status: "Validated" } : inv);
-                setInvoices(migrated);
-            } catch (e) {
-                console.error("Failed to load invoices", e);
+        if (isLoaded) {
+            const hasSynced = invoices.some(inv => (inv as any).status === "Synced");
+            if (hasSynced) {
+                setInvoices(prev => prev.map(inv => (inv as any).status === "Synced" ? { ...inv, status: "Validated" } : inv));
             }
         }
-        setIsLoaded(true);
-    }, []);
+    }, [isLoaded, invoices, setInvoices]);
 
     // Handle External Actions (from Tiers)
     useEffect(() => {
@@ -134,11 +129,6 @@ function AchatsContent() {
         }
     }, [isLoaded, searchParams]);
 
-    useEffect(() => {
-        if (isLoaded) {
-            localStorage.setItem('bakery_invoices', JSON.stringify(invoices));
-        }
-    }, [invoices, isLoaded]);
 
     // Filters
     const [statusFilter, setStatusFilter] = useState<"TOUS" | "FACTURES" | "BROUILLONS">("TOUS");

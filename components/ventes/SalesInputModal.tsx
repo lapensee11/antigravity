@@ -174,7 +174,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                 chq: mtChq.toFixed(2),
                 glovo: glovoNet.toFixed(2)
             };
-            // Ensure inputs are also synced (fallback)
+            // Sync inputs to ref (backwards compatibility for save)
             formDataRef.current.sales = sales;
             formDataRef.current.payments = payments;
             formDataRef.current.supplements = supplements;
@@ -185,7 +185,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             formDataRef.current.coeffExo = coeffExo;
             formDataRef.current.coeffImp = coeffImp;
         }
-    }); // Run on every render to ensure derived calcs are fresh
+    }, [sales, payments, supplements, glovo, hours, subTotalInput, nbTickets, coeffExo, coeffImp, valExo, valImpHT, totalHT, totalTTC, valRemise, valEsp, mtCmi, mtChq, glovoNet]);
 
     // Auto-focus Boulangerie logic
     useEffect(() => {
@@ -198,61 +198,65 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
         }
     }, [isOpen, isDeclared]);
 
-    // Load initial data
+    // Load initial data (ONLY ON OPEN OR DATE CHANGE)
+    const prevOpenRef = useRef(false);
+    const prevDateRef = useRef(date);
+
     useEffect(() => {
-        if (isOpen && initialData) {
-            setSales(initialData.sales || {});
-            setSupplements(initialData.supplements || { traiteurs: "", caisse: "" });
-            setPayments(initialData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" });
-            setSubTotalInput(initialData.subTotalInput || "");
-            setNbTickets(initialData.nbTickets || "");
-            setGlovo(initialData.glovo || { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" });
-            setHours(initialData.hours || { startH: "07", startM: "00", endH: "20", endM: "00" });
-            setHours(initialData.hours || { startH: "07", startM: "00", endH: "20", endM: "00" });
+        const isOpening = isOpen && !prevOpenRef.current;
+        const isDateChanging = date !== prevDateRef.current;
 
-            // IMMEDIATE REF FILL (Prevent Escape key race condition on fresh load)
-            formDataRef.current = {
-                sales: initialData.sales || {},
-                supplements: initialData.supplements || { traiteurs: "", caisse: "" },
-                payments: initialData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" },
-                subTotalInput: initialData.subTotalInput || "",
-                nbTickets: initialData.nbTickets || "",
-                glovo: initialData.glovo || { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" },
-                hours: initialData.hours || { startH: "07", startM: "00", endH: "20", endM: "00" },
-                coeffExo: initialData?.coeffExo || "1.11",
-                coeffImp: initialData?.coeffImp || "0.60"
-            };
-        } else if (isOpen) {
-            // Reset if new/empty
-            setSales({});
-            setSupplements({ traiteurs: "", caisse: "" });
-            setPayments({ nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" });
-            setSubTotalInput("");
-            setNbTickets("");
-            setGlovo({ brut: "", brutImp: "", brutExo: "", incid: "", cash: "" });
-            setHours({ startH: "07", startM: "00", endH: "20", endM: "00" });
+        if (isOpening || isDateChanging) {
+            if (initialData) {
+                setSales(initialData.sales || {});
+                setSupplements(initialData.supplements || { traiteurs: "", caisse: "" });
+                setPayments(initialData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" });
+                setSubTotalInput(initialData.subTotalInput || "");
+                setNbTickets(initialData.nbTickets || "");
+                setGlovo(initialData.glovo || { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" });
+                setHours(initialData.hours || { startH: "07", startM: "00", endH: "20", endM: "00" });
+                setCoeffExo(initialData?.coeffExo || "1.11");
+                setCoeffImp(initialData?.coeffImp || "0.60");
 
-            // IMMEDIATE REF RESET
-            formDataRef.current = {
-                sales: {},
-                supplements: { traiteurs: "", caisse: "" },
-                payments: { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" },
-                subTotalInput: "",
-                nbTickets: "",
-                glovo: { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" },
-                hours: { startH: "07", startM: "00", endH: "20", endM: "00" },
-                coeffExo: "1.11",
-                coeffImp: "0.60"
-            };
+                formDataRef.current = {
+                    sales: initialData.sales || {},
+                    supplements: initialData.supplements || { traiteurs: "", caisse: "" },
+                    payments: initialData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" },
+                    subTotalInput: initialData.subTotalInput || "",
+                    nbTickets: initialData.nbTickets || "",
+                    glovo: initialData.glovo || { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" },
+                    hours: initialData.hours || { startH: "07", startM: "00", endH: "20", endM: "00" },
+                    coeffExo: initialData?.coeffExo || "1.11",
+                    coeffImp: initialData?.coeffImp || "0.60"
+                };
+            } else {
+                // Reset if new/empty
+                setSales({});
+                setSupplements({ traiteurs: "", caisse: "" });
+                setPayments({ nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" });
+                setSubTotalInput("");
+                setNbTickets("");
+                setGlovo({ brut: "", brutImp: "", brutExo: "", incid: "", cash: "" });
+                setHours({ startH: "07", startM: "00", endH: "20", endM: "00" });
+                setCoeffExo("1.11");
+                setCoeffImp("0.60");
+
+                formDataRef.current = {
+                    sales: {},
+                    supplements: { traiteurs: "", caisse: "" },
+                    payments: { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" },
+                    subTotalInput: "",
+                    nbTickets: "",
+                    glovo: { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" },
+                    hours: { startH: "07", startM: "00", endH: "20", endM: "00" },
+                    coeffExo: "1.11",
+                    coeffImp: "0.60"
+                };
+            }
         }
-
-        // Initialize Coeffs with persistence check
-        if (isOpen && isDeclared) {
-            // Preserve existing coeffs if editing, or default if new
-            setCoeffExo(initialData?.coeffExo || "1.11");
-            setCoeffImp(initialData?.coeffImp || "0.60");
-        }
-    }, [isOpen, initialData, isDeclared]);
+        prevOpenRef.current = isOpen;
+        prevDateRef.current = date;
+    }, [isOpen, date, initialData]);
 
 
 

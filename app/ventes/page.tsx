@@ -4,9 +4,9 @@ import { Sidebar } from "@/components/layout/Sidebar";
 // TopBar removed to align title with logo as requested
 import { GlassCard } from "@/components/ui/GlassCard";
 import { SalesInputModal } from "@/components/ventes/SalesInputModal";
-import { useState, useEffect, Suspense, useRef, useMemo } from "react";
+import { useState, useEffect, Suspense, useRef, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { Calendar, TrendingUp, ShieldCheck, ChevronUp, ChevronDown } from "lucide-react";
+import { Calendar, TrendingUp, ShieldCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 
@@ -201,6 +201,7 @@ function VentesContent() {
     const [selectedYear, setSelectedYear] = useState(currentYear);
     const [selectedMonth, setSelectedMonth] = useState(currentMonth);
     const [selectedPeriod, setSelectedPeriod] = useState<"FULL" | "Q1" | "Q2">("FULL");
+    const [viewMode, setViewMode] = useState<"Saisie" | "Compta">("Saisie"); // NEW: View Mode State
 
     // Keyboard Navigation State
     const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
@@ -248,12 +249,11 @@ function VentesContent() {
     }, [searchParams]);
 
     // Handle Save from Modal
-    const handleSave = (data: DayData, isDraft: boolean, targetDate?: string) => {
+    const handleSave = useCallback((data: DayData, isDraft: boolean, targetDate?: string) => {
         if (!modalType) return;
 
         // Use the explicitly passed date (safest) or fallback to selectedDate
         const dateKey = targetDate || selectedDate;
-
         const typeKey = modalType === "Real" ? "real" : "declared";
 
         // 1. Prepare Data Update
@@ -271,7 +271,6 @@ function VentesContent() {
             const mtCmi = parseFloat(data.payments.mtCmi) || 0;
             if (modalType === "Real" && mtCmi > 0) {
                 // Call Sync Helper
-                // Use dateKey
                 const result = syncToBank(updatedData, dateKey, mtCmi);
 
                 if (!result.success) {
@@ -285,94 +284,88 @@ function VentesContent() {
             }
         }
 
-        // We need to fetch the existing Declared state correctly or use defaults
-        const existingDeclared = salesData[dateKey]?.declared || {} as DayData;
-        let newDeclaredData = { ...existingDeclared };
+        setSalesData(prev => {
+            const existingDay = prev[dateKey] || {};
+            const existingDeclared = existingDay.declared || {} as DayData;
+            let newDeclaredData = { ...existingDeclared };
 
-        // 5b. Force Sync if Real Data Changed (using Master Logic)
-        if (modalType === "Real") {
-            const currentReal = updatedData;
-            // We need to fetch the existing Declared state correctly or use defaults
-            const existingDeclared = salesData[dateKey]?.declared || {} as DayData;
-            newDeclaredData = calculateDeclaredFromReal(currentReal, existingDeclared);
-        } else {
-            newDeclaredData = updatedData; // If editing Declared directly (rare/coeffs)
-        }
-
-        setSalesData(prev => ({
-            ...prev,
-            [dateKey]: {
-                ...prev[dateKey],
-                real: modalType === "Real" ? updatedData : prev[dateKey]?.real,
-                declared: newDeclaredData
+            if (modalType === "Real") {
+                newDeclaredData = calculateDeclaredFromReal(updatedData, existingDeclared);
+            } else {
+                newDeclaredData = updatedData;
             }
-        }));
-    };
+
+            return {
+                ...prev,
+                [dateKey]: {
+                    ...existingDay,
+                    real: modalType === "Real" ? updatedData : existingDay.real,
+                    declared: newDeclaredData
+                }
+            };
+        });
+    }, [modalType, selectedDate, setSalesData]);
 
     // INLINE COEFF UPDATE (Re-Calc Declared)
-    const handleCoeffUpdate = (dateKey: string, newCoeffImp: string) => {
-        const dayReal = salesData[dateKey]?.real || {} as DayData;
+    const handleCoeffUpdate = useCallback((dateKey: string, newCoeffImp: string) => {
+        setSalesData(prev => {
+            const dayReal = prev[dateKey]?.real || {} as DayData;
+            const currentDeclared = prev[dateKey]?.declared || {} as DayData;
 
-        // If no real data, we can't really calc declared, but we can set the coeff.
-        const currentDeclared = salesData[dateKey]?.declared || {} as DayData;
+            const updatedDeclaredBase = {
+                ...currentDeclared,
+                coeffImp: newCoeffImp
+            };
 
-        // Update coeff in declared data
-        const updatedDeclaredBase = {
-            ...currentDeclared,
-            coeffImp: newCoeffImp
-        };
+            const updatedDeclared = calculateDeclaredFromReal(dayReal, updatedDeclaredBase);
 
-        // Recalculate everything using Master Logic based on Real Data
-        const updatedDeclared = calculateDeclaredFromReal(dayReal, updatedDeclaredBase);
-
-        setSalesData(prev => ({
-            ...prev,
-            [dateKey]: {
-                ...prev[dateKey],
-                declared: updatedDeclared
-            }
-        }));
-    };
+            return {
+                ...prev,
+                [dateKey]: {
+                    ...prev[dateKey],
+                    declared: updatedDeclared
+                }
+            };
+        });
+    }, [setSalesData]);
 
     // INLINE GLOVO UPDATE (Real Data + Trigger Declared Recalc)
-    const handleGlovoUpdate = (dateKey: string, field: 'brut' | 'incid' | 'cash', value: string) => {
-        const dayReal = salesData[dateKey]?.real || {} as DayData;
-        const currentDeclared = salesData[dateKey]?.declared || {} as DayData;
+    const handleGlovoUpdate = useCallback((dateKey: string, field: 'brut' | 'incid' | 'cash', value: string) => {
+        setSalesData(prev => {
+            const dayReal = prev[dateKey]?.real || {} as DayData;
+            const currentDeclared = prev[dateKey]?.declared || {} as DayData;
 
-        // 1. Update Real Data
-        const updatedGlovo = { ...dayReal.glovo, [field]: value };
-        // Default structure if missing
-        if (!updatedGlovo.brut) updatedGlovo.brut = "0";
-        if (!updatedGlovo.incid) updatedGlovo.incid = "0";
-        if (!updatedGlovo.cash) updatedGlovo.cash = "0";
+            const updatedGlovo = { ...dayReal.glovo, [field]: value };
+            if (!updatedGlovo.brut) updatedGlovo.brut = "0";
+            if (!updatedGlovo.incid) updatedGlovo.incid = "0";
+            if (!updatedGlovo.cash) updatedGlovo.cash = "0";
 
-        // 1b. Recalc Glovo Net for REAL Display
-        const glovoBrutVal = parseFloat(updatedGlovo.brut) || 0;
-        const glovoIncidVal = parseFloat(updatedGlovo.incid) || 0;
-        const glovoCashVal = parseFloat(updatedGlovo.cash) || 0;
-        const newGlovoNet = (glovoBrutVal * 0.82) - glovoIncidVal - glovoCashVal;
+            const glovoBrutVal = parseFloat(updatedGlovo.brut) || 0;
+            const glovoIncidVal = parseFloat(updatedGlovo.incid) || 0;
+            const glovoCashVal = parseFloat(updatedGlovo.cash) || 0;
+            const newGlovoNet = (glovoBrutVal * 0.82) - glovoIncidVal - glovoCashVal;
 
-        const updatedReal: DayData = {
-            ...dayReal,
-            glovo: updatedGlovo,
-            calculated: {
-                ...(dayReal.calculated || {}),
-                glovo: newGlovoNet.toFixed(2)
-            }
-        };
+            const updatedReal: DayData = {
+                ...dayReal,
+                glovo: updatedGlovo,
+                calculated: {
+                    ...(dayReal.calculated || {}),
+                    glovo: newGlovoNet.toFixed(2)
+                }
+            };
 
-        // 2. Force Master Sync for Declared Data
-        const updatedDeclared = calculateDeclaredFromReal(updatedReal, currentDeclared);
+            const updatedDeclared = calculateDeclaredFromReal(updatedReal, currentDeclared);
 
-        setSalesData(prev => ({
-            ...prev,
-            [dateKey]: {
-                ...prev[dateKey],
-                real: updatedReal,
-                declared: updatedDeclared
-            }
-        }));
-    };
+            return {
+                ...prev,
+                [dateKey]: {
+                    ...prev[dateKey],
+                    real: updatedReal,
+                    declared: updatedDeclared
+                }
+            };
+        });
+    }, [setSalesData]);
 
     // Generate Table Rows using Persistence
     const tableRows = useMemo(() => {
@@ -406,6 +399,36 @@ function VentesContent() {
                 declaredTTC: dayDeclared?.calculated?.ttc || "0.00",
                 declaredEsp: dayDeclared?.calculated?.esp || "0.00",
                 coeffImp: dayDeclared?.coeffImp || "0.60", // Default 0.60
+
+                // COMPTA CALCULATIONS (Based on Declared Data)
+                compta: (() => {
+                    const dSales = dayDeclared?.sales || {};
+
+                    // 1. Exonéré = Boulangerie (D)
+                    const valExo = parseFloat(dSales["BOULANGERIE"] || "0");
+
+                    // 2. Imposable HT = Sum(Others) / 1.2
+                    let sumOthersTTC = 0;
+                    Object.entries(dSales).forEach(([key, val]) => {
+                        if (key !== "BOULANGERIE") {
+                            sumOthersTTC += parseFloat(val as string) || 0;
+                        }
+                    });
+                    const valImpHT = sumOthersTTC / 1.2;
+
+                    // 3. Totals
+                    const valTotHT = valExo + valImpHT;
+                    const valTTC = valExo + sumOthersTTC;
+
+                    return {
+                        exo: valExo.toFixed(2),
+                        impHt: valImpHT.toFixed(2),
+                        totHt: valTotHT.toFixed(2),
+                        ttc: valTTC.toFixed(2),
+                        glovoExo: salesData[isoKey]?.real?.glovo?.brutExo || "0.00",
+                        glovoImp: salesData[isoKey]?.real?.glovo?.brutImp || "0.00"
+                    };
+                })()
             });
         }
         return rows;
@@ -414,14 +437,27 @@ function VentesContent() {
     const periodTotals = useMemo(() => {
         const totals = {
             exo: 0, impHt: 0, totHt: 0, ttc: 0, cmi: 0, chq: 0, glovo: 0, esp: 0,
-            declaredTTC: 0, declaredEsp: 0
+            declaredTTC: 0, declaredEsp: 0,
+            glovoExo: 0, glovoImp: 0
         };
 
         tableRows.forEach(row => {
-            totals.exo += parseFloat(row.exo) || 0;
-            totals.impHt += parseFloat(row.impHt) || 0;
-            totals.totHt += parseFloat(row.totHt) || 0;
-            totals.ttc += parseFloat(row.ttc) || 0;
+            if (viewMode === "Compta") {
+                // Use Compta Calculated Values
+                totals.exo += parseFloat((row as any).compta.exo);
+                totals.impHt += parseFloat((row as any).compta.impHt);
+                totals.totHt += parseFloat((row as any).compta.totHt);
+                totals.ttc += parseFloat((row as any).compta.ttc);
+                totals.glovoExo += parseFloat((row as any).compta.glovoExo);
+                totals.glovoImp += parseFloat((row as any).compta.glovoImp);
+            } else {
+                // Use Real Values
+                totals.exo += parseFloat(row.exo) || 0;
+                totals.impHt += parseFloat(row.impHt) || 0;
+                totals.totHt += parseFloat(row.totHt) || 0;
+                totals.ttc += parseFloat(row.ttc) || 0;
+            }
+
             totals.cmi += parseFloat(row.cmi) || 0;
             totals.chq += parseFloat(row.chq) || 0;
             totals.glovo += parseFloat(row.glovo) || 0;
@@ -433,7 +469,7 @@ function VentesContent() {
         });
 
         return totals;
-    }, [tableRows]);
+    }, [tableRows, viewMode]);
 
 
     // Keyboard Listener
@@ -567,11 +603,46 @@ function VentesContent() {
                     </div>
 
                     {/* FILTERS SECTION */}
-                    <div className="flex items-center justify-between bg-white/50 p-2.5 rounded-2xl border border-white/40 shadow-sm backdrop-blur-sm">
+                    {/* FILTERS & VIEW MODE SECTION - Reorganized */}
+                    <div className="flex items-center justify-between p-2.5">
+                        {/* LEFT: View Mode Toggles */}
+                        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+                            <button
+                                onClick={() => setViewMode("Saisie")}
+                                className={cn(
+                                    "px-4 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
+                                    viewMode === "Saisie"
+                                        ? "bg-white text-blue-600 shadow-sm ring-1 ring-black/5"
+                                        : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                                )}
+                            >
+                                <TrendingUp className="w-4 h-4" />
+                                Saisie
+                            </button>
+                            <button
+                                onClick={() => setViewMode("Compta")}
+                                className={cn(
+                                    "px-4 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
+                                    viewMode === "Compta"
+                                        ? "bg-amber-100 text-amber-700 shadow-sm ring-1 ring-amber-200"
+                                        : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                                )}
+                            >
+                                <ShieldCheck className="w-4 h-4" />
+                                Compta
+                            </button>
+                        </div>
+
+                        {/* RIGHT: Date Controls (Moved here) */}
                         <div className="flex items-center gap-4">
                             <button
                                 onClick={handleToday}
-                                className="px-4 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-sm font-bold transition-colors border border-indigo-200/50 flex items-center gap-2 mr-2"
+                                className={cn(
+                                    "px-4 py-1.5 rounded-xl text-sm font-bold transition-colors border flex items-center gap-2 mr-2",
+                                    viewMode === "Compta"
+                                        ? "bg-amber-50 text-amber-600 border-amber-200/50 hover:bg-amber-100"
+                                        : "bg-indigo-50 text-indigo-600 border-indigo-200/50 hover:bg-indigo-100"
+                                )}
                             >
                                 <Calendar className="w-4 h-4" />
                                 Aujourd&apos;hui
@@ -585,7 +656,7 @@ function VentesContent() {
                                     <select
                                         value={selectedYear}
                                         onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                                        className="bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 outline-none cursor-pointer hover:border-indigo-200 transition-colors"
+                                        className="bg-transparent border-none text-slate-700 text-sm font-bold rounded-lg px-0 py-0 focus:ring-0 cursor-pointer hover:text-blue-600 transition-colors"
                                     >
                                         {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
                                     </select>
@@ -596,7 +667,7 @@ function VentesContent() {
                                     <select
                                         value={selectedMonth}
                                         onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                                        className="bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 outline-none min-w-[120px] cursor-pointer hover:border-indigo-200 transition-colors"
+                                        className="bg-transparent border-none text-slate-700 text-sm font-bold rounded-lg px-0 py-0 focus:ring-0 cursor-pointer hover:text-blue-600 transition-colors min-w-[100px]"
                                     >
                                         {Array.from({ length: 12 }, (_, i) => {
                                             const date = new Date(2000, i, 1);
@@ -610,7 +681,7 @@ function VentesContent() {
                                     <select
                                         value={selectedPeriod}
                                         onChange={(e) => setSelectedPeriod(e.target.value as "FULL" | "Q1" | "Q2")}
-                                        className="bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 outline-none min-w-[130px] cursor-pointer hover:border-indigo-200 transition-colors"
+                                        className="bg-transparent border-none text-slate-700 text-sm font-bold rounded-lg px-0 py-0 focus:ring-0 cursor-pointer hover:text-blue-600 transition-colors min-w-[120px]"
                                     >
                                         <option value="FULL">Mois Complet</option>
                                         <option value="Q1">1ère Quinzaine</option>
@@ -621,44 +692,82 @@ function VentesContent() {
 
                             <div className="h-8 w-px bg-slate-200/60 mx-2"></div>
 
-                            <div className="flex flex-col">
+                            <div className="flex flex-col text-right">
                                 <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Affichage</label>
-                                <span className="text-sm font-mono font-medium text-slate-600">
-                                    Du <span className="font-bold text-slate-800">{periodStart}</span> au <span className="font-bold text-slate-800">{periodEnd}</span>
+                                <span className={cn("text-sm font-mono font-medium", viewMode === "Compta" ? "text-amber-700" : "text-slate-600")}>
+                                    Du <span className="font-bold">{periodStart}</span> au <span className="font-bold">{periodEnd}</span>
                                 </span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="flex-1 flex flex-col min-h-0 px-0"> {/* Removed px-8 here since table is full width */}
-                    {/* DETAILED JOURNAL TABLE (Full Width, Square) */}
-                    {/* Added mb-6 for bottom margin as requested */}
-                    <GlassCard className="flex-1 p-0 overflow-hidden flex flex-col shadow-none border-t border-[#C07070] border-x-0 border-b-0 rounded-none bg-white mb-6">
-                        <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent bg-white relative">
+                <div className="flex-1 min-h-0 px-0 pb-6">
+                    {/* JOURNAL STYLE TABLE MATCHING PAYE - PETIT ARRONDI & CLEAN LOOK */}
+                    <div className="flex-1 bg-white rounded-2xl border border-slate-200 flex flex-col overflow-hidden h-full relative z-0 shadow-sm">
+
+                        <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent relative z-10">
                             <table className="w-full text-sm text-left border-collapse" ref={tableRef}>
-                                <thead className="bg-[#C07070] text-white text-[10px] font-bold uppercase tracking-wider sticky top-0 z-20 shadow-none border-b border-[#C07070]">
+                                <thead className={cn(
+                                    "sticky top-0 z-20 text-[10px] font-black pointer-events-none text-slate-300 uppercase tracking-widest shadow-sm transition-colors duration-300",
+                                    viewMode === "Compta" ? "bg-[#451a03] border-b border-amber-900" : "bg-[#1E293B]"
+                                )}>
                                     <tr>
-                                        <th className="px-2 py-1.5 border-r-[4px] border-r-[#C07070]">Date</th>
-                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20">Exonéré</th>
-                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20">Imp. HT</th>
-                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20 bg-[#C07070]/5">Total HT</th>
-                                        <th className="px-2 py-1.5 text-right border-r-[4px] border-r-[#C07070] bg-[#C07070]/10">Total TTC</th>
-                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20 text-blue-100">CMI</th>
-                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20 text-emerald-100">Chèques</th>
-                                        <th className="px-2 py-1.5 text-right font-bold h-full">Espèces</th>
-                                        <th className="px-1 py-1.5 bg-[#C07070] w-[4px]"></th>
-                                        {/* GLOVO BREAKDOWN */}
-                                        <th className="px-1 py-1.5 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Glv Brut</th>
-                                        <th className="px-1 py-1.5 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Incid</th>
-                                        <th className="px-1 py-1.5 text-right border-r border-[#C07070]/20 text-yellow-200 text-[10px] font-bold w-20">Cash</th>
-                                        <th className="px-2 py-1.5 text-right border-r-[4px] border-r-[#C07070] text-yellow-200 font-bold w-24">Glovo Net</th>
-                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20 text-orange-200">Total TTC (D)</th>
-                                        <th className="px-2 py-1.5 text-right border-r border-[#C07070]/20 text-orange-200">Espèces (D)</th>
-                                        <th className="px-2 py-1.5 text-center text-purple-200 w-24">Coeff Imp</th>
+                                        {/* Date - Left Aligned with Strong Border */}
+                                        <th className={cn(
+                                            "px-3 py-3 border-r text-left min-w-[140px] z-30 transition-colors duration-300",
+                                            viewMode === "Compta" ? "bg-[#451a03] border-amber-900" : "bg-[#1E293B] border-[#334155]"
+                                        )}>Date</th>
+
+                                        {/* CA Group - Layout for Saisie vs Compta */}
+                                        {viewMode === "Compta" ? (
+                                            <>
+                                                {/* 1: Exo */}
+                                                <th className="px-3 py-3 text-right text-amber-200/70 min-w-[90px]">Exo</th>
+                                                {/* 2: Dont Glovo (Exo) */}
+                                                <th className="px-3 py-3 text-right text-yellow-400 font-bold min-w-[100px]">Dont Glovo</th>
+                                                {/* 3: Imp. HT */}
+                                                <th className="px-3 py-3 text-right text-amber-200/70 min-w-[90px]">Imp. HT</th>
+                                                {/* 4: Dont Glovo (Imp) */}
+                                                <th className="px-3 py-3 text-right text-yellow-400 font-bold min-w-[100px]">Dont Glovo</th>
+                                                {/* 5: Total HT */}
+                                                <th className="px-3 py-3 text-right text-amber-100 min-w-[100px]">Total HT</th>
+                                                {/* 6: Total TTC */}
+                                                <th className="px-3 py-3 text-right text-slate-300 font-extrabold min-w-[100px]">Total TTC</th>
+                                                {/* 7: CMI */}
+                                                <th className="px-3 py-3 text-right text-emerald-400 min-w-[80px]">CMI</th>
+                                                {/* 8: Chèques */}
+                                                <th className="px-3 py-3 text-right text-emerald-400 min-w-[80px]">Chèques</th>
+                                                {/* 9: Glovo Brut */}
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-20 min-w-[80px]">Glv Brut</th>
+                                                {/* 10: Incid */}
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-20 min-w-[70px]">Incid</th>
+                                                {/* 11: Cash */}
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-20 min-w-[70px]">Cash</th>
+                                                {/* 12: Glovo Net */}
+                                                <th className="px-3 py-3 text-right text-yellow-400 font-extrabold min-w-[100px]">Glovo Net</th>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <th className="px-3 py-3 text-right text-slate-300">Exonéré</th>
+                                                <th className="px-3 py-3 text-right text-slate-300">Imp. HT</th>
+                                                <th className="px-3 py-3 text-right text-slate-300">Total HT</th>
+                                                <th className="px-3 py-3 text-right text-slate-300 font-extrabold">Total TTC</th>
+                                                <th className="px-3 py-3 text-right text-emerald-400">CMI</th>
+                                                <th className="px-3 py-3 text-right text-emerald-400">Chèques</th>
+                                                <th className="px-3 py-3 text-right font-black text-emerald-400">Espèces</th>
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-20">Glv Brut</th>
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-20">Incid</th>
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-20">Cash</th>
+                                                <th className="px-3 py-3 text-right text-yellow-400 font-extrabold">Glovo Net</th>
+                                                <th className="px-3 py-3 text-right text-orange-400 font-bold">TTC (D)</th>
+                                                <th className="px-3 py-3 text-right text-orange-400 font-bold">Esp (D)</th>
+                                                <th className="px-2 py-3 text-center text-orange-400 w-24">Coeff</th>
+                                            </>
+                                        )}
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
+                                <tbody className="divide-y divide-slate-100 bg-white">
                                     {tableRows.map((row, i) => (
                                         <tr
                                             key={i}
@@ -668,175 +777,301 @@ function VentesContent() {
                                                 setSelectedDate(row.isoKey);
                                             }}
                                             className={cn(
-                                                "transition-all duration-100 group cursor-pointer scroll-mt-10 border-b border-slate-50",
+                                                "transition-all duration-100 group cursor-pointer border-b border-slate-50",
                                                 focusedRowIndex === i
-                                                    ? "bg-[#C07070]/90 text-white"
+                                                    ? cn(
+                                                        "relative z-10",
+                                                        viewMode === "Compta"
+                                                            ? "bg-gradient-to-r from-amber-950/90 to-amber-900/90"
+                                                            : "bg-gradient-to-r from-[#1E293B] to-[#334155]"
+                                                    )
                                                     : "hover:bg-slate-50"
                                             )}
                                         >
-                                            {/* Divider applied to Date cells - Unconditional */}
-
-                                            <td className={cn("px-2 py-1 font-medium text-xs border-r-[4px] border-r-[#C07070] transition-colors relative",
-                                                focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#C07070]"
-                                            )}>
-                                                {/* Status Dot */}
-                                                {row.status === 'synced' && (
-                                                    <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.5)]" title="Synchronisé" />
+                                            <td className="px-3 py-2 text-xs font-bold text-slate-700 whitespace-nowrap relative border-r-[2px] border-[#1E293B] text-left">
+                                                {/* Selection Indicator */}
+                                                {focusedRowIndex === i && (
+                                                    <div className={cn(
+                                                        "absolute left-0 top-0 bottom-0 w-[4px] rounded-r",
+                                                        viewMode === "Compta" ? "bg-amber-500" : "bg-emerald-500"
+                                                    )} />
                                                 )}
-                                                {row.status === 'draft' && (
-                                                    <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-orange-400" title="Brouillon" />
-                                                )}
-                                                {row.dateStr}
-                                            </td>
-                                            <td className={cn("px-2 py-1 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#C07070]")}>{row.exo}</td>
-                                            <td className={cn("px-2 py-1 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-white/90" : "text-slate-600 group-hover:text-[#C07070]")}>{row.impHt}</td>
-                                            <td className={cn("px-2 py-1 text-right font-medium text-sm border-r border-slate-100/50 bg-slate-50/30", focusedRowIndex === i ? "text-white" : "text-slate-700 group-hover:text-[#C07070]")}>{row.totHt}</td>
-                                            {/* Divider applied to Total TTC cells - Unconditional */}
-                                            <td className={cn(
-                                                "px-2 py-1 text-right font-bold text-sm bg-slate-100/30 border-r-[4px] border-r-[#C07070] transition-colors",
-                                                focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#C07070]"
-                                            )}>{row.ttc}</td>
-                                            <td className={cn("px-2 py-1 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-blue-200" : "text-slate-600 group-hover:text-[#C07070]")}>{row.cmi}</td>
-                                            <td className={cn("px-2 py-1 text-right font-medium text-sm border-r border-slate-100/50", focusedRowIndex === i ? "text-emerald-200" : "text-slate-600 group-hover:text-[#C07070]")}>{row.chq}</td>
-                                            <td className={cn("px-2 py-1 text-right font-bold text-sm", focusedRowIndex === i ? "text-white" : "text-slate-800 group-hover:text-[#C07070]")}>{row.esp}</td>
-                                            <td className="px-1 py-1 border-l-[4px] border-l-[#C07070] bg-slate-50/50"></td>
 
-                                            {/* GLOVO BREAKDOWN VALUES (Editable) */}
-                                            <td className={cn("px-1 py-0.5 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
-                                                <input
-                                                    type="text"
-                                                    value={salesData[row.isoKey]?.real?.glovo?.brut || ""}
-                                                    placeholder="0.00"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    onChange={(e) => handleGlovoUpdate(row.isoKey, 'brut', e.target.value)}
-                                                    className={cn(
-                                                        "w-full h-full bg-transparent text-right font-medium text-sm focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
-                                                        focusedRowIndex === i ? "text-yellow-200 placeholder-yellow-200/50" : "text-yellow-600 group-hover/cell:text-yellow-700"
+                                                <div className="flex items-center justify-start gap-3">
+                                                    {/* Status Dot - Moved to Left of Date - ENLARGED */}
+                                                    {row.status === 'synced' && (
+                                                        <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-sm border border-emerald-600 flex-shrink-0" title="Synchronisé" />
                                                     )}
-                                                />
-                                            </td>
-                                            <td className={cn("px-1 py-0.5 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
-                                                <input
-                                                    type="text"
-                                                    value={salesData[row.isoKey]?.real?.glovo?.incid || ""}
-                                                    placeholder="0.00"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    onChange={(e) => handleGlovoUpdate(row.isoKey, 'incid', e.target.value)}
-                                                    className={cn(
-                                                        "w-full h-full bg-transparent text-right font-medium text-sm focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
-                                                        focusedRowIndex === i ? "text-yellow-200 placeholder-yellow-200/50" : "text-yellow-600 group-hover/cell:text-yellow-700"
+                                                    {row.status === 'draft' && (
+                                                        <div className="w-3 h-3 rounded-full bg-orange-400 shadow-sm border border-orange-500 flex-shrink-0" title="Brouillon" />
                                                     )}
-                                                />
-                                            </td>
-                                            <td className={cn("px-1 py-0.5 text-right border-r border-slate-100/50 relative group/cell w-20", focusedRowIndex === i ? "bg-yellow-500/10" : "")}>
-                                                <input
-                                                    type="text"
-                                                    value={salesData[row.isoKey]?.real?.glovo?.cash || ""}
-                                                    placeholder="0.00"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    onChange={(e) => handleGlovoUpdate(row.isoKey, 'cash', e.target.value)}
-                                                    className={cn(
-                                                        "w-full h-full bg-transparent text-right font-medium text-sm focus:ring-0 focus:outline-none placeholder-slate-300/50 px-1",
-                                                        focusedRowIndex === i ? "text-yellow-200 placeholder-yellow-200/50" : "text-yellow-600 group-hover/cell:text-yellow-700"
-                                                    )}
-                                                />
+                                                    {!row.status && <div className="w-3 h-3 bg-transparent flex-shrink-0" />}
+
+                                                    <span className={cn(
+                                                        "uppercase tracking-tight font-mono truncate text-xs",
+                                                        focusedRowIndex === i ? "text-white font-black" : "text-slate-600"
+                                                    )}>
+                                                        {row.dateStr}
+                                                    </span>
+                                                </div>
                                             </td>
 
-                                            <td className={cn("px-2 py-1 text-right font-bold text-sm border-r-[4px] border-r-[#C07070] w-24", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-700 group-hover:text-yellow-800")}>{row.glovo}</td>
+                                            {/* REORDERED COMPTA CELLS (12 fields) vs SAISIE CELLS */}
+                                            {viewMode === "Compta" ? (
+                                                <>
+                                                    {/* 1: Exo */}
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-slate-200" : "text-slate-500")}>
+                                                        {parseFloat(row.compta.exo) !== 0 ? row.compta.exo : "-"}
+                                                    </td>
+                                                    {/* 2: Dont Glovo (Exo) */}
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-yellow-200" : "text-yellow-600")}>{(row as any).compta.glovoExo}</td>
+                                                    {/* 3: Imp. HT */}
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-slate-200" : "text-slate-500")}>
+                                                        {parseFloat(row.compta.impHt) !== 0 ? row.compta.impHt : "-"}
+                                                    </td>
+                                                    {/* 4: Dont Glovo (Imp) */}
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-yellow-200" : "text-yellow-600")}>{(row as any).compta.glovoImp}</td>
+                                                    {/* 5: Total HT */}
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-slate-100" : "text-slate-500")}>
+                                                        {parseFloat(row.compta.totHt) !== 0 ? row.compta.totHt : "-"}
+                                                    </td>
+                                                    {/* 6: Total TTC */}
+                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-white" : "text-slate-500")}>{row.compta.ttc}</td>
+                                                    {/* 7: CMI */}
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
+                                                    {/* 8: Chèques */}
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
+                                                    {/* 9: Glovo Brut */}
+                                                    <td className="px-2 py-1 text-right w-20 min-w-[80px] font-mono text-xs font-bold">
+                                                        <span className={focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600"}>
+                                                            {parseFloat(salesData[row.isoKey]?.real?.glovo?.brut || "0").toFixed(2)}
+                                                        </span>
+                                                    </td>
+                                                    {/* 10: Incid */}
+                                                    <td className="px-2 py-1 text-right w-20 min-w-[70px] font-mono text-xs font-bold">
+                                                        <span className={focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600"}>
+                                                            {parseFloat(salesData[row.isoKey]?.real?.glovo?.incid || "0").toFixed(2)}
+                                                        </span>
+                                                    </td>
+                                                    {/* 11: Cash */}
+                                                    <td className="px-2 py-1 text-right w-20 min-w-[70px] font-mono text-xs font-bold">
+                                                        <span className={focusedRowIndex === i ? "text-yellow-300" : "text-yellow-700"}>
+                                                            {parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0").toFixed(2)}
+                                                        </span>
+                                                    </td>
+                                                    {/* 12: Glovo Net */}
+                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-[2px] border-[#451a03] min-w-[100px]", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600")}>
+                                                        {parseFloat(row.glovo || "0").toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-200" : "text-slate-500")}>
+                                                        {row.exo !== "0.00" ? row.exo : "-"}
+                                                    </td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-200" : "text-slate-500")}>
+                                                        {row.impHt !== "0.00" ? row.impHt : "-"}
+                                                    </td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-100" : "text-slate-500")}>
+                                                        {row.totHt !== "0.00" ? row.totHt : "-"}
+                                                    </td>
 
-                                            {/* NEW: DECLARED CELLS */}
+                                                    <td className={cn(
+                                                        "px-3 py-2 text-right font-black text-xs font-mono tracking-tight",
+                                                        focusedRowIndex === i ? "text-white" : "text-slate-500"
+                                                    )}>
+                                                        {row.ttc}
+                                                    </td>
 
-                                            <td className={cn("px-2 py-1 text-right font-bold text-sm text-orange-600/80", focusedRowIndex === i && "text-orange-200")}>{row.declaredTTC}</td>
-                                            <td className={cn("px-2 py-1 text-right font-bold text-sm text-orange-600/80", focusedRowIndex === i && "text-orange-200")}>{row.declaredEsp}</td>
-                                            <td className="px-2 py-1 text-center" onClick={(e) => e.stopPropagation()}>
-                                                <div className="relative flex items-center justify-center w-full max-w-[80px] mx-auto group/input">
-                                                    <div className="relative flex items-center bg-white/50 rounded-lg border border-purple-200">
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
+
+                                                    <td className={cn("px-3 py-2 text-right font-black text-xs border-r-[2px] border-[#1E293B] font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-300 bg-emerald-900/20" : "text-emerald-600 bg-slate-50/50")}>{row.esp}</td>
+
+                                                    {/* GLOVO ROW CELLS - UNIFIED YELLOW */}
+                                                    <td className="px-2 py-1 text-right group/cell w-20">
                                                         <input
                                                             type="text"
-                                                            value={row.coeffImp}
-                                                            onChange={(e) => handleCoeffUpdate(row.isoKey, e.target.value)}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                                                                    e.preventDefault();
-                                                                    e.stopPropagation(); // Stop table navigation
-                                                                    const val = parseFloat(row.coeffImp) || 0;
-                                                                    const step = 0.01;
-                                                                    const newVal = val + (e.key === 'ArrowUp' ? step : -step);
-                                                                    handleCoeffUpdate(row.isoKey, newVal.toFixed(2));
-                                                                }
-                                                            }}
-                                                            className="w-12 text-center bg-transparent border-none text-xs font-bold text-purple-700 py-1 pl-1 pr-0 focus:ring-0 focus:outline-none font-mono"
+                                                            value={focusedRowIndex === i ? (salesData[row.isoKey]?.real?.glovo?.brut || "") : parseFloat(salesData[row.isoKey]?.real?.glovo?.brut || "0").toFixed(2)}
+                                                            placeholder="0.00"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            onFocus={() => setFocusedRowIndex(i)}
+                                                            onBlur={(e) => handleGlovoUpdate(row.isoKey, 'brut', parseFloat(e.target.value.replace(',', '.') || "0").toFixed(2))}
+                                                            onChange={(e) => handleGlovoUpdate(row.isoKey, 'brut', e.target.value)}
+                                                            className={cn(
+                                                                "w-full h-7 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
+                                                                focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600 hover:bg-slate-50"
+                                                            )}
                                                         />
-                                                        <div className="flex flex-col border-l border-purple-200 pl-0.5 pr-0.5 gap-px">
+                                                    </td>
+                                                    <td className="px-2 py-1 text-right group/cell w-20">
+                                                        <input
+                                                            type="text"
+                                                            value={focusedRowIndex === i ? (salesData[row.isoKey]?.real?.glovo?.incid || "") : parseFloat(salesData[row.isoKey]?.real?.glovo?.incid || "0").toFixed(2)}
+                                                            placeholder="0.00"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            onFocus={() => setFocusedRowIndex(i)}
+                                                            onBlur={(e) => handleGlovoUpdate(row.isoKey, 'incid', parseFloat(e.target.value.replace(',', '.') || "0").toFixed(2))}
+                                                            onChange={(e) => handleGlovoUpdate(row.isoKey, 'incid', e.target.value)}
+                                                            className={cn(
+                                                                "w-full h-7 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
+                                                                focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600 hover:bg-slate-50"
+                                                            )}
+                                                        />
+                                                    </td>
+                                                    <td className="px-2 py-1 text-right group/cell w-20">
+                                                        <input
+                                                            type="text"
+                                                            value={focusedRowIndex === i ? (salesData[row.isoKey]?.real?.glovo?.cash || "") : parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0").toFixed(2)}
+                                                            placeholder="0.00"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            onFocus={() => setFocusedRowIndex(i)}
+                                                            onBlur={(e) => handleGlovoUpdate(row.isoKey, 'cash', parseFloat(e.target.value.replace(',', '.') || "0").toFixed(2))}
+                                                            onChange={(e) => handleGlovoUpdate(row.isoKey, 'cash', e.target.value)}
+                                                            className={cn(
+                                                                "w-full h-7 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
+                                                                focusedRowIndex === i ? "text-yellow-300" : "text-yellow-700 hover:bg-slate-50"
+                                                            )}
+                                                        />
+                                                    </td>
+                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600")}>
+                                                        {parseFloat(row.glovo || "0").toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+
+                                                    {/* DECLARED ROW CELLS - Removed in Compta */}
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredTTC}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredEsp}</td>
+
+                                                    <td className="px-2 py-1 text-center" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="relative flex items-center justify-center w-full group/input gap-1">
+                                                            {/* Decrement Button */}
                                                             <button
                                                                 onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    const val = parseFloat(row.coeffImp) || 0;
-                                                                    handleCoeffUpdate(row.isoKey, (val + 0.01).toFixed(2));
-                                                                }}
-                                                                className="hover:bg-purple-100 rounded text-purple-600 p-px"
-                                                                tabIndex={-1}
-                                                            >
-                                                                <ChevronUp className="w-2.5 h-2.5" />
-                                                            </button>
-                                                            <button
-                                                                onClick={(e) => {
+                                                                    e.preventDefault();
                                                                     e.stopPropagation();
                                                                     const val = parseFloat(row.coeffImp) || 0;
                                                                     handleCoeffUpdate(row.isoKey, (val - 0.01).toFixed(2));
                                                                 }}
-                                                                className="hover:bg-purple-100 rounded text-purple-600 p-px"
+                                                                className={cn(
+                                                                    "p-1 rounded-md transition-colors hover:bg-orange-100/50 focus:outline-none",
+                                                                    focusedRowIndex === i ? "text-orange-600 opacity-100" : "text-orange-300 opacity-0 group-hover/input:opacity-100"
+                                                                )}
                                                                 tabIndex={-1}
                                                             >
-                                                                <ChevronDown className="w-2.5 h-2.5" />
+                                                                <ChevronLeft className="w-4 h-4" />
+                                                            </button>
+
+                                                            <div className="relative flex items-center h-8 px-1 min-w-[50px] justify-center">
+                                                                <input
+                                                                    type="text"
+                                                                    value={row.coeffImp}
+                                                                    onChange={(e) => handleCoeffUpdate(row.isoKey, e.target.value)}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                                                                            e.preventDefault();
+                                                                            e.stopPropagation();
+                                                                            const val = parseFloat(row.coeffImp) || 0;
+                                                                            const step = 0.01;
+                                                                            const newVal = val + (e.key === 'ArrowUp' ? step : -step);
+                                                                            handleCoeffUpdate(row.isoKey, newVal.toFixed(2));
+                                                                        }
+                                                                    }}
+                                                                    className={cn(
+                                                                        "w-full text-center bg-transparent border-none text-xs font-black py-0 pl-1 pr-0 focus:ring-0 focus:outline-none font-mono tracking-tight",
+                                                                        focusedRowIndex === i ? "text-orange-300" : "text-orange-500"
+                                                                    )}
+                                                                />
+                                                            </div>
+
+                                                            {/* Increment Button */}
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    const val = parseFloat(row.coeffImp) || 0;
+                                                                    handleCoeffUpdate(row.isoKey, (val + 0.01).toFixed(2));
+                                                                }}
+                                                                className={cn(
+                                                                    "p-1 rounded-md transition-colors hover:bg-orange-100/50 focus:outline-none",
+                                                                    focusedRowIndex === i ? "text-orange-600 opacity-100" : "text-orange-300 opacity-0 group-hover/input:opacity-100"
+                                                                )}
+                                                                tabIndex={-1}
+                                                            >
+                                                                <ChevronRight className="w-4 h-4" />
                                                             </button>
                                                         </div>
-                                                    </div>
-                                                </div>
-                                            </td>
+                                                    </td>
+                                                </>
+                                            )}
                                         </tr>
                                     ))}
                                 </tbody>
-                                {/* FOOTER ROW - Sticky Bottom */}
-                                <tfoot className="sticky bottom-0 z-20 bg-[#C07070] text-white text-[10px] font-bold uppercase tracking-wider shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] border-t-2 border-[#C07070]">
+                                {/* FOOTER ROW - Sticky Bottom matches Payroll Journal footer style */}
+                                <tfoot className={cn(
+                                    "sticky bottom-0 z-20 text-slate-300 text-[10px] font-bold uppercase tracking-wider shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.2)] transition-colors duration-300 border-t",
+                                    viewMode === "Compta" ? "bg-[#451a03] border-amber-900" : "bg-[#1E293B] border-[#334155]"
+                                )}>
                                     <tr>
-                                        {/* Divider applied to Footer Date cell - Unconditional */}
-                                        <td className="px-4 py-3 text-right border-r-[4px] border-r-[#C07070]">Total</td>
-                                        <td className="px-4 py-3 text-right border-r border-white/20">{periodTotals.exo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right border-r border-white/20">{periodTotals.impHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right bg-white/5 border-r border-white/20">{periodTotals.totHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        {/* Divider applied to Footer TTC cell - Unconditional */}
-                                        <td className="px-4 py-3 text-right bg-white/10 border-r-[4px] border-r-[#C07070] font-bold text-white">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right text-blue-100 border-r border-white/20">{periodTotals.cmi.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right text-emerald-100 border-r border-white/20">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right text-white font-bold">{periodTotals.esp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-1 py-3 bg-[#C07070] w-[4px]"></td>
+                                        <td className="px-3 py-4 text-left font-extrabold text-white">Total Période</td>
 
-                                        {/* GLOVO FOOTER -- Merged or empty? Or Sums? Let's leave empty for breakdown for now to avoid clutter, or add sums if needed. User didn't specify. I'll add filler cells. */}
-                                        <td className="px-1 py-3 border-r border-slate-700/50 w-20"></td>
-                                        <td className="px-1 py-3 border-r border-slate-700/50 w-20"></td>
-                                        <td className="px-1 py-3 border-r border-slate-700/50 w-20"></td>
-
-                                        <td className="px-2 py-3 text-right text-yellow-500 font-bold border-r-[4px] border-r-[#1E293B] w-24">{periodTotals.glovo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right text-orange-200 font-bold">{periodTotals.declaredTTC.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-right text-orange-200 font-bold">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                        <td className="px-4 py-3 text-center text-purple-300 font-bold">AVG</td>
+                                        {/* REORDERED COMPTA FOOTER (12 fields) vs SAISIE FOOTER */}
+                                        {viewMode === "Compta" ? (
+                                            <>
+                                                {/* 1: Exo */}
+                                                <td className="px-3 py-4 text-right font-mono min-w-[90px]">{periodTotals.exo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                {/* 2: Dont Glovo (Exo) */}
+                                                <td className="px-3 py-4 text-right font-bold text-yellow-400 font-mono min-w-[100px]">{periodTotals.glovoExo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                {/* 3: Imp. HT */}
+                                                <td className="px-3 py-4 text-right font-mono min-w-[90px]">{periodTotals.impHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                {/* 4: Dont Glovo (Imp) */}
+                                                <td className="px-3 py-4 text-right font-bold text-yellow-400 font-mono min-w-[100px]">{periodTotals.glovoImp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                {/* 5: Total HT */}
+                                                <td className="px-3 py-4 text-right font-mono text-white min-w-[100px]">{periodTotals.totHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                {/* 6: Total TTC */}
+                                                <td className="px-3 py-4 text-right font-black text-white font-mono min-w-[100px]">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                {/* 7: CMI */}
+                                                <td className="px-3 py-4 text-right text-emerald-400 font-mono min-w-[80px]">{periodTotals.cmi.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                {/* 8: Chèques */}
+                                                <td className="px-3 py-4 text-right text-emerald-400 font-mono min-w-[80px]">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                {/* 9: Glovo Brut */}
+                                                <td className="px-3 py-4 text-right font-black text-yellow-400 font-mono min-w-[80px]">
+                                                    {(periodTotals as any).glovo?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                                {/* 10, 11, 12 Labels Detail */}
+                                                <td className="px-2 py-4 text-right text-yellow-500/80" colSpan={3}>Détails Glovo Net</td>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <td className="px-3 py-4 text-right font-mono">{periodTotals.exo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right font-mono">{periodTotals.impHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right font-mono text-white">{periodTotals.totHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right font-black text-white font-mono">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right text-emerald-400 font-mono">{periodTotals.cmi.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right text-emerald-400 font-mono">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right font-black text-emerald-400 font-mono">{periodTotals.esp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-2 py-4 text-right text-yellow-500/80" colSpan={3}>Glovo Total</td>
+                                                <td className="px-3 py-4 text-right font-black text-yellow-400 font-mono">{periodTotals.glovo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right font-bold text-orange-400 font-mono">{periodTotals.declaredTTC.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right font-bold text-orange-400 font-mono">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td></td>
+                                            </>
+                                        )}
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
-                    </GlassCard>
-
-                    <SalesInputModal
-                        isOpen={!!modalType}
-                        onClose={() => setModalType(null)}
-                        onSave={handleSave}
-                        date={selectedDate}
-                        isDeclared={modalType === "Declared"}
-                        initialData={modalType === "Real" ? salesData[selectedDate]?.real : salesData[selectedDate]?.declared}
-                        realData={salesData[selectedDate]?.real}
-                    />
+                    </div>
                 </div>
+
+                <SalesInputModal
+                    isOpen={!!modalType}
+                    onClose={() => setModalType(null)}
+                    onSave={handleSave}
+                    date={selectedDate}
+                    isDeclared={modalType === "Declared"}
+                    initialData={modalType === "Real" ? salesData[selectedDate]?.real : salesData[selectedDate]?.declared}
+                    realData={salesData[selectedDate]?.real}
+                />
             </main>
         </div>
     );

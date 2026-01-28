@@ -1,16 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
-export function usePersistedState<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
+export function usePersistedState<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void, boolean] {
     // 1. Initialize state with initialValue to avoid hydration mismatch
     const [state, setState] = useState<T>(initialValue);
     const [isLoaded, setIsLoaded] = useState(false);
+
+    // Ref to store the latest state for the debounced sync
+    const stateRef = useRef(state);
+    stateRef.current = state;
 
     // 2. Load from localStorage on mount (Client-side only)
     useEffect(() => {
         try {
             const item = window.localStorage.getItem(key);
             if (item) {
-                setState(JSON.parse(item));
+                const parsed = JSON.parse(item);
+                setState(parsed);
+                stateRef.current = parsed;
             }
         } catch (error) {
             console.error(`Error reading localStorage key "${key}":`, error);
@@ -18,21 +24,28 @@ export function usePersistedState<T>(key: string, initialValue: T): [T, (value: 
         setIsLoaded(true);
     }, [key]);
 
-    // 3. Wrap setState to update localStorage
-    const setPersistedState = (value: T | ((val: T) => T)) => {
-        try {
-            const valueToStore =
-                value instanceof Function ? value(state) : value;
+    // 3. Debounced Sync to LocalStorage
+    useEffect(() => {
+        if (!isLoaded) return;
 
-            setState(valueToStore);
-
-            if (typeof window !== "undefined") {
-                window.localStorage.setItem(key, JSON.stringify(valueToStore));
+        const timer = setTimeout(() => {
+            try {
+                if (typeof window !== "undefined") {
+                    window.localStorage.setItem(key, JSON.stringify(stateRef.current));
+                }
+            } catch (error) {
+                console.error(`Error setting localStorage key "${key}":`, error);
             }
-        } catch (error) {
-            console.error(`Error setting localStorage key "${key}":`, error);
-        }
-    };
+        }, 500); // 500ms delay
 
-    return [state, setPersistedState];
+        return () => clearTimeout(timer);
+    }, [state, key, isLoaded]);
+
+    const setPersistedState = useCallback((value: T | ((val: T) => T)) => {
+        setState(prev => {
+            return value instanceof Function ? value(prev) : value;
+        });
+    }, []);
+
+    return [state, setPersistedState, isLoaded];
 }

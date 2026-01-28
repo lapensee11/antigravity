@@ -6,6 +6,7 @@ import { Tier } from "@/lib/types";
 import { useState, useEffect } from "react";
 import { Search, Plus, User, Briefcase, Phone, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 
 // Mock Data
 const initialTiers: Tier[] = [
@@ -37,7 +38,7 @@ const initialTiers: Tier[] = [
 
 export default function TiersPage() {
     // State
-    const [tiers, setTiers] = useState<Tier[]>(initialTiers);
+    const [tiers, setTiers] = usePersistedState<Tier[]>("bakery_tiers", initialTiers);
     const [selectedTier, setSelectedTier] = useState<Tier | null>(initialTiers[0]);
     const [typeFilter, setTypeFilter] = useState<"TOUS" | "Fournisseur" | "Client">("TOUS");
     const [searchQuery, setSearchQuery] = useState("");

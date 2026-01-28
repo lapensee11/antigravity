@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TypeColumn } from "@/components/structure/TypeColumn";
 import { StructureType, Family, SubFamily } from "@/lib/types";
 import { useState, useEffect } from "react";
+import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 
 import { initialTypes, initialFamilies, initialSubFamilies } from "@/lib/data";
 
@@ -51,8 +52,8 @@ const ICONS = [
 
 export default function StructurePage() {
     const [types] = useState<StructureType[]>(initialTypes);
-    const [families, setFamilies] = useState<Family[]>(initialFamilies);
-    const [subFamilies, setSubFamilies] = useState<SubFamily[]>(initialSubFamilies);
+    const [families, setFamilies] = usePersistedState<Family[]>("bakery_families", initialFamilies);
+    const [subFamilies, setSubFamilies] = usePersistedState<SubFamily[]>("bakery_subfamilies", initialSubFamilies);
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);

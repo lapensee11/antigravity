@@ -7,6 +7,7 @@ import { initialFamilies, initialSubFamilies } from "@/lib/data";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Search, ChevronDown, Check, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 
 // Mock Data
 const initialArticles: Article[] = [
@@ -47,7 +48,7 @@ const initialArticles: Article[] = [
 ];
 
 export default function ArticlesPage() {
-    const [articles, setArticles] = useState<Article[]>(initialArticles);
+    const [articles, setArticles] = usePersistedState<Article[]>("bakery_articles", initialArticles);
     const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
     const [editTrigger, setEditTrigger] = useState(0); // Trigger for editor focus
 

@@ -2,7 +2,7 @@
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { GlassCard } from "@/components/ui/GlassCard";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
     Calculator,
     Users,
@@ -12,6 +12,7 @@ import {
     Plus,
     Minus,
     ChevronDown,
+    ChevronUp,
     Search,
     User,
     Pencil,
@@ -21,9 +22,14 @@ import {
     Briefcase,
     Check,
     X,
-    Edit2
+    Edit2,
+    Baby,
+    Heart,
+    Lock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PayrollDatePicker } from "@/components/payroll/PayrollDatePicker";
+import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 
 // Mock Data inspired by image
 interface StaffMember {
@@ -36,12 +42,11 @@ interface StaffMember {
     gender: string;
     birthDate: string;
     matricule: string;
-    netCible: number;
-    jours: number;
-    hSup: number;
-    pRegul: number;
-    pOccas: number;
-    avances: number;
+    situationFamiliale: string;
+    childrenCount: number;
+    // Monthly variable data is now stored in monthlyData
+    // Legacy fields removed or kept for backward-compatibility if needed during migration, 
+    // but for this refactor we will remove them from the flat structure.
     credit: number;
     personalInfo: {
         cin: string;
@@ -59,7 +64,6 @@ interface StaffMember {
         leaveBalance: string;
         baseSalary: number;
         fixedBonus: number;
-        lastSalary: string;
     };
     creditInfo: {
         loanAmount: number;
@@ -70,8 +74,18 @@ interface StaffMember {
         year: string;
         type: string;
         amount: number;
+        bonus: number;
         date: string;
     }[];
+    monthlyData: Record<string, {
+        jours: number;
+        hSup: number;
+        pRegul: number;
+        pOccas: number;
+        virement: number;
+        avances: number;
+        monthlyDeduction: number;
+    }>;
 }
 
 // Mock Data inspired by image
@@ -86,13 +100,20 @@ const staff: StaffMember[] = [
         gender: "Homme",
         birthDate: "12/05/1985",
         matricule: "M001",
-        netCible: 6500,
-        jours: 26,
-        hSup: 0,
-        pRegul: 500,
-        pOccas: 0,
-        avances: 0,
+        situationFamiliale: "Marié",
+        childrenCount: 2,
         credit: 12000,
+        monthlyData: {
+            "JANVIER-2025": {
+                jours: 26,
+                hSup: 0,
+                pRegul: 500,
+                pOccas: 0,
+                virement: 0,
+                avances: 0,
+                monthlyDeduction: 1000,
+            }
+        },
         personalInfo: {
             cin: "BH123456",
             cnss: "123456789",
@@ -109,7 +130,6 @@ const staff: StaffMember[] = [
             leaveBalance: "12 Jours",
             baseSalary: 6500,
             fixedBonus: 500,
-            lastSalary: "7 000,00 Dh"
         },
         creditInfo: {
             loanAmount: 20000,
@@ -117,10 +137,10 @@ const staff: StaffMember[] = [
             remaining: 12000
         },
         history: [
-            { year: "22", type: "EMBAUCHE", amount: 5000, date: "01/03/2022" },
-            { year: "23", type: "AUGMENTATION", amount: 5500, date: "01/01/2023" },
-            { year: "24", type: "AUGMENTATION", amount: 6000, date: "01/06/2024" },
-            { year: "25", type: "AUGMENTATION", amount: 6500, date: "01/01/2025" },
+            { year: "22", type: "EMBAUCHE", amount: 5000, bonus: 500, date: "01/03/2022" },
+            { year: "23", type: "AUGMENTATION", amount: 5500, bonus: 500, date: "01/01/2023" },
+            { year: "24", type: "AUGMENTATION", amount: 6000, bonus: 500, date: "01/06/2024" },
+            { year: "25", type: "AUGMENTATION", amount: 6500, bonus: 500, date: "01/01/2025" },
         ]
     },
     {
@@ -133,13 +153,20 @@ const staff: StaffMember[] = [
         gender: "Femme",
         birthDate: "24/11/1992",
         matricule: "M002",
-        netCible: 4200,
-        jours: 26,
-        hSup: 0,
-        pRegul: 0,
-        pOccas: 0,
-        avances: 0,
+        situationFamiliale: "Célibataire",
+        childrenCount: 0,
         credit: 0,
+        monthlyData: {
+            "JANVIER-2025": {
+                jours: 26,
+                hSup: 0,
+                pRegul: 0,
+                pOccas: 0,
+                virement: 0,
+                avances: 0,
+                monthlyDeduction: 0,
+            }
+        },
         personalInfo: {
             cin: "BH987654",
             cnss: "987654321",
@@ -156,7 +183,6 @@ const staff: StaffMember[] = [
             leaveBalance: "8 Jours",
             baseSalary: 4200,
             fixedBonus: 0,
-            lastSalary: "4 200,00 Dh"
         },
         creditInfo: {
             loanAmount: 0,
@@ -164,7 +190,7 @@ const staff: StaffMember[] = [
             remaining: 0
         },
         history: [
-            { year: "23", type: "EMBAUCHE", amount: 4200, date: "15/05/2023" },
+            { year: "23", type: "EMBAUCHE", amount: 4200, bonus: 0, date: "15/05/2023" },
         ]
     },
     {
@@ -177,13 +203,20 @@ const staff: StaffMember[] = [
         gender: "Homme",
         birthDate: "05/09/1998",
         matricule: "M003",
-        netCible: 3800,
-        jours: 26,
-        hSup: 0,
-        pRegul: 300,
-        pOccas: 0,
-        avances: 0,
+        situationFamiliale: "Célibataire",
+        childrenCount: 0,
         credit: 1500,
+        monthlyData: {
+            "JANVIER-2025": {
+                jours: 26,
+                hSup: 0,
+                pRegul: 300,
+                pOccas: 0,
+                virement: 0,
+                avances: 0,
+                monthlyDeduction: 500,
+            }
+        },
         personalInfo: {
             cin: "BH456123",
             cnss: "456123789",
@@ -200,7 +233,6 @@ const staff: StaffMember[] = [
             leaveBalance: "5 Jours",
             baseSalary: 3800,
             fixedBonus: 300,
-            lastSalary: "4 100,00 Dh"
         },
         creditInfo: {
             loanAmount: 5000,
@@ -208,18 +240,297 @@ const staff: StaffMember[] = [
             remaining: 1500
         },
         history: [
-            { year: "24", type: "EMBAUCHE", amount: 3800, date: "10/01/2024" },
+            { year: "24", type: "EMBAUCHE", amount: 3800, bonus: 300, date: "10/01/2024" },
         ]
     },
+    {
+        id: 4,
+        initials: "SB",
+        name: "SAIDA BENKIRANE",
+        firstName: "Saida",
+        lastName: "Benkirane",
+        role: "Vendeuse",
+        gender: "Femme",
+        birthDate: "15/03/1995",
+        matricule: "M004",
+        situationFamiliale: "Célibataire",
+        childrenCount: 0,
+        credit: 0,
+        monthlyData: {
+            "JANVIER-2025": {
+                jours: 26,
+                hSup: 0,
+                pRegul: 0,
+                pOccas: 0,
+                virement: 0,
+                avances: 0,
+                monthlyDeduction: 0,
+            }
+        },
+        personalInfo: {
+            cin: "BH654321",
+            cnss: "654321987",
+            phone: "0661654321",
+            phone2: "",
+            city: "Casablanca",
+            address: "15 Rue des Oranges"
+        },
+        contract: {
+            post: "Vendeuse",
+            hireDate: "01/02/2024",
+            exitDate: "-",
+            seniority: "11 mois",
+            leaveBalance: "2 Jours",
+            baseSalary: 3000,
+            fixedBonus: 0,
+        },
+        creditInfo: {
+            loanAmount: 0,
+            payments: 0,
+            remaining: 0
+        },
+        history: [
+            { year: "24", type: "EMBAUCHE", amount: 3000, bonus: 0, date: "01/02/2024" },
+        ]
+    },
+
 ];
+
+
+// Helper to get latest salary from history
+export const getLastSalaryInfo = (history: StaffMember['history'], fallbackNet: number = 0, fallbackBonus: number = 0) => {
+    if (!history || history.length === 0) return { amount: fallbackNet, bonus: fallbackBonus };
+
+    // Filter valid entries with amount > 0
+    const valid = history.filter(h => h.amount > 0 || h.bonus > 0);
+    if (valid.length === 0) return { amount: fallbackNet, bonus: fallbackBonus };
+
+    // Sort by date descending
+    const sorted = [...valid].sort((a, b) => {
+        const parseDate = (d: string) => {
+            if (!d || !d.includes('/')) return 0;
+            const parts = d.split('/').map(Number);
+            if (parts.length < 3) return 0;
+            const [day, month, year] = parts;
+            const fullYear = year < 100 ? 2000 + year : year;
+            return new Date(fullYear, month - 1, day).getTime();
+        };
+
+        const t1 = parseDate(a.date);
+        const t2 = parseDate(b.date);
+
+        if (t1 !== t2) return t2 - t1;
+        return history.indexOf(b) - history.indexOf(a);
+    });
+
+    return {
+        amount: sorted[0].amount || 0,
+        bonus: sorted[0].bonus || 0
+    };
+};
+
+// Helper for Moroccan IR (Impôt sur le Revenu) - Standard progressive scale with family reductions
+const calculateIR = (netImposable: number, dependentCount: number = 0) => {
+    let ir = 0;
+    // Monthly progressive scale
+    if (netImposable <= 2500) ir = 0;
+    else if (netImposable <= 4166.67) ir = (netImposable * 0.10) - 250;
+    else if (netImposable <= 5000) ir = (netImposable * 0.20) - 666.67;
+    else if (netImposable <= 6666.67) ir = (netImposable * 0.30) - 1166.67;
+    else if (netImposable <= 15000) ir = (netImposable * 0.34) - 1433.33;
+    else ir = (netImposable * 0.38) - 2033.33;
+
+    // Family reductions: 30 MAD per dependent (spouse + children), max 180 MAD total
+    const reduction = Math.min(dependentCount, 6) * 30;
+    return Math.max(0, ir - reduction);
+};
+
+// Calculate Net Salary from Gross
+const calculateNetFromGross = (gross: number, dependentCount: number = 0) => {
+    const cnss = Math.min(gross, 6000) * 0.0448;
+    const amo = gross * 0.0226;
+    const fraisPro = Math.min(gross * 0.20, 2500);
+    const netImposable = Math.max(0, gross - (cnss + amo + fraisPro));
+    const ir = calculateIR(netImposable, dependentCount);
+    return gross - cnss - amo - ir;
+};
+
+// Calculate Gross Salary from Net (Iterative Gross-up)
+const calculateGrossFromNet = (targetNet: number, dependentCount: number = 0) => {
+    if (targetNet <= 0) return 0;
+
+    let low = targetNet;
+    let high = targetNet * 2; // Sufficient upper bound
+
+    // Binary search for high precision (20 iterations = ~10^-6 precision)
+    for (let i = 0; i < 20; i++) {
+        const mid = (low + high) / 2;
+        const currentNet = calculateNetFromGross(mid, dependentCount);
+        if (currentNet < targetNet) low = mid;
+        else high = mid;
+    }
+    return (low + high) / 2;
+};
 
 export default function PayePage() {
     const [viewMode, setViewMode] = useState<"Journal" | "Base">("Journal");
-    const [staffMembers, setStaffMembers] = useState(staff);
+    const [journalMode, setJournalMode] = useState<"Saisie" | "Comptable">("Saisie");
+
+    // Date Navigation State
+    const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+    const [currentMonthStr, setCurrentMonthStr] = useState("JANVIER");
+
+    // 1. Single source of truth for all staff data
+    // We use 'bakery_staff' to preserve existing user data
+    const [staffMembers, setStaffMembers, isLoaded] = usePersistedState<StaffMember[]>("bakery_staff", staff);
+
+    // Sync new mock data (e.g. Saida) if missing from persisted profiles
+    useEffect(() => {
+        if (!isLoaded) return;
+
+        setStaffMembers(prev => {
+            const existingIds = new Set(prev.map(p => p.id));
+            const missingStaff = staff.filter(s => !existingIds.has(s.id));
+
+            if (missingStaff.length > 0) {
+                // Return new array merged with missing staff
+                // We append them to the end
+                return [...prev, ...missingStaff];
+            }
+            return prev;
+        });
+    }, [isLoaded, setStaffMembers]);
+
+
+
     const [selectedEmployeeId, setSelectedEmployeeId] = useState(staff[0].id);
-    const [month, setMonth] = useState("JANVIER");
+    // Remove old month state
+    // const [month, setMonth] = useState("JANVIER");
+
     const [isEditing, setIsEditing] = useState(false);
     const [editData, setEditData] = useState<StaffMember | null>(null);
+
+    const MONTHS = [
+        "JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN",
+        "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE"
+    ];
+
+    const handlePrevMonth = () => {
+        const currentIndex = MONTHS.indexOf(currentMonthStr);
+        if (currentIndex > 0) {
+            setCurrentMonthStr(MONTHS[currentIndex - 1]);
+        } else {
+            setCurrentMonthStr(MONTHS[11]);
+            setCurrentYear(prev => prev - 1);
+        }
+    };
+
+    const handleNextMonth = () => {
+        const currentIndex = MONTHS.indexOf(currentMonthStr);
+        if (currentIndex < 11) {
+            setCurrentMonthStr(MONTHS[currentIndex + 1]);
+        } else {
+            setCurrentMonthStr(MONTHS[0]);
+            setCurrentYear(prev => prev + 1);
+        }
+    };
+
+    // DEBUG: Clear Future Data
+    const purgeFutureData = () => {
+        if (!window.confirm("Attention: Cela va effacer toutes les données des mois FUTURS (après le mois actuel) pour tous les employés afin de tester la logique séquentielle. Voulez-vous continuer ?")) return;
+
+        const currentMonthIndex = MONTHS.indexOf(currentMonthStr);
+
+        setStaffMembers(prev => prev.map(emp => {
+            const newMonthlyData = { ...emp.monthlyData };
+
+            if (emp.monthlyData) {
+                Object.keys(emp.monthlyData).forEach(key => {
+                    const [mStr, yStr] = key.split('-');
+                    const y = parseInt(yStr);
+                    const mIndex = MONTHS.indexOf(mStr);
+
+                    // If year is greater, OR year is same but month is greater
+                    if (y > currentYear || (y === currentYear && mIndex > currentMonthIndex)) {
+                        delete newMonthlyData[key];
+                    }
+                });
+            }
+
+            return {
+                ...emp,
+                monthlyData: newMonthlyData
+            };
+        }));
+        alert("Données futures effacées ! Les mois suivants devraient maintenant être vides.");
+    };
+
+    const handleClotureMois = () => {
+        if (!window.confirm("Êtes-vous sûr de vouloir clôturer ce mois ? Cette action validera les retenues, mettra à jour les soldes et ouvrira le mois suivant.")) return;
+
+        // Determine next month key
+        const currentIndex = MONTHS.indexOf(currentMonthStr);
+        let nextMonthIndex = currentIndex + 1;
+        let nextYear = currentYear;
+        if (nextMonthIndex > 11) {
+            nextMonthIndex = 0;
+            nextYear++;
+        }
+        const nextMonthStr = MONTHS[nextMonthIndex];
+        const nextKey = `${nextMonthStr}-${nextYear}`;
+
+        setStaffMembers(prev => prev.map(emp => {
+            const currentKey = `${currentMonthStr}-${currentYear}`;
+            const currentData = emp.monthlyData?.[currentKey];
+
+            // 1. Calculate new Loan Balance logic (from current month closure)
+            let newCreditInfo = { ...emp.creditInfo };
+
+            // If data exists for current month, process the deduction
+            if (currentData) {
+                const deduction = currentData.monthlyDeduction || 0;
+                // Use stored creditInfo or fallback
+                const loanAmount = emp.creditInfo?.loanAmount ?? emp.credit ?? 0;
+                const currentPayments = emp.creditInfo?.payments ?? 0;
+                // If we have a deduction and a loan
+                if (deduction > 0 && loanAmount > 0) {
+                    const newPayments = currentPayments + deduction;
+                    const newRemaining = Math.max(0, loanAmount - newPayments);
+                    newCreditInfo = {
+                        loanAmount: loanAmount,
+                        payments: newPayments,
+                        remaining: newRemaining,
+                        monthlyPayment: emp.creditInfo?.monthlyPayment ?? 0
+                    };
+                }
+            }
+
+            // 2. Initialize Next Month Data
+            // We create the entry for the next month with defaults
+            const nextMonthEntry = {
+                jours: 26, // Default Days
+                hSup: 0,
+                pRegul: 0,
+                pOccas: 0,
+                virement: 0,
+                avances: 0,
+                monthlyDeduction: newCreditInfo.monthlyPayment || 0, // Auto-prefill deduction if scheduled? Simple default 0 for now unless requested
+            };
+
+            return {
+                ...emp,
+                creditInfo: newCreditInfo,
+                monthlyData: {
+                    ...emp.monthlyData,
+                    [nextKey]: nextMonthEntry
+                }
+            };
+        }));
+
+        // Move to next month
+        setCurrentMonthStr(nextMonthStr);
+        setCurrentYear(nextYear);
+    };
     const [filterType, setFilterType] = useState<"Tous" | "Actifs" | "Inactifs">("Tous");
     const [searchQuery, setSearchQuery] = useState("");
     const [journalEditingId, setJournalEditingId] = useState<number | null>(null);
@@ -280,6 +591,26 @@ export default function PayePage() {
         return parts.length > 0 ? parts.join(', ') : "0 mois";
     };
 
+    const calculateSeniorityRate = (hireDate: string) => {
+        if (!hireDate || hireDate === "-" || !hireDate.includes('/')) return "0%";
+        const [d, m, y] = hireDate.split('/').map(Number);
+        const start = new Date(y, m - 1, d);
+        const now = new Date();
+
+        let years = now.getFullYear() - start.getFullYear();
+        const mDiff = now.getMonth() - start.getMonth();
+        if (mDiff < 0 || (mDiff === 0 && now.getDate() < start.getDate())) {
+            years--;
+        }
+
+        if (years >= 25) return "25%";
+        if (years >= 20) return "20%";
+        if (years >= 12) return "15%";
+        if (years >= 5) return "10%";
+        if (years >= 2) return "5%";
+        return "0%";
+    };
+
     const calculateLeaveDays = (hire: string, exit: string) => {
         if (!hire || hire === "-") return "0";
 
@@ -310,6 +641,47 @@ export default function PayePage() {
         return total % 1 === 0 ? total.toString() : total.toFixed(1);
     };
 
+    // Helper to get current month data
+    const getMonthData = (emp: StaffMember, mStr = currentMonthStr, y = currentYear) => {
+        const key = `${mStr}-${y}`;
+        return emp.monthlyData?.[key] || {
+            jours: 26,
+            hSup: 0,
+            pRegul: 0,
+            pOccas: 0,
+            virement: 0,
+            avances: 0,
+            monthlyDeduction: 0,
+        };
+    };
+
+    const updateMonthData = (empId: number, field: keyof ReturnType<typeof getMonthData>, value: number) => {
+        setStaffMembers(prev => prev.map(emp => {
+            if (emp.id !== empId) return emp;
+            const key = `${currentMonthStr}-${currentYear}`;
+            const currentData = emp.monthlyData?.[key] || {
+                jours: 26,
+                hSup: 0,
+                pRegul: 0,
+                pOccas: 0,
+                virement: 0,
+                avances: 0,
+                monthlyDeduction: 0,
+            };
+            return {
+                ...emp,
+                monthlyData: {
+                    ...emp.monthlyData,
+                    [key]: {
+                        ...currentData,
+                        [field]: value
+                    }
+                }
+            };
+        }));
+    };
+
+
     const filteredStaff = staffMembers.filter(emp => {
         const isInactive = emp.contract.exitDate && emp.contract.exitDate !== "-";
         const matchesFilter = filterType === "Tous" ||
@@ -325,6 +697,7 @@ export default function PayePage() {
     });
 
     const selectedEmployee = staffMembers.find(e => e.id === selectedEmployeeId) || filteredStaff[0] || staffMembers[0];
+    const selectedMonthData = getMonthData(selectedEmployee);
 
     const handleEdit = () => {
         setEditData({ ...selectedEmployee });
@@ -344,24 +717,6 @@ export default function PayePage() {
         setEditData(null);
     };
 
-    const handleJournalEdit = (emp: StaffMember) => {
-        setJournalEditingId(emp.id);
-        setJournalEditData({ ...emp });
-    };
-
-    const handleJournalSave = () => {
-        if (journalEditData) {
-            setStaffMembers(prev => prev.map(s => s.id === journalEditData.id ? journalEditData : s));
-            setJournalEditingId(null);
-            setJournalEditData(null);
-        }
-    };
-
-    const handleJournalCancel = () => {
-        setJournalEditingId(null);
-        setJournalEditData(null);
-    };
-
     const handleAddNew = () => {
         const newId = Math.max(...staffMembers.map(s => s.id), 0) + 1;
         const newEmployee: StaffMember = {
@@ -374,13 +729,20 @@ export default function PayePage() {
             gender: "Homme",
             birthDate: "01/01/1990",
             matricule: `M${String(newId).padStart(3, '0')}`,
-            netCible: 0,
-            jours: 26,
-            hSup: 0,
-            pRegul: 0,
-            pOccas: 0,
-            avances: 0,
+            situationFamiliale: "Célibataire",
+            childrenCount: 0,
             credit: 0,
+            monthlyData: {
+                [`${currentMonthStr}-${currentYear}`]: {
+                    jours: 26,
+                    hSup: 0,
+                    pRegul: 0,
+                    pOccas: 0,
+                    virement: 0,
+                    avances: 0,
+                    monthlyDeduction: 0,
+                }
+            },
             personalInfo: {
                 cin: "",
                 cnss: "",
@@ -395,8 +757,7 @@ export default function PayePage() {
                 seniority: "0 mois",
                 leaveBalance: "0 Jours",
                 baseSalary: 0,
-                fixedBonus: 0,
-                lastSalary: "0,00 Dh"
+                fixedBonus: 0
             },
             creditInfo: {
                 loanAmount: 0,
@@ -405,11 +766,9 @@ export default function PayePage() {
             },
             history: []
         };
-
         setStaffMembers(prev => [...prev, newEmployee]);
         setSelectedEmployeeId(newId);
-        setEditData(newEmployee);
-        setIsEditing(true);
+        // We can optionally init payroll for this month, but the view logic handles defaults
     };
 
     return (
@@ -418,71 +777,136 @@ export default function PayePage() {
             <main className="flex-1 ml-64 min-h-screen flex flex-col">
 
                 {/* Custom Header */}
-                <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-30 shadow-sm">
-                    <div className="flex items-center gap-8">
-                        <div className="flex items-center gap-2">
-                            <span className="text-2xl font-black tracking-tight text-[#1E293B]">Paye</span>
-                        </div>
+                <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-30 shadow-sm relative">
+                    {/* Left: Title + View Switch Button */}
+                    <div className="flex items-center gap-6">
+                        <span className="text-2xl font-black tracking-tight text-[#1E293B]">Paye</span>
 
-                        <div className="flex bg-[#E2E8F0]/50 p-1 rounded-xl">
+                        <div className="flex bg-[#F1F5F9] p-1 rounded-lg">
                             <button
                                 onClick={() => setViewMode("Journal")}
                                 className={cn(
-                                    "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 tracking-wider uppercase",
-                                    viewMode === "Journal" ? "bg-[#1E293B] text-white shadow-md font-black" : "text-slate-500 hover:text-slate-700 font-bold"
+                                    "px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 uppercase",
+                                    viewMode === "Journal" ? "bg-white text-[#1E293B] shadow-sm" : "text-slate-400 hover:text-slate-600"
                                 )}
                             >
-                                <Calculator className="w-4 h-4" /> Journal de Paye
+                                <Calculator className="w-3.5 h-3.5" /> Journal
                             </button>
                             <button
                                 onClick={() => setViewMode("Base")}
                                 className={cn(
-                                    "px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 tracking-wider uppercase",
-                                    viewMode === "Base" ? "bg-[#1E293B] text-white shadow-md font-black" : "text-slate-500 hover:text-slate-700 font-bold"
+                                    "px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 uppercase",
+                                    viewMode === "Base" ? "bg-white text-[#1E293B] shadow-sm" : "text-slate-400 hover:text-slate-600"
                                 )}
                             >
-                                <Users className="w-4 h-4" /> Base Personnel
+                                <Users className="w-3.5 h-3.5" /> Personnel
                             </button>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
-                        <div className="flex bg-[#E2E8F0]/50 p-1 rounded-xl">
-                            <button className="px-4 py-2 rounded-lg text-xs font-bold text-[#1E293B] bg-white shadow-sm flex items-center gap-2 tracking-wider uppercase">
-                                <Edit3 className="w-4 h-4" /> Saisie
+                    {/* Center: Date Filter */}
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                        <div className="flex items-center gap-2 bg-white rounded-xl border border-slate-200 shadow-sm p-1">
+                            <button onClick={handlePrevMonth} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 text-slate-400 hover:text-[#D97706] transition-colors">
+                                <ChevronDown className="w-4 h-4 rotate-90" />
                             </button>
-                            <button className="px-4 py-2 rounded-lg text-xs font-bold text-slate-500 hover:bg-white/50 flex items-center gap-2 tracking-wider uppercase">
-                                <BookOpen className="w-4 h-4" /> Comptable
+                            <div className="px-4 py-1 flex flex-col items-center min-w-[140px]">
+                                <span className="text-sm font-black text-[#1E293B] tracking-widest uppercase">{currentMonthStr}</span>
+                                <span className="text-[10px] font-bold text-slate-400">{currentYear}</span>
+                            </div>
+                            <button onClick={handleNextMonth} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-50 text-slate-400 hover:text-[#D97706] transition-colors">
+                                <ChevronDown className="w-4 h-4 -rotate-90" />
                             </button>
                         </div>
+                    </div>
 
-                        <button className="flex items-center gap-3 px-6 py-2 rounded-xl bg-white border border-slate-200 shadow-sm hover:border-[#D97706]/50 transition-colors group">
-                            <Calendar className="w-4 h-4 text-[#D97706]" />
-                            <span className="text-sm font-black text-[#D97706] tracking-[0.2em]">{month}</span>
-                            <ChevronDown className="w-3 h-3 text-slate-400 group-hover:text-[#D97706]" />
-                        </button>
+                    {/* Right: Journal Mode + Cloture */}
+                    <div className="flex items-center gap-4">
+                        {viewMode === "Journal" && (
+                            <>
+                                <div className="flex bg-[#F1F5F9] p-1 rounded-lg">
+                                    <button
+                                        onClick={() => setJournalMode("Saisie")}
+                                        className={cn(
+                                            "px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 uppercase",
+                                            journalMode === "Saisie" ? "bg-white text-blue-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                                        )}
+                                    >
+                                        <Edit3 className="w-3.5 h-3.5" /> Saisie
+                                    </button>
+                                    <button
+                                        onClick={() => setJournalMode("Comptable")}
+                                        className={cn(
+                                            "px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-2 uppercase",
+                                            journalMode === "Comptable" ? "bg-[#422B1E] text-white shadow-sm border border-[#5D3A2A]" : "text-slate-400 hover:text-slate-600"
+                                        )}
+                                    >
+                                        <BookOpen className="w-3.5 h-3.5" /> Comptable
+                                    </button>
+                                </div>
+
+                                <div className="h-8 w-px bg-slate-200 mx-2" />
+
+                                <button onClick={purgeFutureData} className="px-3 py-2 text-[10px] bg-red-50 text-red-600 rounded-lg font-bold hover:bg-red-100 transition-colors border border-red-100 whitespace-nowrap">
+                                    Reset Futurs
+                                </button>
+
+                                <button
+                                    onClick={handleClotureMois}
+                                    className="bg-[#1E293B] hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-lg shadow-slate-900/10 flex items-center gap-2 transition-all hover:scale-105 active:scale-95 border border-slate-700"
+                                >
+                                    <Lock className="w-3.5 h-3.5" />
+                                    Clôturer le Mois
+                                </button>
+                            </>
+                        )}
                     </div>
                 </header>
 
                 <div className="p-0 flex-1 overflow-hidden flex">
                     {viewMode === "Journal" ? (
                         <div className="p-6 w-full h-full flex flex-col">
-                            <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200 h-full flex flex-col">
+                            <div className={cn(
+                                "bg-white rounded-2xl shadow-2xl overflow-hidden border-2 h-full flex flex-col",
+                                journalMode === "Comptable" ? "border-[#A37D4A]" : "border-[#1E293B]"
+                            )}>
                                 <div className="overflow-auto custom-scrollbar flex-1">
                                     <table className="w-full border-collapse">
                                         <thead>
-                                            <tr className="bg-slate-100/50 text-[10px] text-slate-500 uppercase font-black tracking-widest border-b border-slate-200">
-                                                <th className="px-4 py-3 text-left w-10">#</th>
-                                                <th className="px-4 py-3 text-left">Salarié</th>
-                                                <th className="px-4 py-3 text-right">Net Cible</th>
-                                                <th className="px-4 py-3 text-center w-24">Jours</th>
-                                                <th className="px-4 py-3 text-center w-20">H. Sup</th>
-                                                <th className="px-4 py-3 text-right w-28">P. Régul</th>
-                                                <th className="px-4 py-3 text-right w-28">P. Occas</th>
-                                                <th className="px-4 py-3 text-right w-28 text-orange-600">Avances</th>
-                                                <th className="px-4 py-3 text-right w-28 text-red-600">Crédit</th>
-                                                <th className="px-4 py-3 text-right bg-slate-800 text-white w-32">Net à Payer</th>
-                                                <th className="px-4 py-3 text-right w-24">Actions</th>
+                                            <tr className={cn(
+                                                "text-[10px] text-slate-300 uppercase font-black tracking-widest border-b",
+                                                journalMode === "Comptable" ? "bg-[#5D4037] border-[#814C1D]" : "bg-[#1E293B] border-[#334155]"
+                                            )}>
+                                                <th className="px-4 py-3 text-left w-14">Matr.</th>
+                                                <th className="px-4 py-3 text-left w-24">Salarié</th>
+                                                <th className={cn(
+                                                    "px-4 py-3 text-right w-32 border-r",
+                                                    journalMode === "Comptable" ? "border-[#814C1D]" : "border-[#334155]"
+                                                )}>Net Cible</th>
+                                                {journalMode === "Saisie" ? (
+                                                    <>
+                                                        <th className="px-4 py-3 text-center w-32 border-r border-[#334155]">Mois / Année</th>
+                                                        <th className="px-4 py-3 text-center w-32">Jours</th>
+                                                        <th className="px-4 py-3 text-center w-20">H. Sup</th>
+                                                        <th className="px-4 py-3 text-right w-28">P. Régul</th>
+                                                        <th className="px-4 py-3 text-right w-28 border-r border-[#334155]">P. Occas</th>
+                                                        <th className="px-4 py-3 text-right w-28 text-orange-600">Virement</th>
+                                                        <th className="px-4 py-3 text-right w-28 text-orange-600">Avances</th>
+                                                        <th className="px-4 py-3 text-right w-28 text-orange-600 border-r border-[#1E293B]/20">Retenue Prêt</th>
+                                                        <th className="px-4 py-3 text-right text-white w-28">Net à Payer</th>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <th className="px-4 py-3 text-center w-20 border-r border-[#814C1D]">Jours</th>
+                                                        <th className="px-4 py-3 text-right w-28">Brut</th>
+                                                        <th className="px-4 py-3 text-right w-28">Brut Imp.</th>
+                                                        <th className="px-4 py-3 text-right w-28 border-r border-[#814C1D]">Net Imp.</th>
+                                                        <th className="px-4 py-3 text-right w-24 text-red-300">CNSS</th>
+                                                        <th className="px-4 py-3 text-right w-24 text-red-300">AMO</th>
+                                                        <th className="px-4 py-3 text-right w-24 text-red-300 border-r border-[#814C1D]">IR</th>
+                                                        <th className="px-4 py-3 text-right text-white w-32">Salaire Net</th>
+                                                    </>
+                                                )}
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
@@ -490,156 +914,485 @@ export default function PayePage() {
                                                 const isJournalEditing = journalEditingId === emp.id;
                                                 const currentData = isJournalEditing ? journalEditData! : emp;
 
+                                                // Net Calculation based on target "Net Cible" from history
+                                                const dependentCount = (emp.situationFamiliale?.includes('Marié') ? 1 : 0) + (emp.childrenCount || 0);
+                                                const salaryInfo = getLastSalaryInfo(emp.history, emp.contract.baseSalary, emp.contract.fixedBonus || 0);
+                                                const netCibleValue = salaryInfo.amount;
+                                                const historicalBonus = salaryInfo.bonus;
+
+                                                const currentKey = `${currentMonthStr}-${currentYear}`;
+                                                const isInitialized = !!emp.monthlyData?.[currentKey];
+                                                const mData = getMonthData(emp); // Still returns defaults if missing, but we use isInitialized to control UI
+
+                                                // 3. Pro-rate the Taxable Target Net (Base and Overtime only)
+                                                // Note: Primes (pRegul, pOccas) are excluded from this target for fiscal reasons
+                                                // 3. Pro-rate the Taxable Target Net (Base and Overtime only)
+                                                // If not initialized, effective days are 0 for calculation purposes (visual)
+                                                const effectiveJours = isInitialized ? (mData.jours || 0) : 0;
+                                                const effectiveHSup = isInitialized ? (mData.hSup || 0) : 0;
+
+                                                const targetNetBase = (netCibleValue / 26) * effectiveJours;
+                                                const targetNetOvertime = ((netCibleValue / 26) / 8) * effectiveHSup;
+                                                const targetNetForGrossUp = targetNetBase + targetNetOvertime;
+
+                                                // 4. Perform Iterative Gross-up to find corresponding Gross (Brut)
+                                                const brutGlobal = calculateGrossFromNet(targetNetForGrossUp, dependentCount);
+
+                                                // 5. Derive all accounting figures from the Gross
+                                                const cnss = Math.min(brutGlobal, 6000) * 0.0448;
+                                                const amo = brutGlobal * 0.0226;
+                                                const fraisPro = Math.min(brutGlobal * 0.20, 2500);
+                                                const brutImposable = brutGlobal;
+                                                const netImposable = Math.max(0, brutGlobal - (cnss + amo + fraisPro));
+                                                const ir = calculateIR(netImposable, dependentCount);
+                                                const salaireNetAcc = (brutGlobal - cnss - amo - ir); // This equals targetNetForGrossUp
+
+                                                // Pro-rate the Prime Régulière as well (optional, but often preferred)
+                                                const proRatedBonus = Math.round(((historicalBonus / 26) * Math.min(effectiveJours, 26)) * 100) / 100;
+                                                const currentBonus = isInitialized ? (mData.pRegul > 0 ? mData.pRegul : proRatedBonus) : 0;
+
+                                                // Net à Payer calculation (incl. IR and other professional deductions)
+                                                // Primes are added to the Net AFTER tax calculations
                                                 // Net à Payer calculation
-                                                const netAPayer = currentData.netCible + currentData.pRegul + currentData.pOccas - currentData.avances;
+                                                const netAPayer = isInitialized
+                                                    ? (salaireNetAcc + currentBonus + (mData.pOccas || 0) - (mData.virement || 0) - (mData.avances || 0) - (mData.monthlyDeduction || 0))
+                                                    : 0;
+
+                                                // Remaining Credit:
+                                                // We use creditInfo.remaining (historical balance) - monthlyDeduction (current payment)
+                                                // Fallback to emp.credit if creditInfo is missing, but prefer creditInfo.remaining
+                                                const startBalance = emp.creditInfo?.remaining ?? (emp.credit || 0);
+                                                const remainingCredit = Math.max(0, startBalance - (mData.monthlyDeduction || 0));
+
+                                                // Update Helper within the map loop
+                                                // Update Helper within the map loop
+                                                const updateField = (field: keyof ReturnType<typeof getMonthData>, val: number) => {
+                                                    if (!isInitialized) return; // Prevent edits if not initialized
+                                                    updateMonthData(emp.id, field, val);
+
+                                                    // Auto-calculate P.Regul if days change
+                                                    if (field === 'jours') {
+                                                        const baseBonus = emp.contract.fixedBonus || 0;
+                                                        const days = val;
+                                                        const effectiveDays = Math.min(days, 26);
+                                                        const calculatedBonus = (baseBonus / 26) * effectiveDays;
+                                                        const finalBonus = Math.round(calculatedBonus * 100) / 100;
+                                                        setTimeout(() => updateMonthData(emp.id, 'pRegul', finalBonus), 0);
+                                                    }
+                                                };
 
                                                 return (
                                                     <tr key={emp.id} className={cn(
                                                         "group transition-all hover:bg-slate-50/50",
-                                                        isJournalEditing ? "bg-blue-50/30" : (idx % 2 === 0 ? "bg-white" : "bg-slate-50/20")
+                                                        idx % 2 === 0 ? "bg-white" : "bg-slate-50/20"
                                                     )}>
-                                                        <td className="px-4 py-3 text-center text-[10px] font-bold text-slate-400">
-                                                            {emp.id}
+                                                        <td className="px-4 py-3 text-left text-[10px] font-bold text-slate-400">
+                                                            {emp.matricule}
                                                         </td>
                                                         <td className="px-4 py-3">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-[10px] font-black text-slate-400 uppercase shadow-sm">
-                                                                    {emp.initials}
+                                                            <div className="flex flex-col min-w-0">
+                                                                <div className="font-bold text-slate-800 text-xs flex items-center gap-2 truncate">
+                                                                    <span className="truncate">{emp.name}</span>
+                                                                    {emp.contract.exitDate && emp.contract.exitDate !== "-" && (
+                                                                        <span className="px-1 py-0.5 rounded-md bg-slate-100 text-[7px] text-slate-400 border border-slate-200 uppercase font-black shrink-0">Sorti</span>
+                                                                    )}
                                                                 </div>
-                                                                <div className="flex flex-col">
-                                                                    <div className="font-bold text-slate-800 text-xs flex items-center gap-2">
-                                                                        {emp.name}
-                                                                        {emp.contract.exitDate && emp.contract.exitDate !== "-" && (
-                                                                            <span className="px-1 py-0.5 rounded-md bg-slate-100 text-[7px] text-slate-400 border border-slate-200 uppercase font-black">Sorti</span>
+                                                                <div className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter mt-0.5 truncate">{emp.role}</div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-right border-r border-[#1E293B]/20">
+                                                            <span className="text-sm font-black text-emerald-600 tracking-tight">
+                                                                {netCibleValue.toLocaleString("fr-FR")} Dh
+                                                            </span>
+                                                        </td>
+                                                        {journalMode === "Saisie" ? (
+                                                            <>
+                                                                <td className="px-4 py-3 text-center border-r border-[#1E293B]/20">
+                                                                    <span className="text-xs font-bold text-slate-600">
+                                                                        {currentMonthStr.slice(0, 3)} {currentYear.toString().slice(2)}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    <div className="flex items-center justify-center gap-1">
+                                                                        <button
+                                                                            onClick={() => updateField('jours', Math.max(0, mData.jours - 0.5))}
+                                                                            disabled={!isInitialized}
+                                                                            className={cn(
+                                                                                "w-5 h-5 flex items-center justify-center bg-slate-100 rounded text-slate-600 transition-colors",
+                                                                                isInitialized ? "hover:bg-slate-200" : "opacity-30 cursor-not-allowed"
+                                                                            )}
+                                                                        >
+                                                                            <ChevronDown className="w-3 h-3" />
+                                                                        </button>
+                                                                        <input
+                                                                            type="number"
+                                                                            value={isInitialized ? mData.jours : ""}
+                                                                            placeholder="-"
+                                                                            disabled={!isInitialized}
+                                                                            onChange={(e) => updateField('jours', Number(e.target.value))}
+                                                                            className={cn(
+                                                                                "w-10 bg-transparent border-b border-transparent rounded-none px-1 py-1 text-xs font-black text-center focus:outline-none appearance-none transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                                                                                isInitialized ? "hover:border-slate-300 focus:border-blue-500" : "opacity-30 cursor-not-allowed"
+                                                                            )}
+                                                                        />
+                                                                        <button
+                                                                            onClick={() => updateField('jours', mData.jours + 0.5)}
+                                                                            disabled={!isInitialized}
+                                                                            className={cn(
+                                                                                "w-5 h-5 flex items-center justify-center bg-slate-100 rounded text-slate-600 transition-colors",
+                                                                                isInitialized ? "hover:bg-slate-200" : "opacity-30 cursor-not-allowed"
+                                                                            )}
+                                                                        >
+                                                                            <ChevronUp className="w-3 h-3" />
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    <div className="flex items-center justify-center gap-1">
+                                                                        <button
+                                                                            onClick={() => updateField('hSup', Math.max(0, mData.hSup - 1))}
+                                                                            disabled={!isInitialized}
+                                                                            className={cn(
+                                                                                "w-5 h-5 flex items-center justify-center bg-slate-100 rounded text-slate-600 transition-colors",
+                                                                                isInitialized ? "hover:bg-slate-200" : "opacity-30 cursor-not-allowed"
+                                                                            )}
+                                                                        >
+                                                                            <ChevronDown className="w-3 h-3" />
+                                                                        </button>
+                                                                        <input
+                                                                            type="number"
+                                                                            value={isInitialized ? mData.hSup : ""}
+                                                                            placeholder="-"
+                                                                            disabled={!isInitialized}
+                                                                            onChange={(e) => updateField('hSup', Number(e.target.value))}
+                                                                            className={cn(
+                                                                                "w-10 bg-transparent border-b border-transparent rounded-none px-1 py-1 text-xs font-bold text-slate-600 text-center focus:outline-none appearance-none transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                                                                                isInitialized ? "hover:border-slate-300 focus:border-blue-500" : "opacity-30 cursor-not-allowed"
+                                                                            )}
+                                                                        />
+                                                                        <button
+                                                                            onClick={() => updateField('hSup', mData.hSup + 1)}
+                                                                            disabled={!isInitialized}
+                                                                            className={cn(
+                                                                                "w-5 h-5 flex items-center justify-center bg-slate-100 rounded text-slate-600 transition-colors",
+                                                                                isInitialized ? "hover:bg-slate-200" : "opacity-30 cursor-not-allowed"
+                                                                            )}
+                                                                        >
+                                                                            <ChevronUp className="w-3 h-3" />
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right">
+                                                                    <div className="flex flex-col items-end">
+                                                                        <input
+                                                                            type="number"
+                                                                            value={isInitialized && mData.pRegul > 0 ? mData.pRegul : ""}
+                                                                            placeholder={isInitialized && proRatedBonus > 0 ? proRatedBonus.toString() : "-"}
+                                                                            disabled={!isInitialized}
+                                                                            onChange={(e) => updateField('pRegul', Number(e.target.value))}
+                                                                            className={cn(
+                                                                                "w-20 bg-transparent border-b border-transparent text-xs font-black text-black text-right focus:outline-none appearance-none transition-colors placeholder:text-slate-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                                                                                isInitialized ? "hover:border-slate-300 focus:border-blue-500" : "opacity-30 cursor-not-allowed"
+                                                                            )}
+                                                                        />
+                                                                        {proRatedBonus > 0 && !mData.pRegul && (
+                                                                            <span className="text-[8px] font-bold text-emerald-600 opacity-60">PRÉVU: {proRatedBonus}</span>
                                                                         )}
                                                                     </div>
-                                                                    <div className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter mt-0.5">{emp.role}</div>
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right">
-                                                            <span className="text-sm font-black text-emerald-600 tracking-tight">
-                                                                {emp.netCible.toLocaleString("fr-FR")} Dh
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-3 text-center">
-                                                            {isJournalEditing ? (
-                                                                <input
-                                                                    type="number"
-                                                                    value={journalEditData?.jours}
-                                                                    onChange={(e) => setJournalEditData(prev => prev ? { ...prev, jours: Number(e.target.value) } : null)}
-                                                                    className="w-14 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-black text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                                                />
-                                                            ) : (
-                                                                <span className="text-sm font-black text-slate-700">{emp.jours}</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-center">
-                                                            {isJournalEditing ? (
-                                                                <input
-                                                                    type="number"
-                                                                    value={journalEditData?.hSup}
-                                                                    onChange={(e) => setJournalEditData(prev => prev ? { ...prev, hSup: Number(e.target.value) } : null)}
-                                                                    className="w-14 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-black text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                                                />
-                                                            ) : (
-                                                                <span className="text-sm font-bold text-slate-400">{emp.hSup > 0 ? emp.hSup : "—"}</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right">
-                                                            {isJournalEditing ? (
-                                                                <input
-                                                                    type="number"
-                                                                    value={journalEditData?.pRegul}
-                                                                    onChange={(e) => setJournalEditData(prev => prev ? { ...prev, pRegul: Number(e.target.value) } : null)}
-                                                                    className="w-24 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-black text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                                                />
-                                                            ) : (
-                                                                <span className="text-sm font-black text-purple-600/80">
-                                                                    {emp.pRegul > 0 ? emp.pRegul.toLocaleString("fr-FR") : "—"}
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right">
-                                                            {isJournalEditing ? (
-                                                                <input
-                                                                    type="number"
-                                                                    value={journalEditData?.pOccas}
-                                                                    onChange={(e) => setJournalEditData(prev => prev ? { ...prev, pOccas: Number(e.target.value) } : null)}
-                                                                    className="w-24 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-black text-right focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                                                                />
-                                                            ) : (
-                                                                <span className="text-sm font-black text-blue-600/80">
-                                                                    {emp.pOccas > 0 ? emp.pOccas.toLocaleString("fr-FR") : "—"}
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right">
-                                                            {isJournalEditing ? (
-                                                                <input
-                                                                    type="number"
-                                                                    value={journalEditData?.avances}
-                                                                    onChange={(e) => setJournalEditData(prev => prev ? { ...prev, avances: Number(e.target.value) } : null)}
-                                                                    className="w-24 bg-white border border-orange-200 rounded px-2 py-1 text-xs font-black text-right focus:ring-2 focus:ring-orange-500 focus:outline-none text-orange-600"
-                                                                />
-                                                            ) : (
-                                                                <span className="text-sm font-black text-orange-600/80">
-                                                                    {emp.avances > 0 ? emp.avances.toLocaleString("fr-FR") : "—"}
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right">
-                                                            <div className="flex flex-col items-end">
-                                                                <span className="text-sm font-black text-red-500/80">
-                                                                    {emp.credit > 0 ? emp.credit.toLocaleString("fr-FR") : "—"}
-                                                                </span>
-                                                                {emp.credit > 0 && <span className="text-[7px] font-bold text-slate-300 uppercase tracking-tighter">Retenu</span>}
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right bg-slate-800">
-                                                            <span className="text-lg font-black text-orange-400 tracking-tight">
-                                                                {netAPayer.toLocaleString("fr-FR", { minimumFractionDigits: 2 })}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-3 text-right">
-                                                            {isJournalEditing ? (
-                                                                <div className="flex justify-end gap-1.5 animate-in fade-in zoom-in duration-200">
-                                                                    <button
-                                                                        onClick={handleJournalSave}
-                                                                        className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm transition-all"
-                                                                    >
-                                                                        <Check className="w-3.5 h-3.5 stroke-[3]" />
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={handleJournalCancel}
-                                                                        className="p-1.5 bg-white border border-slate-200 text-slate-400 rounded-lg hover:text-red-500 hover:border-red-200 transition-all shadow-sm"
-                                                                    >
-                                                                        <X className="w-3.5 h-3.5 stroke-[3]" />
-                                                                    </button>
-                                                                </div>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => handleJournalEdit(emp)}
-                                                                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                                                >
-                                                                    <Edit2 className="w-4 h-4" />
-                                                                </button>
-                                                            )}
-                                                        </td>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right border-r border-[#1E293B]/20">
+                                                                    <input
+                                                                        type="number"
+                                                                        value={isInitialized && mData.pOccas > 0 ? mData.pOccas : ""}
+                                                                        placeholder="-"
+                                                                        disabled={!isInitialized}
+                                                                        onChange={(e) => updateField('pOccas', Number(e.target.value))}
+                                                                        className={cn(
+                                                                            "w-20 bg-transparent border-b border-transparent text-xs font-black text-black text-right focus:outline-none appearance-none transition-colors placeholder:text-slate-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                                                                            isInitialized ? "hover:border-slate-300 focus:border-blue-500" : "opacity-30 cursor-not-allowed"
+                                                                        )}
+                                                                    />
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right">
+                                                                    <input
+                                                                        type="number"
+                                                                        value={isInitialized && mData.virement > 0 ? mData.virement : ""}
+                                                                        placeholder="-"
+                                                                        disabled={!isInitialized}
+                                                                        onChange={(e) => updateField('virement', Number(e.target.value))}
+                                                                        className={cn(
+                                                                            "w-20 bg-transparent border-b border-transparent text-xs font-black text-orange-600 text-right focus:outline-none appearance-none transition-colors placeholder:text-slate-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                                                                            isInitialized ? "hover:border-slate-300 focus:border-blue-500" : "opacity-30 cursor-not-allowed"
+                                                                        )}
+                                                                    />
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right">
+                                                                    <input
+                                                                        type="number"
+                                                                        value={isInitialized && mData.avances > 0 ? mData.avances : ""}
+                                                                        placeholder="-"
+                                                                        disabled={!isInitialized}
+                                                                        onChange={(e) => updateField('avances', Number(e.target.value))}
+                                                                        className={cn(
+                                                                            "w-20 bg-transparent border-b border-transparent text-xs font-black text-orange-600 text-right focus:outline-none appearance-none transition-colors placeholder:text-slate-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                                                                            isInitialized ? "hover:border-slate-300 focus:border-blue-500" : "opacity-30 cursor-not-allowed"
+                                                                        )}
+                                                                    />
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right border-r border-[#1E293B]/20">
+                                                                    <div className="flex flex-col items-end">
+                                                                        <input
+                                                                            type="number"
+                                                                            value={isInitialized && mData.monthlyDeduction > 0 ? mData.monthlyDeduction : ""}
+                                                                            placeholder="-"
+                                                                            disabled={!isInitialized}
+                                                                            onChange={(e) => updateField('monthlyDeduction', Number(e.target.value))}
+                                                                            className={cn(
+                                                                                "w-20 bg-transparent border-b border-transparent text-xs font-black text-orange-600 text-right focus:outline-none appearance-none transition-colors placeholder:text-slate-300 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                                                                                isInitialized ? "hover:border-slate-300 focus:border-blue-500" : "opacity-30 cursor-not-allowed"
+                                                                            )}
+                                                                        />
+                                                                        {(emp.creditInfo?.loanAmount || emp.credit) > 0 && (
+                                                                            <span className="text-[9px] font-bold text-slate-400">
+                                                                                - R: {remainingCredit.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} Dh
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right">
+                                                                    <span className="text-sm font-black text-[#1E293B] tracking-normal">
+                                                                        {netAPayer.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                                    </span>
+                                                                </td>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <td className="px-4 py-3 text-center border-r border-[#1E293B]/20">
+                                                                    <span className="text-xs font-bold text-slate-600">{mData.jours}</span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right">
+                                                                    <span className="text-xs font-black text-slate-700">
+                                                                        {brutGlobal.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right">
+                                                                    <span className="text-xs font-bold text-slate-600">
+                                                                        {brutImposable.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right border-r border-[#1E293B]/20">
+                                                                    <span className="text-xs font-black text-indigo-600">
+                                                                        {netImposable.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right">
+                                                                    <span className="text-[10px] font-bold text-red-500">
+                                                                        {cnss.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right">
+                                                                    <span className="text-[10px] font-bold text-red-500">
+                                                                        {amo.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right border-r border-[#1E293B]/20">
+                                                                    <span className="text-[10px] font-bold text-red-600">
+                                                                        {ir.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right opacity-90">
+                                                                    <span className="text-sm font-black text-[#1E293B] tracking-normal">
+                                                                        {salaireNetAcc.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                                    </span>
+                                                                </td>
+                                                            </>
+                                                        )}
                                                     </tr>
                                                 );
                                             })}
                                         </tbody>
                                     </table>
                                 </div>
-                                <div className="bg-[#1E293B] p-4 flex justify-between items-center text-white shrink-0">
-                                    <div className="flex gap-8 text-[10px] font-black uppercase tracking-widest opacity-60">
-                                        <div>Total Salariés: {staffMembers.length}</div>
-                                        <div>Masse Salariale Net: {staffMembers.reduce((acc, curr) => acc + curr.netCible + curr.pRegul + curr.pOccas - curr.avances, 0).toLocaleString("fr-FR")} Dh</div>
-                                    </div>
-                                    <button className="px-4 py-2 bg-[#D97706] rounded-xl text-xs font-black uppercase tracking-widest hover:bg-[#B45309] transition-colors">
-                                        Valider le Journal
-                                    </button>
+                                <div className={cn(
+                                    "p-0 flex items-center text-white shrink-0 h-10 border-t",
+                                    journalMode === "Comptable" ? "bg-[#422B1E] border-[#814C1D]" : "bg-[#1E293B] border-[#334155]"
+                                )}>
+                                    <table className="w-full border-collapse table-fixed">
+                                        <tbody>
+                                            <tr>
+                                                <td className="w-14 px-4 py-2 text-[8px] font-black uppercase tracking-widest opacity-40">
+                                                    RH
+                                                </td>
+                                                <td className="w-24 px-4 py-2 text-[11px] font-black uppercase tracking-widest opacity-60">
+                                                    Total: {staffMembers.length}
+                                                </td>
+                                                <td className={cn(
+                                                    "w-32 px-4 py-2 text-right border-r",
+                                                    journalMode === "Comptable" ? "border-[#814C1D]" : "border-[#334155]"
+                                                )}>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[11px] font-black text-emerald-500">
+                                                            {staffMembers.reduce((acc, curr) => acc + getLastSalaryInfo(curr.history, curr.contract.baseSalary).amount, 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                {journalMode === "Saisie" ? (
+                                                    <>
+                                                        <td className="w-32 border-r border-[#334155]"></td>
+                                                        <td className="w-32"></td>
+                                                        <td className="w-20"></td>
+                                                        <td className="w-28"></td>
+                                                        <td className="w-28 border-r border-[#334155]"></td>
+                                                        <td className="w-28 px-4 py-2 text-right">
+                                                            <span className="text-orange-500 text-[11px] font-black">
+                                                                {staffMembers.reduce((acc, curr) => acc + (getMonthData(curr).virement || 0), 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                            </span>
+                                                        </td>
+                                                        <td className="w-28 px-4 py-2 text-right">
+                                                            <span className="text-orange-400 text-[11px] font-black">
+                                                                {staffMembers.reduce((acc, curr) => acc + (getMonthData(curr).avances || 0), 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                            </span>
+                                                        </td>
+                                                        <td className="w-28 border-r border-[#1E293B]/20 px-4 py-2 text-right">
+                                                            <span className="text-orange-300 text-[11px] font-black">
+                                                                {staffMembers.reduce((acc, curr) => acc + (getMonthData(curr).monthlyDeduction || 0), 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                            </span>
+                                                        </td>
+                                                        <td className="w-28 px-4 py-2 text-right">
+                                                            <div className="flex flex-col">
+                                                                <span className="text-[11px] font-black text-white">
+                                                                    {staffMembers.reduce((acc, curr) => {
+                                                                        const mData = getMonthData(curr);
+                                                                        const depCount = (curr.situationFamiliale?.includes('Marié') ? 1 : 0) + (curr.childrenCount || 0);
+                                                                        const salaryInfo = getLastSalaryInfo(curr.history, curr.contract.baseSalary, curr.contract.fixedBonus || 0);
+                                                                        const netCible = salaryInfo.amount;
+                                                                        const historicalBonus = salaryInfo.bonus;
+
+                                                                        const tNet = (netCible / 26) * (mData.jours || 0) + ((netCible / 26) / 8) * (mData.hSup || 0);
+                                                                        const brut = calculateGrossFromNet(tNet, depCount);
+                                                                        const cnss = Math.min(brut, 6000) * 0.0448;
+                                                                        const amo = brut * 0.0226;
+                                                                        const frais = Math.min(brut * 0.20, 2500);
+                                                                        const nImp = Math.max(0, brut - (cnss + amo + frais));
+                                                                        const ir = calculateIR(nImp, depCount);
+                                                                        const netAcc = brut - cnss - amo - ir;
+
+                                                                        const proRatedBonus = Math.round(((historicalBonus / 26) * Math.min(mData.jours, 26)) * 100) / 100;
+                                                                        const currentBonus = mData.pRegul > 0 ? mData.pRegul : proRatedBonus;
+
+                                                                        return acc + (netAcc + currentBonus + (mData.pOccas || 0) - (mData.virement || 0) - (mData.avances || 0) - (mData.monthlyDeduction || 0));
+                                                                    }, 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                                </span>
+                                                            </div>
+                                                        </td>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <td className={cn(
+                                                            "w-20 border-r",
+                                                            journalMode === "Comptable" ? "border-[#814C1D]" : "border-[#334155]"
+                                                        )}></td>
+                                                        <td className="w-28 px-4 py-2 text-right">
+                                                            <span className="text-slate-300 text-[11px] font-black">
+                                                                {staffMembers.reduce((acc, curr) => {
+                                                                    const mData = getMonthData(curr);
+                                                                    const depCount = (curr.situationFamiliale?.includes('Marié') ? 1 : 0) + (curr.childrenCount || 0);
+                                                                    const netCible = getLastSalaryInfo(curr.history, curr.contract.baseSalary, curr.contract.fixedBonus || 0).amount;
+                                                                    const tNet = (netCible / 26) * (mData.jours || 0) + ((netCible / 26) / 8) * (mData.hSup || 0) + (mData.pRegul || 0) + (mData.pOccas || 0);
+                                                                    return acc + calculateGrossFromNet(tNet, depCount);
+                                                                }, 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                            </span>
+                                                        </td>
+                                                        <td className="w-28 px-4 py-2 text-right">
+                                                            <span className="text-slate-400 text-[11px] font-black">
+                                                                {staffMembers.reduce((acc, curr) => {
+                                                                    const mData = getMonthData(curr);
+                                                                    const depCount = (curr.situationFamiliale?.includes('Marié') ? 1 : 0) + (curr.childrenCount || 0);
+                                                                    const netCible = getLastSalaryInfo(curr.history, curr.contract.baseSalary, curr.contract.fixedBonus || 0).amount;
+                                                                    const tNet = (netCible / 26) * (mData.jours || 0) + ((netCible / 26) / 8) * (mData.hSup || 0) + (mData.pRegul || 0) + (mData.pOccas || 0);
+                                                                    return acc + calculateGrossFromNet(tNet, depCount);
+                                                                }, 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                            </span>
+                                                        </td>
+                                                        <td className="w-28 border-r border-[#814C1D] px-4 py-2 text-right">
+                                                            <span className="text-indigo-400 text-[11px] font-black">
+                                                                {staffMembers.reduce((acc, curr) => {
+                                                                    const mData = getMonthData(curr);
+                                                                    const depCount = (curr.situationFamiliale?.includes('Marié') ? 1 : 0) + (curr.childrenCount || 0);
+                                                                    const netCible = getLastSalaryInfo(curr.history, curr.contract.baseSalary, curr.contract.fixedBonus || 0).amount;
+                                                                    const tNet = (netCible / 26) * (mData.jours || 0) + ((netCible / 26) / 8) * (mData.hSup || 0) + (mData.pRegul || 0) + (mData.pOccas || 0);
+                                                                    const brut = calculateGrossFromNet(tNet, depCount);
+                                                                    const cnssVal = Math.min(brut, 6000) * 0.0448;
+                                                                    const amoVal = brut * 0.0226;
+                                                                    const fPro = Math.min(brut * 0.20, 2500);
+                                                                    return acc + Math.max(0, brut - (cnssVal + amoVal + fPro));
+                                                                }, 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                            </span>
+                                                        </td>
+                                                        <td className="w-24 px-4 py-2 text-right">
+                                                            <span className="text-red-400 text-[11px] font-black">
+                                                                {staffMembers.reduce((acc, curr) => {
+                                                                    const mData = getMonthData(curr);
+                                                                    const depCount = (curr.situationFamiliale?.includes('Marié') ? 1 : 0) + (curr.childrenCount || 0);
+                                                                    const netCible = getLastSalaryInfo(curr.history, curr.contract.baseSalary, curr.contract.fixedBonus || 0).amount;
+                                                                    const tNet = (netCible / 26) * (mData.jours || 0) + ((netCible / 26) / 8) * (mData.hSup || 0) + (mData.pRegul || 0) + (mData.pOccas || 0);
+                                                                    const brut = calculateGrossFromNet(tNet, depCount);
+                                                                    return acc + Math.min(brut, 6000) * 0.0448;
+                                                                }, 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                            </span>
+                                                        </td>
+                                                        <td className="w-24 px-4 py-2 text-right">
+                                                            <span className="text-red-400 text-[11px] font-black">
+                                                                {staffMembers.reduce((acc, curr) => {
+                                                                    const mData = getMonthData(curr);
+                                                                    const depCount = (curr.situationFamiliale?.includes('Marié') ? 1 : 0) + (curr.childrenCount || 0);
+                                                                    const netCible = getLastSalaryInfo(curr.history, curr.contract.baseSalary, curr.contract.fixedBonus || 0).amount;
+                                                                    const tNet = (netCible / 26) * (mData.jours || 0) + ((netCible / 26) / 8) * (mData.hSup || 0) + (mData.pRegul || 0) + (mData.pOccas || 0);
+                                                                    const brut = calculateGrossFromNet(tNet, depCount);
+                                                                    return acc + (brut * 0.0226);
+                                                                }, 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                            </span>
+                                                        </td>
+                                                        <td className="w-24 border-r border-[#814C1D] px-4 py-2 text-right">
+                                                            <span className="text-red-500 text-[11px] font-black">
+                                                                {staffMembers.reduce((acc, curr) => {
+                                                                    const mData = getMonthData(curr);
+                                                                    const depCount = (curr.situationFamiliale?.includes('Marié') ? 1 : 0) + (curr.childrenCount || 0);
+                                                                    const netCible = getLastSalaryInfo(curr.history, curr.contract.baseSalary, curr.contract.fixedBonus || 0).amount;
+                                                                    const tNet = (netCible / 26) * (mData.jours || 0) + ((netCible / 26) / 8) * (mData.hSup || 0) + (mData.pRegul || 0) + (mData.pOccas || 0);
+                                                                    const brut = calculateGrossFromNet(tNet, depCount);
+                                                                    const cnssV = Math.min(brut, 6000) * 0.0448;
+                                                                    const amoV = brut * 0.0226;
+                                                                    const fP = Math.min(brut * 0.20, 2500);
+                                                                    const nI = Math.max(0, brut - (cnssV + amoV + fP));
+                                                                    return acc + calculateIR(nI, depCount);
+                                                                }, 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                            </span>
+                                                        </td>
+                                                        <td className="w-32 px-4 py-2 text-right">
+                                                            <div className="flex flex-col">
+                                                                <span className="text-[11px] font-black text-white">
+                                                                    {staffMembers.reduce((acc, curr) => {
+                                                                        const mData = getMonthData(curr);
+                                                                        const depCount = (curr.situationFamiliale?.includes('Marié') ? 1 : 0) + (curr.childrenCount || 0);
+                                                                        const netCible = getLastSalaryInfo(curr.history, curr.contract.baseSalary, curr.contract.fixedBonus || 0).amount;
+                                                                        const tNet = (netCible / 26) * (mData.jours || 0) + ((netCible / 26) / 8) * (mData.hSup || 0);
+                                                                        const brut = calculateGrossFromNet(tNet, depCount);
+                                                                        const cnssVal = Math.min(brut, 6000) * 0.0448;
+                                                                        const amoVal = brut * 0.0226;
+                                                                        const fPro = Math.min(brut * 0.20, 2500);
+                                                                        const nImp = Math.max(0, brut - (cnssVal + amoVal + fPro));
+                                                                        const taxIR = calculateIR(nImp, depCount);
+                                                                        return acc + (brut - cnssVal - amoVal - taxIR);
+                                                                    }, 0).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                                </span>
+                                                            </div>
+                                                        </td>
+                                                    </>
+                                                )}
+                                            </tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
@@ -686,8 +1439,19 @@ export default function PayePage() {
                                                 value={searchQuery}
                                                 onChange={(e) => setSearchQuery(e.target.value)}
                                                 placeholder="Rechercher..."
-                                                className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:border-blue-400 transition-all shadow-sm placeholder:text-slate-300"
+                                                className={cn(
+                                                    "w-full bg-white border border-slate-200 rounded-xl pl-9 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:border-blue-400 transition-all shadow-sm placeholder:text-slate-300",
+                                                    searchQuery ? "pr-9" : "pr-4"
+                                                )}
                                             />
+                                            {searchQuery && (
+                                                <button
+                                                    onClick={() => setSearchQuery("")}
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-full transition-all"
+                                                >
+                                                    <X className="w-3.5 h-3.5" />
+                                                </button>
+                                            )}
                                         </div>
                                         <button
                                             onClick={handleAddNew}
@@ -748,12 +1512,17 @@ export default function PayePage() {
                                                     </span>
                                                 </div>
 
-                                                <div className="pr-1">
-                                                    <div className={cn(
-                                                        "w-2 h-2 rounded-full transition-all",
-                                                        emp.contract.exitDate && emp.contract.exitDate !== "-"
-                                                            ? "bg-slate-300 shadow-none"
-                                                            : "bg-[#4ADE80] shadow-[0_0_8px_rgba(74,222,128,0.5)]"
+                                                <div className="pr-1" onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedEmployeeId(emp.id);
+                                                    setEditData({ ...emp });
+                                                    setIsEditing(true);
+                                                }}>
+                                                    <Pencil className={cn(
+                                                        "w-3.5 h-3.5 transition-all",
+                                                        isSelected
+                                                            ? (emp.gender === "Femme" ? "text-red-400" : "text-blue-400")
+                                                            : "text-slate-300 opacity-0 group-hover:opacity-100"
                                                     )} />
                                                 </div>
                                             </div>
@@ -771,13 +1540,13 @@ export default function PayePage() {
 
                                             <div className="flex gap-5 items-start">
                                                 <div className={cn(
-                                                    "w-16 h-16 rounded-[1rem] flex items-center justify-center shrink-0 shadow-sm border mt-1 relative",
+                                                    "w-24 h-24 rounded-[1.25rem] flex items-center justify-center shrink-0 shadow-sm border relative aspect-square",
                                                     selectedEmployee.contract.exitDate && selectedEmployee.contract.exitDate !== "-"
                                                         ? "bg-slate-100 border-slate-200"
                                                         : (selectedEmployee.gender === "Femme" ? "bg-red-50 border-red-100" : "bg-blue-50 border-blue-100")
                                                 )}>
                                                     <User className={cn(
-                                                        "w-8 h-8 opacity-80",
+                                                        "w-12 h-12 opacity-80",
                                                         selectedEmployee.contract.exitDate && selectedEmployee.contract.exitDate !== "-"
                                                             ? "text-slate-400"
                                                             : (selectedEmployee.gender === "Femme" ? "text-red-600" : "text-blue-600")
@@ -788,7 +1557,7 @@ export default function PayePage() {
                                                         </div>
                                                     )}
                                                 </div>
-                                                <div className="flex-1 min-w-0 flex flex-col justify-center min-h-[4rem]">
+                                                <div className="flex-1 min-w-0 flex flex-col justify-center min-h-[6rem]">
                                                     {isEditing ? (
                                                         <div className="flex gap-2 text-3xl font-extrabold tracking-tight leading-tight">
                                                             <input
@@ -932,41 +1701,9 @@ export default function PayePage() {
                                             </div>
                                         </div>
 
-                                        <div className="flex flex-col items-center px-8 border-l border-slate-100 min-w-[120px]">
-                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 text-center">Congés dus</div>
-                                            <div className="relative">
-                                                <div className="w-14 h-14 rounded-full bg-emerald-50 border-2 border-emerald-200 flex flex-col items-center justify-center shadow-sm">
-                                                    <span className="text-emerald-700 font-black text-lg leading-none">
-                                                        {calculateLeaveDays(selectedEmployee.contract.hireDate, selectedEmployee.contract.exitDate)}
-                                                    </span>
-                                                    <span className="text-[8px] font-bold text-emerald-600 uppercase">Jours</span>
-                                                </div>
-                                                <div className="absolute -top-1 -right-1 w-5 h-5 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center">
-                                                    <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex flex-col items-end px-8 border-l border-slate-100 min-w-fit">
-                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Dernier Salaire</div>
-                                            {isEditing ? (
-                                                <div className="flex items-baseline gap-1">
-                                                    <input
-                                                        value={editData?.contract.lastSalary || ""}
-                                                        onChange={(e) => setEditData(prev => prev ? { ...prev, contract: { ...prev.contract, lastSalary: e.target.value } } : null)}
-                                                        className={cn(
-                                                            "bg-slate-50 border-b-2 border-slate-200 focus:outline-none text-xl font-black text-slate-900 text-right w-40",
-                                                            selectedEmployee.gender === "Femme" ? "focus:border-red-500" : "focus:border-blue-500"
-                                                        )}
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <div className="text-2xl font-black text-slate-900 tracking-tight">{selectedEmployee.contract.lastSalary}</div>
-                                            )}
-                                        </div>
 
                                         <div className="flex items-center gap-2">
-                                            {isEditing ? (
+                                            {isEditing && (
                                                 <>
                                                     <button
                                                         onClick={handleSave}
@@ -984,18 +1721,6 @@ export default function PayePage() {
                                                         <X className="w-4 h-4" />
                                                     </button>
                                                 </>
-                                            ) : (
-                                                <button
-                                                    onClick={handleEdit}
-                                                    className={cn(
-                                                        "font-bold py-2.5 px-6 rounded-xl text-sm transition-colors flex items-center gap-2 border shadow-md",
-                                                        selectedEmployee.gender === "Femme"
-                                                            ? "bg-red-50 hover:bg-red-100 text-red-600 border-red-100"
-                                                            : "bg-blue-50 hover:bg-blue-100 text-blue-600 border-blue-100"
-                                                    )}
-                                                >
-                                                    <Pencil className="w-3.5 h-3.5" /> Modifier
-                                                </button>
                                             )}
                                         </div>
                                     </div>
@@ -1013,7 +1738,12 @@ export default function PayePage() {
                                                     )} />
                                                     1- Informations Personnelles
                                                 </h3>
-                                                <div className="bg-[#F8FAFC] rounded-2xl p-8 border border-slate-100 shadow-sm space-y-8">
+                                                <div className={cn(
+                                                    "bg-[#F8FAFC] rounded-2xl p-8 border shadow-2xl space-y-4 transition-all duration-300",
+                                                    selectedEmployee.gender === "Femme"
+                                                        ? "border-red-500/20 shadow-red-500/5"
+                                                        : "border-blue-500/20 shadow-blue-500/5"
+                                                )}>
                                                     {/* Identity Group */}
                                                     <div className="grid grid-cols-3 gap-10">
                                                         <div className="space-y-1.5">
@@ -1022,17 +1752,11 @@ export default function PayePage() {
                                                             </div>
                                                             <div className="flex items-baseline gap-2">
                                                                 {isEditing ? (
-                                                                    <input
-                                                                        type="text"
+                                                                    <PayrollDatePicker
                                                                         value={editData?.birthDate || ""}
-                                                                        onChange={(e) => setEditData(prev => prev ? { ...prev, birthDate: e.target.value } : null)}
-                                                                        placeholder="JJ/MM/AAAA"
-                                                                        className={cn(
-                                                                            "bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 w-48 transition-all shrink-0",
-                                                                            selectedEmployee.gender === "Femme"
-                                                                                ? "focus:ring-red-500/20 focus:border-red-500"
-                                                                                : "focus:ring-blue-500/20 focus:border-blue-500"
-                                                                        )}
+                                                                        onChange={(val) => setEditData(prev => prev ? { ...prev, birthDate: val } : null)}
+                                                                        gender={selectedEmployee.gender as "Homme" | "Femme"}
+                                                                        className="w-48 shrink-0"
                                                                     />
                                                                 ) : (
                                                                     <div className="text-base font-bold text-slate-800 tracking-tight">{selectedEmployee.birthDate}</div>
@@ -1093,7 +1817,71 @@ export default function PayePage() {
                                                     </div>
 
                                                     {/* Separator Line */}
-                                                    <div className="h-px bg-slate-200/50 w-full" />
+                                                    <div className={cn(
+                                                        "h-px w-full",
+                                                        selectedEmployee.gender === "Femme" ? "bg-red-200" : "bg-blue-200"
+                                                    )} />
+
+                                                    {/* Family Situation Group */}
+                                                    <div className="grid grid-cols-3 gap-10">
+                                                        <div className="space-y-1.5">
+                                                            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                                                <Heart className="w-3 h-3" /> Situation Familiale
+                                                            </div>
+                                                            {isEditing ? (
+                                                                <div className="relative">
+                                                                    <select
+                                                                        value={editData?.situationFamiliale || "Célibataire"}
+                                                                        onChange={(e) => setEditData(prev => prev ? { ...prev, situationFamiliale: e.target.value } : null)}
+                                                                        className={cn(
+                                                                            "w-full bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-3 py-1.5 appearance-none focus:outline-none focus:ring-2 transition-all cursor-pointer shadow-sm",
+                                                                            selectedEmployee.gender === "Femme"
+                                                                                ? "focus:ring-red-500/20 focus:border-red-500"
+                                                                                : "focus:ring-blue-500/20 focus:border-blue-500"
+                                                                        )}
+                                                                    >
+                                                                        <option value="Célibataire">Célibataire</option>
+                                                                        <option value="Marié">Marié(e)</option>
+                                                                        <option value="Divorcé">Divorcé(e)</option>
+                                                                        <option value="Veuf">Veuf(ve)</option>
+                                                                    </select>
+                                                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-base font-bold text-slate-800 tracking-tight">{selectedEmployee.situationFamiliale}</div>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="space-y-1.5">
+                                                            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                                                <Baby className="w-3 h-3" /> Enfants
+                                                            </div>
+                                                            {isEditing ? (
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    value={editData?.childrenCount ?? 0}
+                                                                    onChange={(e) => setEditData(prev => prev ? { ...prev, childrenCount: parseInt(e.target.value) || 0 } : null)}
+                                                                    className={cn(
+                                                                        "bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 w-full transition-all",
+                                                                        selectedEmployee.gender === "Femme"
+                                                                            ? "focus:ring-red-500/20 focus:border-red-500"
+                                                                            : "focus:ring-blue-500/20 focus:border-blue-500"
+                                                                    )}
+                                                                />
+                                                            ) : (
+                                                                <div className="text-base font-bold text-slate-800 tracking-tight">{selectedEmployee.childrenCount}</div>
+                                                            )}
+                                                        </div>
+
+                                                    </div>
+
+                                                    {/* Separator Line */}
+                                                    {/* Separator Line */}
+                                                    <div className={cn(
+                                                        "h-px w-full",
+                                                        selectedEmployee.gender === "Femme" ? "bg-red-200" : "bg-blue-200"
+                                                    )} />
 
                                                     {/* Contact Group */}
                                                     <div className="flex gap-8 items-start">
@@ -1107,7 +1895,11 @@ export default function PayePage() {
                                                                     <>
                                                                         <input
                                                                             value={editData?.personalInfo.phone || ""}
-                                                                            onChange={(e) => setEditData(prev => prev ? { ...prev, personalInfo: { ...prev.personalInfo, phone: e.target.value } } : null)}
+                                                                            onChange={(e) => {
+                                                                                const val = e.target.value.replace(/\s/g, "");
+                                                                                const formatted = val.replace(/(.{2})(?=.)/g, "$1 ");
+                                                                                setEditData(prev => prev ? { ...prev, personalInfo: { ...prev.personalInfo, phone: formatted } } : null);
+                                                                            }}
                                                                             className={cn(
                                                                                 "bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 w-full transition-all",
                                                                                 selectedEmployee.gender === "Femme"
@@ -1118,7 +1910,11 @@ export default function PayePage() {
                                                                         />
                                                                         <input
                                                                             value={editData?.personalInfo.phone2 || ""}
-                                                                            onChange={(e) => setEditData(prev => prev ? { ...prev, personalInfo: { ...prev.personalInfo, phone2: e.target.value } } : null)}
+                                                                            onChange={(e) => {
+                                                                                const val = e.target.value.replace(/\s/g, "");
+                                                                                const formatted = val.replace(/(.{2})(?=.)/g, "$1 ");
+                                                                                setEditData(prev => prev ? { ...prev, personalInfo: { ...prev.personalInfo, phone2: formatted } } : null);
+                                                                            }}
                                                                             className={cn(
                                                                                 "bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 w-full transition-all",
                                                                                 selectedEmployee.gender === "Femme"
@@ -1131,11 +1927,11 @@ export default function PayePage() {
                                                                 ) : (
                                                                     <div className="space-y-1">
                                                                         <div className="text-sm font-bold text-slate-800 tracking-tight">
-                                                                            {(selectedEmployee.personalInfo.phone || "").replace(/(\d{2})(?=\d)/g, '$1 ')}
+                                                                            {(selectedEmployee.personalInfo.phone || "").replace(/\s/g, '').replace(/(\d{2})(?=\d)/g, '$1 ')}
                                                                         </div>
                                                                         {selectedEmployee.personalInfo.phone2 && (
                                                                             <div className="text-sm font-bold text-slate-800 tracking-tight">
-                                                                                {selectedEmployee.personalInfo.phone2.replace(/(\d{2})(?=\d)/g, '$1 ')}
+                                                                                {selectedEmployee.personalInfo.phone2.replace(/\s/g, '').replace(/(\d{2})(?=\d)/g, '$1 ')}
                                                                             </div>
                                                                         )}
                                                                     </div>
@@ -1202,62 +1998,117 @@ export default function PayePage() {
                                                     )} />
                                                     3- Historique & Évolution
                                                 </h3>
-                                                <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm flex-1 flex flex-col min-h-0">
-                                                    {/* Salary Graph */}
-                                                    <div className="mb-8 p-4 bg-slate-50 rounded-xl border border-slate-100">
-                                                        <div className="flex justify-between items-center mb-4">
-                                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Évolution Salaire</div>
-                                                            <div className={cn(
-                                                                "text-[10px] font-bold uppercase tracking-widest",
-                                                                selectedEmployee.gender === "Femme" ? "text-red-600 bg-red-50" : "text-blue-600 bg-blue-50",
-                                                                "px-2 py-0.5 rounded"
-                                                            )}>Derniers 12 mois</div>
-                                                        </div>
-                                                        <div className="h-32 w-full relative group">
-                                                            {/* Simple SVG Graph */}
-                                                            <svg viewBox="0 0 100 40" className="w-full h-full preserve-3d" preserveAspectRatio="none">
-                                                                <defs>
-                                                                    <linearGradient id="lineGradient" x1="0" y1="0" x2="0" y2="1">
-                                                                        <stop offset="0%" stopColor={selectedEmployee.gender === "Femme" ? "#EF4444" : "#3B82F6"} stopOpacity="0.2" />
-                                                                        <stop offset="100%" stopColor={selectedEmployee.gender === "Femme" ? "#EF4444" : "#3B82F6"} stopOpacity="0" />
-                                                                    </linearGradient>
-                                                                </defs>
-                                                                {/* Area */}
-                                                                <path
-                                                                    d="M 0 40 L 0 25 L 20 28 L 40 22 L 60 24 L 80 15 L 100 12 L 100 40 Z"
-                                                                    fill="url(#lineGradient)"
-                                                                />
-                                                                {/* Line */}
-                                                                <path
-                                                                    d="M 0 25 L 20 28 L 40 22 L 60 24 L 80 15 L 100 12"
-                                                                    fill="none"
-                                                                    stroke="#3B82F6"
-                                                                    strokeWidth="1.5"
-                                                                    strokeLinecap="round"
-                                                                    strokeLinejoin="round"
-                                                                />
-                                                                {/* Points */}
-                                                                {[
-                                                                    { x: 0, y: 25 }, { x: 20, y: 28 }, { x: 40, y: 22 },
-                                                                    { x: 60, y: 24 }, { x: 80, y: 15 }, { x: 100, y: 12 }
-                                                                ].map((p, i) => (
-                                                                    <circle key={i} cx={p.x} cy={p.y} r="1" fill="white" stroke={selectedEmployee.gender === "Femme" ? "#EF4444" : "#3B82F6"} strokeWidth="0.5" />
-                                                                ))}
-                                                            </svg>
-                                                            {/* Y-Axis Labels (Fake) */}
-                                                            <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between text-[8px] font-bold text-slate-300 pointer-events-none">
-                                                                <span>5k</span>
-                                                                <span>3k</span>
-                                                                <span>1k</span>
+                                                <div className={cn(
+                                                    "bg-white rounded-2xl p-6 border shadow-2xl flex-1 flex flex-col min-h-0 transition-all duration-300",
+                                                    selectedEmployee.gender === "Femme"
+                                                        ? "border-red-500/20 shadow-red-500/5"
+                                                        : "border-blue-500/20 shadow-blue-500/5"
+                                                )}>
+                                                    {(() => {
+                                                        const history = isEditing ? editData?.history : selectedEmployee.history;
+                                                        if (!history || history.length === 0) return null;
+
+                                                        const parseDate = (d: string) => {
+                                                            if (!d || !d.includes('/')) return 0;
+                                                            const parts = d.split('/').map(Number);
+                                                            if (parts.length < 3) return 0;
+                                                            const [day, month, year] = parts;
+                                                            const fullYear = year < 100 ? (year > 50 ? 1900 + year : 2000 + year) : year;
+                                                            return new Date(fullYear, month - 1, day).getTime();
+                                                        };
+
+                                                        // 1. Unify Sorting (Ascending Chronological)
+                                                        const sorted = [...history].filter(h => h.amount > 0).sort((a, b) => parseDate(a.date) - parseDate(b.date));
+                                                        if (sorted.length === 0) return null;
+
+                                                        const timestamps = sorted.map(h => parseDate(h.date));
+                                                        const minTime = timestamps[0];
+                                                        const maxTime = timestamps[timestamps.length - 1];
+                                                        const timeRange = maxTime - minTime || 1;
+
+                                                        const amounts = sorted.map(h => h.amount);
+                                                        const minVal = Math.min(...amounts);
+                                                        const maxVal = Math.max(...amounts);
+                                                        const range = maxVal - minVal || 1;
+
+                                                        // 2. Proportional Mapping (X = Time, Y = Amount)
+                                                        const points = sorted.map((h, i) => {
+                                                            const time = parseDate(h.date);
+                                                            const x = timeRange > 0 ? ((time - minTime) / timeRange) * 100 : 50;
+                                                            // Scale to 5-35 in a 40px height SVG (padding 5px)
+                                                            const y = 35 - ((h.amount - minVal) / range) * 30;
+                                                            return { x, y, amount: h.amount, date: h.date };
+                                                        });
+
+                                                        const linePath = `M ${points.map(p => `${p.x} ${p.y}`).join(' L ')}`;
+                                                        const areaPath = `${linePath} L 100 40 L 0 40 Z`;
+
+                                                        const progression = sorted.length >= 2
+                                                            ? ((sorted[sorted.length - 1].amount - sorted[sorted.length - 2].amount) / sorted[sorted.length - 2].amount) * 100
+                                                            : 0;
+
+                                                        const formatK = (v: number) => {
+                                                            return (v / 1000).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'k';
+                                                        };
+
+                                                        return (
+                                                            <div className="mb-8 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                                                <div className="flex justify-between items-center mb-4">
+                                                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Évolution Salaire</div>
+                                                                    <div className={cn(
+                                                                        "text-[10px] font-bold uppercase tracking-widest",
+                                                                        selectedEmployee.gender === "Femme" ? "text-red-600 bg-red-50" : "text-blue-600 bg-blue-50",
+                                                                        "px-2 py-0.5 rounded"
+                                                                    )}>Historique</div>
+                                                                </div>
+                                                                <div className="h-32 w-full relative group">
+                                                                    <svg viewBox="0 0 100 40" className="w-full h-full preserve-3d" preserveAspectRatio="none">
+                                                                        <defs>
+                                                                            <linearGradient id={`${selectedEmployee.id}-gradient`} x1="0" y1="0" x2="0" y2="1">
+                                                                                <stop offset="0%" stopColor={selectedEmployee.gender === "Femme" ? "#EF4444" : "#3B82F6"} stopOpacity="0.2" />
+                                                                                <stop offset="100%" stopColor={selectedEmployee.gender === "Femme" ? "#EF4444" : "#3B82F6"} stopOpacity="0" />
+                                                                            </linearGradient>
+                                                                        </defs>
+                                                                        <path d={areaPath} fill={`url(#${selectedEmployee.id}-gradient)`} />
+                                                                        <path
+                                                                            d={linePath}
+                                                                            fill="none"
+                                                                            stroke={selectedEmployee.gender === "Femme" ? "#EF4444" : "#3B82F6"}
+                                                                            strokeWidth="1.5"
+                                                                            strokeLinecap="round"
+                                                                            strokeLinejoin="round"
+                                                                        />
+                                                                        {points.map((p, i) => (
+                                                                            <circle
+                                                                                key={i}
+                                                                                cx={p.x}
+                                                                                cy={p.y}
+                                                                                r="1.2"
+                                                                                fill="white"
+                                                                                stroke={selectedEmployee.gender === "Femme" ? "#EF4444" : "#3B82F6"}
+                                                                                strokeWidth="0.8"
+                                                                            />
+                                                                        ))}
+                                                                    </svg>
+                                                                    <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between text-[8px] font-bold text-slate-300 pointer-events-none pr-2 py-1">
+                                                                        <span className="leading-none">{formatK(maxVal)}</span>
+                                                                        <span className="leading-none">{formatK((maxVal + minVal) / 2)}</span>
+                                                                        <span className="leading-none">{formatK(minVal)}</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-200/50">
+                                                                    <div className="text-[9px] font-bold text-slate-400">Progression</div>
+                                                                    <div className={cn(
+                                                                        "text-[10px] font-black flex items-center gap-0.5",
+                                                                        progression >= 0 ? "text-emerald-600" : "text-red-500"
+                                                                    )}>
+                                                                        {progression >= 0 ? '+' : ''}{progression.toFixed(1)}%
+                                                                        <span className="text-[8px] font-bold text-slate-300 ml-1">vs Évènement Précédent</span>
+                                                                    </div>
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                        <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-200/50">
-                                                            <div className="text-[9px] font-bold text-slate-400">Progression</div>
-                                                            <div className="text-[10px] font-black text-emerald-600 flex items-center gap-0.5">
-                                                                +12.5% <span className="text-[8px] font-bold text-slate-300 ml-1">vs AN-1</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
+                                                        );
+                                                    })()}
 
                                                     <div className="space-y-4 overflow-y-auto flex-1 pr-2 custom-scrollbar" style={{ maxHeight: '500px' }}>
                                                         {isEditing ? (
@@ -1270,12 +2121,12 @@ export default function PayePage() {
                                                                         >
                                                                             <X className="w-3 h-3" />
                                                                         </button>
-                                                                        <div className="grid grid-cols-2 gap-3">
+                                                                        <div className="grid grid-cols-3 gap-3">
                                                                             <input
                                                                                 value={h.year}
                                                                                 onChange={(e) => setEditData(prev => prev ? { ...prev, history: prev.history.map((ev, idx) => idx === i ? { ...ev, year: e.target.value } : ev) } : null)}
                                                                                 className="bg-white border border-slate-200 text-[11px] font-bold rounded px-2 py-1 focus:outline-none"
-                                                                                placeholder="Année (ex: 25)"
+                                                                                placeholder="AAAA"
                                                                             />
                                                                             <input
                                                                                 value={h.amount}
@@ -1285,7 +2136,14 @@ export default function PayePage() {
                                                                                     "bg-white border border-slate-200 text-[11px] font-bold rounded px-2 py-1 focus:outline-none text-right",
                                                                                     selectedEmployee.gender === "Femme" ? "text-red-600" : "text-blue-600"
                                                                                 )}
-                                                                                placeholder="Montant"
+                                                                                placeholder="Net"
+                                                                            />
+                                                                            <input
+                                                                                value={h.bonus}
+                                                                                type="number"
+                                                                                onChange={(e) => setEditData(prev => prev ? { ...prev, history: prev.history.map((ev, idx) => idx === i ? { ...ev, bonus: Number(e.target.value) } : ev) } : null)}
+                                                                                className="bg-white border border-slate-200 text-[11px] font-bold rounded px-2 py-1 focus:outline-none text-right text-emerald-600"
+                                                                                placeholder="Prime"
                                                                             />
                                                                         </div>
                                                                         <div className="grid grid-cols-2 gap-3">
@@ -1305,7 +2163,7 @@ export default function PayePage() {
                                                                     </div>
                                                                 ))}
                                                                 <button
-                                                                    onClick={() => setEditData(prev => prev ? { ...prev, history: [...prev.history, { year: "", type: "ÉVÉNEMENT", amount: 0, date: "" }] } : null)}
+                                                                    onClick={() => setEditData(prev => prev ? { ...prev, history: [...prev.history, { year: "", type: "ÉVÉNEMENT", amount: 0, bonus: 0, date: "" }] } : null)}
                                                                     className={cn(
                                                                         "w-full py-2 border-2 border-dashed rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2",
                                                                         selectedEmployee.gender === "Femme"
@@ -1318,9 +2176,9 @@ export default function PayePage() {
                                                             </div>
                                                         ) : (
                                                             selectedEmployee.history.map((h, i) => (
-                                                                <div key={i} className="flex gap-4 items-center">
+                                                                <div key={i} className="flex gap-4 items-center transition-all hover:translate-x-1 duration-300">
                                                                     <div className={cn(
-                                                                        "w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold shrink-0",
+                                                                        "w-10 h-10 rounded-xl flex items-center justify-center text-[10px] font-black shrink-0",
                                                                         i === selectedEmployee.history.length - 1
                                                                             ? (selectedEmployee.gender === "Femme" ? "bg-red-600 text-white shadow-lg" : "bg-blue-600 text-white shadow-lg")
                                                                             : "bg-slate-50 text-slate-400 border border-slate-100"
@@ -1329,16 +2187,23 @@ export default function PayePage() {
                                                                     </div>
                                                                     <div className="flex-1 flex justify-between items-center group">
                                                                         <div>
-                                                                            <div className="text-[11px] font-bold text-slate-800 uppercase tracking-wide">{h.type}</div>
-                                                                            <div className="text-[10px] font-medium text-slate-400">{h.date}</div>
+                                                                            <div className="text-[11px] font-bold text-slate-800 uppercase tracking-tighter">{h.type}</div>
+                                                                            <div className="text-[9px] font-bold text-slate-400 opacity-60 uppercase">{h.date}</div>
                                                                         </div>
-                                                                        <div className={cn(
-                                                                            "text-sm font-bold",
-                                                                            i === selectedEmployee.history.length - 1
-                                                                                ? (selectedEmployee.gender === "Femme" ? "text-red-600" : "text-blue-600")
-                                                                                : "text-slate-500"
-                                                                        )}>
-                                                                            {h.amount.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} Dh
+                                                                        <div className="text-right">
+                                                                            <div className={cn(
+                                                                                "text-xs font-black tracking-tight",
+                                                                                i === selectedEmployee.history.length - 1
+                                                                                    ? (selectedEmployee.gender === "Femme" ? "text-red-600" : "text-blue-600")
+                                                                                    : "text-slate-700"
+                                                                            )}>
+                                                                                {h.amount.toLocaleString("fr-FR")} <span className="text-[10px] font-bold opacity-40">Net</span>
+                                                                            </div>
+                                                                            {h.bonus > 0 && (
+                                                                                <div className="text-[10px] font-bold text-emerald-600 tracking-tight leading-none">
+                                                                                    +{h.bonus.toLocaleString("fr-FR")} <span className="text-[8px] font-bold opacity-40 uppercase">Prime</span>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -1360,18 +2225,21 @@ export default function PayePage() {
                                                     )} />
                                                     2- Poste & Situation Financière
                                                 </h3>
-                                                <div className="bg-[#F8FAFC] rounded-2xl p-8 border border-slate-100 shadow-sm flex-1">
-                                                    <div className="space-y-12">
+                                                <div className={cn(
+                                                    "bg-[#F8FAFC] rounded-2xl p-8 border shadow-2xl flex-1 transition-all duration-300",
+                                                    selectedEmployee.gender === "Femme"
+                                                        ? "border-red-500/20 shadow-red-500/5"
+                                                        : "border-blue-500/20 shadow-blue-500/5"
+                                                )}>
+                                                    <div className="space-y-3">
                                                         {/* Ligne 1: Infos Poste */}
                                                         <div className="grid grid-cols-3 gap-12">
                                                             <div>
                                                                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Date Embauche</div>
                                                                 {isEditing ? (
-                                                                    <input
-                                                                        type="text"
+                                                                    <PayrollDatePicker
                                                                         value={editData?.contract.hireDate || ""}
-                                                                        onChange={(e) => {
-                                                                            const val = e.target.value;
+                                                                        onChange={(val) => {
                                                                             setEditData(prev => prev ? {
                                                                                 ...prev,
                                                                                 contract: {
@@ -1382,13 +2250,8 @@ export default function PayePage() {
                                                                                 }
                                                                             } : null);
                                                                         }}
-                                                                        placeholder="JJ/MM/AAAA"
-                                                                        className={cn(
-                                                                            "bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 w-full",
-                                                                            selectedEmployee.gender === "Femme"
-                                                                                ? "focus:ring-red-500/10 focus:border-red-500"
-                                                                                : "focus:ring-blue-500/10 focus:border-blue-500"
-                                                                        )}
+                                                                        gender={selectedEmployee.gender as "Homme" | "Femme"}
+                                                                        className="w-full"
                                                                     />
                                                                 ) : (
                                                                     <div className="text-base font-bold text-slate-800 tracking-tight">{selectedEmployee.contract.hireDate}</div>
@@ -1397,11 +2260,9 @@ export default function PayePage() {
                                                             <div>
                                                                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Date de Sortie</div>
                                                                 {isEditing ? (
-                                                                    <input
-                                                                        type="text"
+                                                                    <PayrollDatePicker
                                                                         value={editData?.contract.exitDate || ""}
-                                                                        onChange={(e) => {
-                                                                            const val = e.target.value;
+                                                                        onChange={(val) => {
                                                                             setEditData(prev => prev ? {
                                                                                 ...prev,
                                                                                 contract: {
@@ -1412,13 +2273,8 @@ export default function PayePage() {
                                                                                 }
                                                                             } : null);
                                                                         }}
-                                                                        placeholder="JJ/MM/AAAA"
-                                                                        className={cn(
-                                                                            "bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 w-full transition-all",
-                                                                            selectedEmployee.gender === "Femme"
-                                                                                ? "focus:ring-red-500/10 focus:border-red-500 text-red-600"
-                                                                                : "focus:ring-blue-500/10 focus:border-blue-500 text-blue-600"
-                                                                        )}
+                                                                        gender={selectedEmployee.gender as "Homme" | "Femme"}
+                                                                        className="w-full"
                                                                     />
                                                                 ) : (
                                                                     <div className="text-base font-bold text-slate-800 tracking-tight">{selectedEmployee.contract.exitDate}</div>
@@ -1445,8 +2301,46 @@ export default function PayePage() {
                                                             </div>
                                                         </div>
 
+                                                        {/* Ligne Intermédiaire: Congés & Salaire (Quinconce) */}
+                                                        <div className={cn(
+                                                            "flex flex-row items-center justify-center gap-20 pt-2 border-t pb-2",
+                                                            selectedEmployee.gender === "Femme" ? "border-red-200" : "border-blue-200"
+                                                        )}>
+                                                            <div className="flex flex-col items-center">
+                                                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Congés dus</div>
+                                                                <div className="text-xl font-black text-emerald-700">
+                                                                    {calculateLeaveDays(isEditing ? editData?.contract.hireDate || "" : selectedEmployee.contract.hireDate, isEditing ? editData?.contract.exitDate || "" : selectedEmployee.contract.exitDate)} <span className="text-xs font-bold text-emerald-600">Jours</span>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="w-px h-10 bg-slate-200 mx-4" />
+
+                                                            <div className="flex flex-col items-center">
+                                                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Dernier Salaire</div>
+                                                                <div className="text-xl font-black text-emerald-700">
+                                                                    {getLastSalaryInfo(isEditing ? editData?.history || [] : selectedEmployee.history, selectedEmployee.contract.baseSalary).amount.toLocaleString("fr-FR")} <span className="text-xs font-bold text-emerald-600">Dh</span>
+                                                                </div>
+                                                                <div className="text-[8px] font-bold text-slate-300 uppercase tracking-tighter">Source: Historique</div>
+                                                            </div>
+
+                                                            <div className="w-px h-10 bg-slate-200 mx-4" />
+
+                                                            <div className="flex flex-col items-center">
+                                                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Taux Ancienneté</div>
+                                                                <div className={cn(
+                                                                    "text-2xl font-black tracking-tight",
+                                                                    selectedEmployee.gender === "Femme" ? "text-red-600" : "text-blue-600"
+                                                                )}>
+                                                                    {calculateSeniorityRate(selectedEmployee.contract.hireDate)}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
                                                         {/* Ligne 2: Infos Crédit */}
-                                                        <div className="grid grid-cols-3 gap-12 pt-8 border-t border-slate-200/60">
+                                                        <div className={cn(
+                                                            "grid grid-cols-3 gap-12 pt-2 border-t",
+                                                            selectedEmployee.gender === "Femme" ? "border-red-200" : "border-blue-200"
+                                                        )}>
                                                             <div>
                                                                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Montant Prêté</div>
                                                                 {isEditing ? (
@@ -1454,7 +2348,18 @@ export default function PayePage() {
                                                                         <input
                                                                             type="number"
                                                                             value={editData?.creditInfo.loanAmount || 0}
-                                                                            onChange={(e) => setEditData(prev => prev ? { ...prev, creditInfo: { ...prev.creditInfo, loanAmount: Number(e.target.value) } } : null)}
+                                                                            onChange={(e) => {
+                                                                                const newVal = Number(e.target.value);
+                                                                                setEditData(prev => prev ? {
+                                                                                    ...prev,
+                                                                                    creditInfo: {
+                                                                                        ...prev.creditInfo,
+                                                                                        loanAmount: newVal,
+                                                                                        // Auto-calculate remaining: Loan - Payments
+                                                                                        remaining: Math.max(0, newVal - (prev.creditInfo.payments || 0))
+                                                                                    }
+                                                                                } : null);
+                                                                            }}
                                                                             className={cn(
                                                                                 "bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 w-full",
                                                                                 selectedEmployee.gender === "Femme"
@@ -1475,7 +2380,18 @@ export default function PayePage() {
                                                                         <input
                                                                             type="number"
                                                                             value={editData?.creditInfo.payments || 0}
-                                                                            onChange={(e) => setEditData(prev => prev ? { ...prev, creditInfo: { ...prev.creditInfo, payments: Number(e.target.value) } } : null)}
+                                                                            onChange={(e) => {
+                                                                                const newVal = Number(e.target.value);
+                                                                                setEditData(prev => prev ? {
+                                                                                    ...prev,
+                                                                                    creditInfo: {
+                                                                                        ...prev.creditInfo,
+                                                                                        payments: newVal,
+                                                                                        // Auto-calculate remaining: Loan - Payments
+                                                                                        remaining: Math.max(0, (prev.creditInfo.loanAmount || 0) - newVal)
+                                                                                    }
+                                                                                } : null);
+                                                                            }}
                                                                             className={cn(
                                                                                 "bg-white border border-slate-200 text-sm font-bold rounded-lg px-3 py-2 focus:outline-none focus:ring-2 w-full",
                                                                                 selectedEmployee.gender === "Femme"
@@ -1492,7 +2408,15 @@ export default function PayePage() {
                                                                     <div className={cn(
                                                                         "text-base font-bold",
                                                                         selectedEmployee.gender === "Femme" ? "text-red-600" : "text-blue-600"
-                                                                    )}>{selectedEmployee.creditInfo.payments.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} Dh</div>
+                                                                    )}>
+                                                                        {(() => {
+                                                                            const credit = isEditing ? editData?.creditInfo : selectedEmployee.creditInfo;
+                                                                            const mData = isEditing && editData ? getMonthData(editData) : selectedMonthData;
+                                                                            const deduction = mData.monthlyDeduction || 0;
+                                                                            const val = (credit?.payments || 0) + deduction;
+                                                                            return val.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                                                        })()} Dh
+                                                                    </div>
                                                                 )}
                                                             </div>
                                                             <div>
@@ -1500,7 +2424,10 @@ export default function PayePage() {
                                                                 <div className="text-xl font-black text-red-600">
                                                                     {(() => {
                                                                         const credit = isEditing ? editData?.creditInfo : selectedEmployee.creditInfo;
-                                                                        return ((credit?.loanAmount || 0) - (credit?.payments || 0)).toLocaleString("fr-FR", { minimumFractionDigits: 2 });
+                                                                        const mData = isEditing && editData ? getMonthData(editData) : selectedMonthData;
+                                                                        const deduction = mData.monthlyDeduction || 0;
+                                                                        const val = (credit?.loanAmount || 0) - (credit?.payments || 0) - deduction;
+                                                                        return val.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                                                                     })()} <span className="text-xs font-bold">Dh</span>
                                                                 </div>
                                                             </div>
@@ -1513,9 +2440,10 @@ export default function PayePage() {
                                 </div>
                             </div>
                         </div>
-                    )}
-                </div>
-            </main>
-        </div>
+                    )
+                    }
+                </div >
+            </main >
+        </div >
     );
 }
