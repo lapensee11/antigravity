@@ -171,6 +171,7 @@ export interface Recipe {
     costing: Costing;
 
     image?: string;
+    reference?: string;
 }
 
 // Finance
