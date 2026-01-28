@@ -438,7 +438,8 @@ function VentesContent() {
         const totals = {
             exo: 0, impHt: 0, totHt: 0, ttc: 0, cmi: 0, chq: 0, glovo: 0, esp: 0,
             declaredTTC: 0, declaredEsp: 0,
-            glovoExo: 0, glovoImp: 0
+            glovoExo: 0, glovoImp: 0,
+            glovoBrut: 0, glovoIncid: 0, glovoCash: 0
         };
 
         tableRows.forEach(row => {
@@ -466,6 +467,11 @@ function VentesContent() {
             // Declared
             totals.declaredTTC += parseFloat(row.declaredTTC) || 0;
             totals.declaredEsp += parseFloat(row.declaredEsp) || 0;
+
+            // Glovo Breakdowns for Saisie Footer
+            totals.glovoBrut += parseFloat(salesData[row.isoKey]?.real?.glovo?.brut || "0") || 0;
+            totals.glovoIncid += parseFloat(salesData[row.isoKey]?.real?.glovo?.incid || "0") || 0;
+            totals.glovoCash += parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0") || 0;
         });
 
         return totals;
@@ -606,13 +612,13 @@ function VentesContent() {
                     {/* FILTERS & VIEW MODE SECTION - Reorganized */}
                     <div className="flex items-center justify-between p-2.5">
                         {/* LEFT: View Mode Toggles */}
-                        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+                        <div className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200">
                             <button
                                 onClick={() => setViewMode("Saisie")}
                                 className={cn(
                                     "px-4 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
                                     viewMode === "Saisie"
-                                        ? "bg-white text-blue-600 shadow-sm ring-1 ring-black/5"
+                                        ? "bg-[#1E293B] text-white shadow-md ring-1 ring-black/5"
                                         : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
                                 )}
                             >
@@ -624,7 +630,7 @@ function VentesContent() {
                                 className={cn(
                                     "px-4 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
                                     viewMode === "Compta"
-                                        ? "bg-amber-100 text-amber-700 shadow-sm ring-1 ring-amber-200"
+                                        ? "bg-[#451a03] text-white shadow-md ring-1 ring-[#451a03]/20"
                                         : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
                                 )}
                             >
@@ -638,10 +644,10 @@ function VentesContent() {
                             <button
                                 onClick={handleToday}
                                 className={cn(
-                                    "px-4 py-1.5 rounded-xl text-sm font-bold transition-colors border flex items-center gap-2 mr-2",
+                                    "px-4 py-1.5 rounded-xl text-sm font-bold transition-colors border flex items-center gap-2 mr-2 shadow-sm",
                                     viewMode === "Compta"
-                                        ? "bg-amber-50 text-amber-600 border-amber-200/50 hover:bg-amber-100"
-                                        : "bg-indigo-50 text-indigo-600 border-indigo-200/50 hover:bg-indigo-100"
+                                        ? "bg-white text-[#451a03] border-slate-200 hover:bg-slate-50"
+                                        : "bg-indigo-50 text-[#1E293B] border-indigo-200/50 hover:bg-indigo-100"
                                 )}
                             >
                                 <Calendar className="w-4 h-4" />
@@ -709,7 +715,7 @@ function VentesContent() {
                         <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent relative z-10">
                             <table className="w-full text-sm text-left border-collapse" ref={tableRef}>
                                 <thead className={cn(
-                                    "sticky top-0 z-20 text-[10px] font-black pointer-events-none text-slate-300 uppercase tracking-widest shadow-sm transition-colors duration-300",
+                                    "sticky top-0 z-20 text-[10px] font-black pointer-events-none text-slate-300 uppercase tracking-widest shadow-sm transition-colors duration-300 border-t-2 border-white",
                                     viewMode === "Compta" ? "bg-[#451a03] border-b border-amber-900" : "bg-[#1E293B]"
                                 )}>
                                     <tr>
@@ -733,11 +739,13 @@ function VentesContent() {
                                                 {/* 5: Total HT */}
                                                 <th className="px-3 py-3 text-right text-amber-100 min-w-[100px]">Total HT</th>
                                                 {/* 6: Total TTC */}
-                                                <th className="px-3 py-3 text-right text-slate-300 font-extrabold min-w-[100px]">Total TTC</th>
+                                                <th className="px-3 py-3 text-right text-slate-300 font-extrabold min-w-[100px] border-r-2 border-[#451a03]">Total TTC</th>
                                                 {/* 7: CMI */}
                                                 <th className="px-3 py-3 text-right text-emerald-400 min-w-[80px]">CMI</th>
                                                 {/* 8: Chèques */}
                                                 <th className="px-3 py-3 text-right text-emerald-400 min-w-[80px]">Chèques</th>
+                                                {/* 8b: Espèces (D) */}
+                                                <th className="px-3 py-3 text-right text-orange-400 font-bold min-w-[90px]">Espèces (D)</th>
                                                 {/* 9: Glovo Brut */}
                                                 <th className="px-2 py-3 text-right text-yellow-400 w-20 min-w-[80px]">Glv Brut</th>
                                                 {/* 10: Incid */}
@@ -745,22 +753,24 @@ function VentesContent() {
                                                 {/* 11: Cash */}
                                                 <th className="px-2 py-3 text-right text-yellow-400 w-20 min-w-[70px]">Cash</th>
                                                 {/* 12: Glovo Net */}
-                                                <th className="px-3 py-3 text-right text-yellow-400 font-extrabold min-w-[100px]">Glovo Net</th>
+                                                <th className="px-3 py-3 text-right text-yellow-400 font-extrabold min-w-[100px] border-r-2 border-[#451a03]">Glovo Net</th>
                                             </>
                                         ) : (
                                             <>
                                                 <th className="px-3 py-3 text-right text-slate-300">Exonéré</th>
                                                 <th className="px-3 py-3 text-right text-slate-300">Imp. HT</th>
                                                 <th className="px-3 py-3 text-right text-slate-300">Total HT</th>
-                                                <th className="px-3 py-3 text-right text-slate-300 font-extrabold">Total TTC</th>
+                                                <th className="px-3 py-3 text-right text-slate-300 font-extrabold border-r-2 border-[#1E293B]">Total TTC</th>
                                                 <th className="px-3 py-3 text-right text-emerald-400">CMI</th>
                                                 <th className="px-3 py-3 text-right text-emerald-400">Chèques</th>
                                                 <th className="px-3 py-3 text-right font-black text-emerald-400">Espèces</th>
                                                 <th className="px-2 py-3 text-right text-yellow-400 w-20">Glv Brut</th>
+                                                {/* ... */}
                                                 <th className="px-2 py-3 text-right text-yellow-400 w-20">Incid</th>
                                                 <th className="px-2 py-3 text-right text-yellow-400 w-20">Cash</th>
-                                                <th className="px-3 py-3 text-right text-yellow-400 font-extrabold">Glovo Net</th>
+                                                <th className="px-3 py-3 text-right text-yellow-400 font-extrabold border-r-2 border-[#1E293B]">Glovo Net</th>
                                                 <th className="px-3 py-3 text-right text-orange-400 font-bold">TTC (D)</th>
+                                                <th className="px-3 py-3 text-right text-orange-400 font-bold">D-Cash</th>
                                                 <th className="px-3 py-3 text-right text-orange-400 font-bold">Esp (D)</th>
                                                 <th className="px-2 py-3 text-center text-orange-400 w-24">Coeff</th>
                                             </>
@@ -836,11 +846,13 @@ function VentesContent() {
                                                         {parseFloat(row.compta.totHt) !== 0 ? row.compta.totHt : "-"}
                                                     </td>
                                                     {/* 6: Total TTC */}
-                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-white" : "text-slate-500")}>{row.compta.ttc}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight min-w-[100px] border-r-2 border-[#451a03]", focusedRowIndex === i ? "text-white" : "text-slate-500")}>{row.compta.ttc}</td>
                                                     {/* 7: CMI */}
                                                     <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
                                                     {/* 8: Chèques */}
                                                     <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
+                                                    {/* 8b: Espèces (D) */}
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredEsp !== "0.00" ? row.declaredEsp : "-"}</td>
                                                     {/* 9: Glovo Brut */}
                                                     <td className="px-2 py-1 text-right w-20 min-w-[80px] font-mono text-xs font-bold">
                                                         <span className={focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600"}>
@@ -877,7 +889,7 @@ function VentesContent() {
                                                     </td>
 
                                                     <td className={cn(
-                                                        "px-3 py-2 text-right font-black text-xs font-mono tracking-tight",
+                                                        "px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-2 border-[#1E293B]",
                                                         focusedRowIndex === i ? "text-white" : "text-slate-500"
                                                     )}>
                                                         {row.ttc}
@@ -934,12 +946,15 @@ function VentesContent() {
                                                             )}
                                                         />
                                                     </td>
-                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600")}>
+                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-2 border-[#1E293B]", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600")}>
                                                         {parseFloat(row.glovo || "0").toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </td>
 
                                                     {/* DECLARED ROW CELLS - Removed in Compta */}
                                                     <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredTTC}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>
+                                                        {((parseFloat(row.declaredEsp) || 0) - (parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0") || 0)).toFixed(2)}
+                                                    </td>
                                                     <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredEsp}</td>
 
                                                     <td className="px-2 py-1 text-center" onClick={(e) => e.stopPropagation()}>
@@ -1008,11 +1023,11 @@ function VentesContent() {
                                 </tbody>
                                 {/* FOOTER ROW - Sticky Bottom matches Payroll Journal footer style */}
                                 <tfoot className={cn(
-                                    "sticky bottom-0 z-20 text-slate-300 text-[10px] font-bold uppercase tracking-wider shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.2)] transition-colors duration-300 border-t",
+                                    "sticky bottom-0 z-20 text-slate-300 text-xs font-black uppercase tracking-wider shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.2)] transition-colors duration-300 border-t border-b-2 border-white",
                                     viewMode === "Compta" ? "bg-[#451a03] border-amber-900" : "bg-[#1E293B] border-[#334155]"
                                 )}>
                                     <tr>
-                                        <td className="px-3 py-4 text-left font-extrabold text-white">Total Période</td>
+                                        <td className="px-3 py-4 text-left text-white">Total Période</td>
 
                                         {/* REORDERED COMPTA FOOTER (12 fields) vs SAISIE FOOTER */}
                                         {viewMode === "Compta" ? (
@@ -1028,31 +1043,40 @@ function VentesContent() {
                                                 {/* 5: Total HT */}
                                                 <td className="px-3 py-4 text-right font-mono text-white min-w-[100px]">{periodTotals.totHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 6: Total TTC */}
-                                                <td className="px-3 py-4 text-right font-black text-white font-mono min-w-[100px]">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                {/* 6: Total TTC */}
+                                                <td className="px-3 py-4 text-right font-black text-white font-mono min-w-[100px] border-r-2 border-[#451a03]">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 7: CMI */}
                                                 <td className="px-3 py-4 text-right text-emerald-400 font-mono min-w-[80px]">{periodTotals.cmi.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 8: Chèques */}
                                                 <td className="px-3 py-4 text-right text-emerald-400 font-mono min-w-[80px]">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                {/* 8b: Espèces (D) */}
+                                                <td className="px-3 py-4 text-right text-orange-400 font-bold font-mono min-w-[90px]">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 9: Glovo Brut */}
                                                 <td className="px-3 py-4 text-right font-black text-yellow-400 font-mono min-w-[80px]">
                                                     {(periodTotals as any).glovo?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 {/* 10, 11, 12 Labels Detail */}
-                                                <td className="px-2 py-4 text-right text-yellow-500/80" colSpan={3}>Détails Glovo Net</td>
+                                                <td className="px-2 py-4 text-right text-yellow-500/80 border-r-2 border-[#451a03]" colSpan={3}>Détails Glovo Net</td>
                                             </>
                                         ) : (
                                             <>
                                                 <td className="px-3 py-4 text-right font-mono">{periodTotals.exo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 <td className="px-3 py-4 text-right font-mono">{periodTotals.impHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 <td className="px-3 py-4 text-right font-mono text-white">{periodTotals.totHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                <td className="px-3 py-4 text-right font-black text-white font-mono">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right font-black text-white font-mono border-r-2 border-[#1E293B]">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 <td className="px-3 py-4 text-right text-emerald-400 font-mono">{periodTotals.cmi.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                <td className="px-3 py-4 text-right text-emerald-400 font-mono">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                <td className="px-3 py-4 text-right font-black text-emerald-400 font-mono">{periodTotals.esp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                <td className="px-2 py-4 text-right text-yellow-500/80" colSpan={3}>Glovo Total</td>
-                                                <td className="px-3 py-4 text-right font-black text-yellow-400 font-mono">{periodTotals.glovo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                <td className="px-3 py-4 text-right font-bold text-orange-400 font-mono">{periodTotals.declaredTTC.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                <td className="px-3 py-4 text-right font-bold text-orange-400 font-mono">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right font-mono text-emerald-400">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right text-emerald-400 font-mono">{periodTotals.esp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+
+                                                {/* Glovo Breakdowns */}
+                                                <td className="px-2 py-4 text-right text-yellow-500 font-mono w-20">{(periodTotals as any).glovoBrut.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-2 py-4 text-right text-yellow-500 font-mono w-20">{(periodTotals as any).glovoIncid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-2 py-4 text-right text-yellow-500 font-mono w-20">{(periodTotals as any).glovoCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+
+                                                <td className="px-3 py-4 text-right text-yellow-400 font-mono border-r-2 border-[#1E293B]">{periodTotals.glovo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right text-orange-400 font-mono">{periodTotals.declaredTTC.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right text-orange-400 font-mono">{(periodTotals.declaredEsp - (periodTotals as any).glovoCash).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right text-orange-400 font-mono">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 <td></td>
                                             </>
                                         )}

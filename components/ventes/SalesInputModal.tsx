@@ -25,7 +25,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
     const isModalDeclared = isDeclared;
 
     // Header Color Logic
-    const headerColor = isModalDeclared ? "bg-[#92400E]" : "bg-[#1E293B]";
+    const headerColor = isModalDeclared ? "bg-[#451a03]" : "bg-[#1E293B]";
     const buttonColor = isModalDeclared ? "bg-purple-600 hover:bg-purple-500" : "bg-emerald-500 hover:bg-emerald-400";
 
     // Form State
@@ -434,7 +434,10 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             />
 
             {/* Modal Card */}
-            <div className="relative z-10 w-full max-w-[1100px] bg-[#FDFBF7] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            <div className={cn(
+                "relative z-10 w-full max-w-[1100px] bg-[#FDFBF7] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]",
+                isModalDeclared && "border-2 border-[#451a03]"
+            )}>
 
                 {/* 1. Header */}
                 <div className={cn("px-8 py-4 flex justify-between items-center text-white flex-shrink-0", headerColor)}>
