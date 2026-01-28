@@ -240,18 +240,18 @@ export function FinanceJournal({
                             const isSelected = selectedId === tx.id;
 
                             // Dynamic colors for selection highlight based on accountType
-                            const selectionBg = accountType === "Banque" ? "bg-[#F2DAC3]/50" :
-                                accountType === "Caisse" ? "bg-[#C4E4CF]/50" :
-                                    accountType === "Coffre" ? "bg-[#D6E4EB]/50" : "bg-slate-100/50";
+                            const selectionBg = accountType === "Banque" ? "bg-[#F2DAC3]/60" :
+                                accountType === "Caisse" ? "bg-[#C4E4CF]/60" :
+                                    accountType === "Coffre" ? "bg-[#D6E4EB]/60" : "bg-slate-100/60";
 
-                            const indicatorColor = accountType === "Banque" ? "bg-[#C8A890]" :
-                                accountType === "Caisse" ? "bg-[#93BFA2]" :
-                                    accountType === "Coffre" ? "bg-[#98B2C2]" : "bg-slate-400";
+                            const selectionBorder = accountType === "Banque" ? "border-l-[#C8A890]" :
+                                accountType === "Caisse" ? "border-l-[#93BFA2]" :
+                                    accountType === "Coffre" ? "border-l-[#98B2C2]" : "border-l-slate-400";
 
                             if (isEditing && editForm) {
                                 return (
                                     <tr key={tx.id} className="bg-amber-50/50">
-                                        <td className="px-1 py-1.5 text-center relative">
+                                        <td className="px-1 py-1.5 text-center">
                                             <div className="w-4 h-4 rounded-full border border-amber-300 bg-white mx-auto" />
                                         </td>
                                         <td className="px-1 py-1">
@@ -336,17 +336,13 @@ export function FinanceJournal({
                                     key={tx.id}
                                     onClick={() => setSelectedId(tx.id)}
                                     className={cn(
-                                        "group transition-all duration-200 cursor-pointer relative",
-                                        isSelected ? cn(selectionBg, "shadow-[inset_4px_0_0_0_#000] shadow-current").replace('shadow-current', indicatorColor.replace('bg-', '')) : "hover:bg-slate-50/80",
+                                        "group transition-all duration-200 cursor-pointer border-l-4",
+                                        isSelected ? cn(selectionBg, selectionBorder) : "hover:bg-slate-50/80 border-l-transparent",
                                         isReconciled && !isSelected ? "bg-green-50/40" : ""
                                     )}
                                 >
                                     {/* Pointer Column */}
-                                    <td className="px-2 py-1.5 text-center relative">
-                                        {/* Selection mark indicator */}
-                                        {isSelected && (
-                                            <div className={cn("absolute left-0 top-0 bottom-0 w-1", indicatorColor)} />
-                                        )}
+                                    <td className="px-2 py-1.5 text-center">
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
