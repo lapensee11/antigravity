@@ -312,7 +312,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                 {/* Units & Conversion Section */}
                 <section className="px-10 mb-12">
                     <h3 className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2">
-                        <div className="w-1.5 h-6 rounded-full bg-blue-600 transition-colors" />
+                        <div className="w-1.5 h-6 rounded-full bg-[#1E293B] transition-colors" />
                         Unités & Conversions
                     </h3>
 
@@ -411,7 +411,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                     {/* Block 1: Comptabilité */}
                     <section className="flex flex-col h-full">
                         <h3 className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2">
-                            <div className="w-1.5 h-6 rounded-full bg-blue-600 transition-colors" />
+                            <div className="w-1.5 h-6 rounded-full bg-[#1E293B] transition-colors" />
                             Comptabilité
                         </h3>
                         <div className="bg-[#F8FAFC] rounded-2xl px-8 py-5 border border-blue-500/20 shadow-2xl shadow-blue-500/5 transition-all duration-300 flex-1 space-y-5">
@@ -476,7 +476,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                     {/* Block 2: Logistique & Stockage (Conditional Nutrition) */}
                     <section className="flex flex-col h-full">
                         <h3 className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2">
-                            <div className="w-1.5 h-6 rounded-full bg-blue-600 transition-colors" />
+                            <div className="w-1.5 h-6 rounded-full bg-[#1E293B] transition-colors" />
                             {formData.accountingNature === "Achat de matières premières" ? "Valeurs Nutritionnelles pour 100g" : "Logistique & Stockage"}
                         </h3>
                         <div className="bg-[#F8FAFC] rounded-2xl px-6 py-4 border border-blue-500/20 shadow-2xl shadow-blue-500/5 transition-all duration-300 flex-1 flex flex-col min-h-[300px]">
@@ -613,7 +613,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                 {/* History Section */}
                 <section className="px-10 mb-12">
                     <h3 className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2">
-                        <div className="w-1.5 h-6 rounded-full bg-blue-600 transition-colors" />
+                        <div className="w-1.5 h-6 rounded-full bg-[#1E293B] transition-colors" />
                         3- Historique des Prix
                     </h3>
 

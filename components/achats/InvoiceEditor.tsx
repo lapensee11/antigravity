@@ -2,8 +2,11 @@ import { useRef, forwardRef } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassInput } from "@/components/ui/GlassInput";
 import { Invoice, InvoiceLine } from "@/lib/types";
+import { InvoiceDocuments } from "./editor/InvoiceDocuments";
+import { InvoiceFinancials } from "./editor/InvoiceFinancials";
+import { InvoicePayments } from "./editor/InvoicePayments";
 import { initialFamilies, initialSubFamilies, initialUnits } from "@/lib/data";
-import { Save, Trash2, Copy, RefreshCw, Plus, Calendar, Check, CloudUpload } from "lucide-react";
+import { Trash2, Plus, Check } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { usePersistedState } from "@/lib/hooks/use-persisted-state";
@@ -88,9 +91,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
     const [activeUnitRow, setActiveUnitRow] = useState<number | null>(null);
     const [unitFocusIndex, setUnitFocusIndex] = useState(-1);
 
-    // Payment Autocomplete State
-    const [activePaymentRow, setActivePaymentRow] = useState<number | null>(null);
-    const [paymentModeFocusIndex, setPaymentModeFocusIndex] = useState(-1);
+
 
     // Refs for Focus Management
     const designationRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -99,17 +100,13 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
     const priceRefs = useRef<(HTMLInputElement | null)[]>([]);
     const vatRefs = useRef<(HTMLInputElement | null)[]>([]);
     const discountRefs = useRef<(HTMLInputElement | null)[]>([]);
-    const paymentDateRefs = useRef<(HTMLInputElement | null)[]>([]);
-    const amountRefs = useRef<(HTMLInputElement | null)[]>([]);
-    const paymentModeRefs = useRef<(HTMLButtonElement | null)[]>([]);
-    const paymentNoteRefs = useRef<(HTMLInputElement | null)[]>([]);
-    const paymentRefRefs = useRef<(HTMLInputElement | null)[]>([]);
+
     const prevLinesLength = useRef(0);
 
     const supplierListRef = useRef<HTMLDivElement>(null);
     const articleListRef = useRef<HTMLDivElement>(null);
     const unitListRef = useRef<HTMLDivElement>(null);
-    const paymentListRef = useRef<HTMLDivElement>(null);
+
 
     useEffect(() => {
         if (formData.lines && formData.lines.length > prevLinesLength.current) {
@@ -186,9 +183,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
         setArticleFocusIndex(-1);
     }, [activeRow]);
 
-    useEffect(() => {
-        setPaymentModeFocusIndex(-1);
-    }, [activePaymentRow]);
+
 
     useEffect(() => {
         setFocusIndex(-1);
@@ -216,12 +211,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
         }
     }, [unitFocusIndex]);
 
-    useEffect(() => {
-        if (paymentModeFocusIndex >= 0 && paymentListRef.current) {
-            const el = paymentListRef.current.children[paymentModeFocusIndex] as HTMLElement;
-            el?.scrollIntoView({ block: 'nearest' });
-        }
-    }, [paymentModeFocusIndex]);
+
 
     // Filter Logic
     useEffect(() => {
@@ -308,9 +298,25 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
     // --- Line Handlers ---
     const updateLines = (newLines: InvoiceLine[]) => {
         const totalHT = newLines.reduce((sum, l) => sum + (l.quantity * l.priceHT * (1 - (l.discount || 0) / 100)), 0);
-        const totalTTC = newLines.reduce((sum, l) => sum + l.totalTTC, 0);
 
-        const newData = { ...formData, lines: newLines, totalHT, totalTTC };
+        // Calculate VAT and Discounts
+        const totalVAT = newLines.reduce((sum, l) => {
+            const lineHT = l.quantity * l.priceHT * (1 - (l.discount || 0) / 100);
+            return sum + (lineHT * (l.vatRate / 100));
+        }, 0);
+
+        const totalRemise = newLines.reduce((sum, l) => {
+            const lineBase = l.quantity * l.priceHT;
+            return sum + (lineBase * ((l.discount || 0) / 100));
+        }, 0);
+
+        // Explicit Formula: TTC = HT + TVA + Arrondi
+        const rounding = formData.rounding || 0;
+        const totalTTC = totalHT + totalVAT + rounding;
+
+        const balanceDue = totalTTC - (formData.deposit || 0);
+
+        const newData = { ...formData, lines: newLines, totalHT, totalTTC, totalVAT, totalRemise, balanceDue };
         setFormData(newData);
         if (onUpdate && invoice) onUpdate({ ...invoice, ...newData } as Invoice);
     };
@@ -419,62 +425,29 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
         if (onUpdate && invoice) onUpdate({ ...invoice, ...newData } as Invoice);
     };
 
-    const handleAddPayment = () => {
-        const newPayment = {
-            id: `pay_${Date.now()}`,
-            date: new Date().toISOString().split('T')[0],
-            amount: 0,
-            mode: "Espèces" as const,
-            account: "Caisse" as const
-        };
-        const newPayments = [...(formData.payments || []), newPayment];
-        updatePayments(newPayments);
+    const handleRoundingChange = (val: number) => {
+        const rounding = val;
 
-        // Focus the new date field
-        const index = newPayments.length - 1;
-        setTimeout(() => {
-            paymentDateRefs.current[index]?.focus();
-        }, 50);
+        // Recalculate based on lines for explicit formula: TTC = HT + TVA + Arrondi
+        const lines = formData.lines || [];
+        const totalHT = lines.reduce((sum, l) => sum + (l.quantity * l.priceHT * (1 - (l.discount || 0) / 100)), 0);
+        const totalVAT = lines.reduce((sum, l) => {
+            const lineHT = l.quantity * l.priceHT * (1 - (l.discount || 0) / 100);
+            return sum + (lineHT * (l.vatRate / 100));
+        }, 0);
+
+        const newTotalTTC = totalHT + totalVAT + rounding;
+
+        // Update balance due
+        const totalPaid = (formData.payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+        const balanceDue = newTotalTTC - totalPaid;
+
+        const newData = { ...formData, rounding, totalTTC: newTotalTTC, balanceDue };
+        setFormData(newData);
+        if (onUpdate && invoice) onUpdate({ ...invoice, ...newData } as Invoice);
     };
 
-    const handlePaymentChange = (index: number, field: string, value: any) => {
-        const newPayments = [...(formData.payments || [])];
-        const payment = { ...newPayments[index] };
-        (payment as any)[field] = value;
 
-        // Auto Logic
-        if (field === "mode") {
-            if (value === "Espèces") payment.account = "Caisse";
-            else payment.account = "Banque";
-        }
-
-        newPayments[index] = payment;
-        updatePayments(newPayments);
-    };
-
-    const MODES = ["Chèque", "Virement", "Prélèvement", "Espèces", "Carte Bancaire"];
-
-    const handlePaymentModeKeyDown = (e: React.KeyboardEvent, index: number) => {
-        if (activePaymentRow !== index) return;
-
-        if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setPaymentModeFocusIndex(prev => Math.min(prev + 1, MODES.length - 1));
-        } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setPaymentModeFocusIndex(prev => Math.max(prev - 1, 0));
-        } else if (e.key === "Enter" || e.key === "Tab") {
-            if (paymentModeFocusIndex >= 0) {
-                e.preventDefault();
-                handlePaymentChange(index, "mode", MODES[paymentModeFocusIndex]);
-                setActivePaymentRow(null);
-                // Focus note field (Infos)
-                setTimeout(() => paymentNoteRefs.current[index]?.focus(), 50);
-            }
-        } else if (e.key === "Escape") {
-            setActivePaymentRow(null);
-        }
-    };
 
 
     const handleArticleKeyDown = (e: React.KeyboardEvent, index: number) => {
@@ -543,40 +516,13 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
         }
     };
 
-    const paymentDayRefs = useRef<(HTMLInputElement | null)[]>([]);
-    const paymentMonthRefs = useRef<(HTMLInputElement | null)[]>([]);
-    const paymentYearRefs = useRef<(HTMLInputElement | null)[]>([]);
+
 
     // ... (existing refs)
 
     // Click Outside Logic
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (activePaymentRow !== null && paymentListRef.current && !paymentListRef.current.contains(event.target as Node)) {
-                // Check if the click was on the button itself (to toggle)? 
-                // Actually, if we click outside the dropdown, just close it.
-                // But we need to make sure we don't close it if we just clicked the button to open it.
-                // The button onClick sets activePaymentRow.
-                // If we click elsewhere, we want to close.
-                // Let's rely on the fact that if we click the button, it might toggle.
-                // Simple approach: if target is not in paymentListRef, close.
-                // But wait, the button is outside the list ref usually? 
-                // In my code structure, the list is absolute positioned relative to the parent div.
-                // So if I click the button 'paymentModeRefs.current[index]', I might trigger toggle.
-
-                // Let's try a safer approach: checking if click is inside the container div of the mode cell?
-                // Or just:
-                if (activePaymentRow !== null && !paymentListRef.current?.contains(event.target as Node)) {
-                    // Check if target is the toggle button
-                    const btn = paymentModeRefs.current[activePaymentRow];
-                    if (btn && btn.contains(event.target as Node)) {
-                        // Clicked the button, let the button handler do its thing (toggle)
-                        return;
-                    }
-                    setActivePaymentRow(null);
-                }
-            }
-
             if (activeUnitRow !== null && !unitListRef.current?.contains(event.target as Node)) {
                 const btn = unitRefs.current[activeUnitRow];
                 if (btn && btn.contains(event.target as Node)) return;
@@ -599,64 +545,10 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
         return () => {
             document.removeEventListener("mousedown", handleClickOutside);
         };
-    }, [activePaymentRow, activeUnitRow, activeRow, showSuggestions]);
+    }, [activeUnitRow, activeRow, showSuggestions]);
 
 
-    const handleDatePartChange = (index: number, part: 'day' | 'month' | 'year', val: string) => {
-        const newPayments = [...(formData.payments || [])];
-        const payment = { ...newPayments[index] };
 
-        const currentParams = payment.date ? payment.date.split('-') : [new Date().getFullYear().toString(), '01', '01'];
-        // YYYY-MM-DD
-        let y = currentParams[0];
-        let m = currentParams[1];
-        let d = currentParams[2];
-
-        if (part === 'day') d = val.padStart(2, '0');
-        if (part === 'month') m = val.padStart(2, '0');
-        if (part === 'year') y = val;
-
-        // Validation simple
-        if (parseInt(m) > 12) m = '12';
-        if (parseInt(m) < 1) m = '01';
-        if (parseInt(d) > 31) d = '31'; // approx
-        if (parseInt(d) < 1) d = '01';
-
-        payment.date = `${y}-${m}-${d}`;
-        newPayments[index] = payment;
-        updatePayments(newPayments);
-    };
-
-    const handleDateArrow = (index: number, part: 'day' | 'month' | 'year', direction: 'up' | 'down') => {
-        const newPayments = [...(formData.payments || [])];
-        const payment = { ...newPayments[index] };
-
-        const parts = payment.date ? payment.date.split('-') : [];
-        let date;
-        if (parts.length === 3) {
-            date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-        } else {
-            date = new Date();
-        }
-
-        const change = direction === 'up' ? 1 : -1;
-
-        if (part === 'day') {
-            date.setDate(date.getDate() + change);
-        } else if (part === 'month') {
-            date.setMonth(date.getMonth() + change);
-        } else if (part === 'year') {
-            date.setFullYear(date.getFullYear() + change);
-        }
-
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        const d = String(date.getDate()).padStart(2, '0');
-
-        payment.date = `${y}-${m}-${d}`;
-        newPayments[index] = payment;
-        updatePayments(newPayments);
-    };
 
     return (
         <GlassCard className="h-full flex flex-col overflow-hidden rounded-none shadow-none border-0 font-outfit">
@@ -664,7 +556,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
             <div className="flex-1 flex flex-col overflow-hidden relative">
 
                 {/* Header Section - Restored Light Style */}
-                <div className="shrink-0 pt-6 pb-8 pl-8 pr-6 flex items-end justify-between gap-4 bg-[#FBF7F4] border-b border-slate-100">
+                <div className="shrink-0 pt-6 pb-8 pl-8 pr-6 flex items-end justify-between gap-4 bg-white">
                     <div className="flex items-center gap-4">
                         {/* Status Toggle Button (Restored) */}
                         <button
@@ -765,24 +657,27 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                     {/* Lines */}
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="w-1 h-4 bg-[#E5D1BD] rounded-full" />
-                                <h3 className="text-sm font-bold text-slate-700">Lignes de Facture</h3>
+                            <div className="flex items-center gap-3">
+                                <div className="w-1.5 h-6 bg-[#1E293B] rounded-full" />
+                                <h3 className="text-lg font-black text-slate-800 uppercase tracking-widest">Lignes de Facture</h3>
                             </div>
-                            <button
-                                type="button"
-                                onClick={handleAddLine}
-                                className="px-3 py-1.5 bg-[#E5D1BD] rounded-lg text-xs font-bold text-[#5D4037] shadow-sm hover:bg-[#D7CCC8] hover:scale-105 transition-all flex items-center gap-1"
-                            >
-                                <Plus className="w-3.5 h-3.5" />
-                                Ajouter Ligne
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleAddLine}
+                                    className="w-10 h-10 flex items-center justify-center bg-[#1E293B] rounded-xl shadow-lg hover:scale-110 active:scale-95 transition-all group"
+                                    title="Ajouter Ligne (Stylisé)"
+                                >
+                                    <Plus className="w-5 h-5 text-blue-400 stroke-[3px] group-hover:rotate-180 transition-transform duration-500" />
+                                </button>
+
+                            </div>
                         </div>
-                        <div className="bg-white rounded-xl border border-slate-200 overflow-visible shadow-sm">
-                            <table className="w-full text-sm">
+                        <div className="bg-white rounded-xl border border-[#1E293B] overflow-visible shadow-md shadow-gray-300">
+                            <table className="w-full text-sm border-separate border-spacing-0">
                                 <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-200 tracking-wider">
                                     <tr>
-                                        <th className="px-4 py-3 text-left w-[20%]">Désignation</th>
+                                        <th className="px-4 py-3 text-left w-[20%] rounded-tl-xl">Désignation</th>
                                         <th className="px-2 py-3 text-right w-[8%]">Qté</th>
                                         <th className="px-2 py-3 text-center w-[12%]">Unité</th>
                                         <th className="px-2 py-3 text-right w-[12%]">PU HT</th>
@@ -790,10 +685,10 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                         <th className="px-2 py-3 text-right w-[10%]">Remise %</th>
                                         <th className="px-2 py-3 text-right w-[12%]">Total HT</th>
                                         <th className="px-4 py-3 text-right w-[13%]">Total TTC</th>
-                                        <th className="px-2 py-3 w-8"></th>
+                                        <th className="px-2 py-3 w-8 rounded-tr-xl"></th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100 relative">
+                                <tbody className="divide-y divide-slate-100 relative [&_tr:last-child_td:first-child]:rounded-bl-xl [&_tr:last-child_td:last-child]:rounded-br-xl">
                                     {formData.lines?.map((line, index) => {
                                         const ht = line.quantity * line.priceHT * (1 - (line.discount || 0) / 100);
                                         return (
@@ -985,458 +880,51 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                     {(!formData.lines || formData.lines.length === 0) && (
                                         <tr>
                                             <td colSpan={9} className="py-8 text-center text-slate-400 italic text-xs">
-                                                Aucune ligne. Cliquez sur &quot;Ajouter Ligne&quot;.
+                                                Aucune ligne. Cliquez sur le bouton "+".
                                             </td>
                                         </tr>
                                     )}
                                 </tbody>
                                 <tfoot className="bg-slate-50 font-bold text-slate-800 text-xs border-t border-slate-200">
                                     <tr>
-                                        <td colSpan={6} className="px-4 py-3 text-right uppercase tracking-wide text-slate-500">Totaux</td>
+                                        <td colSpan={6} className="px-4 py-3 text-right uppercase tracking-wide text-slate-500 rounded-bl-xl">Totaux</td>
                                         <td className="px-2 py-3 text-right text-slate-700">{(formData.totalHT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} Dh</td>
                                         <td className="px-4 py-3 text-right font-black text-[#5D4037]">{(formData.totalTTC || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} Dh</td>
-                                        <td></td>
+                                        <td className="rounded-br-xl"></td>
                                     </tr>
                                 </tfoot>
                             </table>
                         </div>
+
+                        {/* Detailed Calculation Summary */}
+                        <InvoiceFinancials
+                            formData={formData}
+                            handleRoundingChange={handleRoundingChange}
+                        />
                     </div>
 
-                    {/* Payments Table */}
-                    <div className="space-y-3 pt-6 border-t border-slate-200">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="w-1 h-4 bg-[#E5D1BD] rounded-full" />
-                                <h3 className="text-sm font-bold text-slate-700">Paiements</h3>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleAddPayment}
-                                className="px-3 py-1.5 bg-[#E5D1BD] rounded-lg text-xs font-bold text-[#5D4037] shadow-sm hover:bg-[#D7CCC8] hover:scale-105 transition-all flex items-center gap-1"
-                            >
-                                <Plus className="w-3.5 h-3.5" />
-                                Ajouter Paiement
-                            </button>
-                        </div>
-                        <div className="bg-white rounded-xl border border-slate-200 overflow-visible shadow-sm">
-                            <table className="w-full text-sm">
-                                <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-200 tracking-wider">
-                                    <tr>
-                                        <th className="px-4 py-3 text-left w-[12%]">Date</th>
-                                        <th className="px-4 py-3 text-right w-[12%]">Montant</th>
-                                        <th className="px-4 py-3 text-center w-[12%]">Mode</th>
-                                        <th className="px-4 py-3 text-center w-[10%]">Compte</th>
-                                        <th className="px-4 py-3 text-left w-[15%]">N° Chèque</th>
-                                        <th className="px-4 py-3 text-left w-[25%]">Info</th>
-                                        <th className="px-2 py-3 w-8"></th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {formData.payments?.map((payment, index) => {
-                                        const handleDateArrow = (paymentIndex: number, part: "day" | "month" | "year", direction: "up" | "down") => {
-                                            const currentPayment = formData.payments?.[paymentIndex];
-                                            if (!currentPayment || !currentPayment.date) return;
-
-                                            const [yearStr, monthStr, dayStr] = currentPayment.date.split('-');
-                                            let year = parseInt(yearStr, 10);
-                                            let month = parseInt(monthStr, 10);
-                                            let day = parseInt(dayStr, 10);
-
-                                            const date = new Date(year, month - 1, day); // Month is 0-indexed for Date object
-
-                                            if (direction === "up") {
-                                                if (part === "day") {
-                                                    date.setDate(date.getDate() + 1);
-                                                } else if (part === "month") {
-                                                    date.setMonth(date.getMonth() + 1);
-                                                } else if (part === "year") {
-                                                    date.setFullYear(date.getFullYear() + 1);
-                                                }
-                                            } else { // direction === "down"
-                                                if (part === "day") {
-                                                    date.setDate(date.getDate() - 1);
-                                                } else if (part === "month") {
-                                                    date.setMonth(date.getMonth() - 1);
-                                                } else if (part === "year") {
-                                                    date.setFullYear(date.getFullYear() - 1);
-                                                }
-                                            }
-
-                                            const newYear = date.getFullYear().toString();
-                                            const newMonth = (date.getMonth() + 1).toString().padStart(2, '0');
-                                            const newDay = date.getDate().toString().padStart(2, '0');
-
-                                            // Update the entire date string
-                                            const newDateString = `${newYear}-${newMonth}-${newDay}`;
-                                            handlePaymentChange(paymentIndex, "date", newDateString);
-                                        };
-
-                                        return (
-                                            <tr key={payment.id} className="group hover:bg-slate-50/50">
-                                                {/* Date Split */}
-                                                <td className="px-4 py-2">
-                                                    <div className="flex items-center gap-1">
-                                                        {/* DD */}
-                                                        <input
-                                                            ref={el => { paymentDayRefs.current[index] = el; }}
-                                                            type="text"
-                                                            maxLength={2}
-                                                            placeholder="JJ"
-                                                            value={payment.date ? payment.date.split('-')[2] : ""}
-                                                            onChange={e => {
-                                                                const val = e.target.value.replace(/\D/g, '');
-                                                                handleDatePartChange(index, "day", val);
-                                                                if (val.length === 2) paymentMonthRefs.current[index]?.focus();
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "ArrowUp") {
-                                                                    e.preventDefault();
-                                                                    handleDateArrow(index, "day", "up");
-                                                                } else if (e.key === "ArrowDown") {
-                                                                    e.preventDefault();
-                                                                    handleDateArrow(index, "day", "down");
-                                                                } else if (e.key === "Tab" && !e.shiftKey) {
-                                                                    e.preventDefault();
-                                                                    paymentMonthRefs.current[index]?.focus();
-                                                                }
-                                                            }}
-                                                            onFocus={(e) => e.target.select()}
-                                                            className="w-7 text-center bg-transparent border-b border-slate-200 outline-none text-xs font-medium placeholder:text-slate-300 focus:bg-[#2196F3] focus:text-white focus:border-transparent focus:rounded-sm transition-all"
-                                                        />
-                                                        <span className="text-slate-300">/</span>
-                                                        {/* MM */}
-                                                        <input
-                                                            ref={el => { paymentMonthRefs.current[index] = el; }}
-                                                            type="text"
-                                                            maxLength={2}
-                                                            placeholder="MM"
-                                                            value={payment.date ? payment.date.split('-')[1] : ""}
-                                                            onChange={e => {
-                                                                const val = e.target.value.replace(/\D/g, '');
-                                                                handleDatePartChange(index, "month", val);
-                                                                if (val.length === 2) paymentYearRefs.current[index]?.focus();
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "ArrowUp") {
-                                                                    e.preventDefault();
-                                                                    handleDateArrow(index, "month", "up");
-                                                                } else if (e.key === "ArrowDown") {
-                                                                    e.preventDefault();
-                                                                    handleDateArrow(index, "month", "down");
-                                                                } else if (e.key === "Tab" && !e.shiftKey) {
-                                                                    e.preventDefault();
-                                                                    paymentYearRefs.current[index]?.focus();
-                                                                } else if (e.key === "Tab" && e.shiftKey) {
-                                                                    e.preventDefault();
-                                                                    paymentDayRefs.current[index]?.focus();
-                                                                } else if (e.key === "Backspace" && !e.currentTarget.value) {
-                                                                    paymentDayRefs.current[index]?.focus();
-                                                                }
-                                                            }}
-                                                            onFocus={(e) => e.target.select()}
-                                                            className="w-7 text-center bg-transparent border-b border-slate-200 outline-none text-xs font-medium placeholder:text-slate-300 focus:bg-[#2196F3] focus:text-white focus:border-transparent focus:rounded-sm transition-all"
-                                                        />
-                                                        <span className="text-slate-300">/</span>
-                                                        {/* YYYY */}
-                                                        <input
-                                                            ref={el => { paymentYearRefs.current[index] = el; }}
-                                                            type="text"
-                                                            maxLength={4}
-                                                            placeholder="AAAA"
-                                                            value={payment.date ? payment.date.split('-')[0] : ""}
-                                                            onChange={e => {
-                                                                const val = e.target.value.replace(/\D/g, '');
-                                                                handleDatePartChange(index, "year", val);
-                                                                if (val.length === 4) amountRefs.current[index]?.focus();
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "ArrowUp") {
-                                                                    e.preventDefault();
-                                                                    handleDateArrow(index, "year", "up");
-                                                                } else if (e.key === "ArrowDown") {
-                                                                    e.preventDefault();
-                                                                    handleDateArrow(index, "year", "down");
-                                                                } else if (e.key === "Tab" && !e.shiftKey) {
-                                                                    e.preventDefault();
-                                                                    amountRefs.current[index]?.focus();
-                                                                } else if (e.key === "Tab" && e.shiftKey) {
-                                                                    e.preventDefault();
-                                                                    paymentMonthRefs.current[index]?.focus();
-                                                                } else if (e.key === "Backspace" && !e.currentTarget.value) {
-                                                                    paymentMonthRefs.current[index]?.focus();
-                                                                }
-                                                            }}
-                                                            onFocus={(e) => e.target.select()}
-                                                            className="w-10 text-center bg-transparent border-b border-slate-200 outline-none text-xs font-medium placeholder:text-slate-300 focus:bg-[#2196F3] focus:text-white focus:border-transparent focus:rounded-sm transition-all"
-                                                        />
-                                                    </div>
-                                                </td>
-
-                                                {/* Amount */}
-                                                <td className="px-4 py-2">
-                                                    <DecimalInput
-                                                        ref={el => { amountRefs.current[index] = el; }}
-                                                        value={payment.amount}
-                                                        onChange={(val: number) => handlePaymentChange(index, "amount", val)}
-                                                        onKeyDown={(e: React.KeyboardEvent) => {
-                                                            if (e.key === "Tab" && !e.shiftKey) {
-                                                                e.preventDefault();
-                                                                paymentModeRefs.current[index]?.focus();
-                                                            } else if (e.key === "Tab" && e.shiftKey) {
-                                                                e.preventDefault();
-                                                                paymentYearRefs.current[index]?.focus();
-                                                            }
-                                                        }}
-                                                        className="w-full text-right bg-transparent outline-none font-bold text-slate-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                                    />
-                                                </td>
-
-                                                {/* Mode */}
-                                                <td className="px-4 py-2">
-                                                    <div className="relative">
-                                                        <button
-                                                            ref={el => { paymentModeRefs.current[index] = el; }}
-                                                            onClick={() => {
-                                                                if (activePaymentRow === index) {
-                                                                    setActivePaymentRow(null);
-                                                                } else {
-                                                                    setActivePaymentRow(index);
-                                                                    setPaymentModeFocusIndex(MODES.indexOf(payment.mode));
-                                                                }
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-                                                                    e.preventDefault();
-                                                                    e.stopPropagation();
-                                                                    if (activePaymentRow !== index) {
-                                                                        setActivePaymentRow(index);
-                                                                        setPaymentModeFocusIndex(MODES.indexOf(payment.mode));
-                                                                    } else {
-                                                                        const dir = e.key === "ArrowDown" ? 1 : -1;
-                                                                        const nextIndex = Math.min(Math.max(0, paymentModeFocusIndex + dir), MODES.length - 1);
-                                                                        setPaymentModeFocusIndex(nextIndex);
-                                                                    }
-                                                                } else if (e.key === "Enter" || e.key === " ") {
-                                                                    e.preventDefault();
-                                                                    e.stopPropagation();
-                                                                    if (activePaymentRow === index) {
-                                                                        if (paymentModeFocusIndex >= 0) {
-                                                                            const selectedMode = MODES[paymentModeFocusIndex];
-                                                                            handlePaymentChange(index, "mode", selectedMode);
-                                                                            setActivePaymentRow(null);
-                                                                            if (selectedMode === "Chèque") {
-                                                                                setTimeout(() => paymentRefRefs.current[index]?.focus(), 50);
-                                                                            } else {
-                                                                                setTimeout(() => paymentNoteRefs.current[index]?.focus(), 50);
-                                                                            }
-                                                                        }
-                                                                    } else {
-                                                                        setActivePaymentRow(index);
-                                                                        setPaymentModeFocusIndex(MODES.indexOf(payment.mode));
-                                                                    }
-                                                                } else if (e.key === "Tab" && !e.shiftKey) {
-                                                                    e.preventDefault();
-                                                                    setActivePaymentRow(null);
-                                                                    if (payment.mode === "Chèque") {
-                                                                        paymentRefRefs.current[index]?.focus();
-                                                                    } else {
-                                                                        paymentNoteRefs.current[index]?.focus();
-                                                                    }
-                                                                } else if (e.key === "Tab" && e.shiftKey) {
-                                                                    e.preventDefault();
-                                                                    amountRefs.current[index]?.focus();
-                                                                } else if (e.key === "Escape") {
-                                                                    setActivePaymentRow(null);
-                                                                }
-                                                            }}
-                                                            className="w-full text-center bg-transparent outline-none text-xs font-medium cursor-pointer py-1 border border-transparent hover:border-slate-200 rounded focus:border-blue-500 focus:bg-slate-50"
-                                                        >
-                                                            {payment.mode}
-                                                        </button>
-
-                                                        {activePaymentRow === index && (
-                                                            <div ref={paymentListRef} className="absolute top-full left-1/2 -translate-x-1/2 w-40 bg-white shadow-xl rounded-lg border border-slate-200 z-50 mt-1 py-1">
-                                                                {MODES.map((mode, i) => (
-                                                                    <div
-                                                                        key={mode}
-                                                                        className={cn(
-                                                                            "px-3 py-2 text-xs font-semibold cursor-pointer transition-colors border-b border-slate-50 last:border-0",
-                                                                            i === paymentModeFocusIndex ? "bg-[#e5d1bd] text-[#5D4037]" : "hover:bg-slate-50 text-slate-700"
-                                                                        )}
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation(); // Stop propagation to prevent button's onClick from firing again
-                                                                            handlePaymentChange(index, "mode", mode);
-                                                                            setActivePaymentRow(null);
-                                                                            if (mode === "Chèque") {
-                                                                                setTimeout(() => paymentRefRefs.current[index]?.focus(), 50);
-                                                                            } else {
-                                                                                setTimeout(() => paymentNoteRefs.current[index]?.focus(), 50);
-                                                                            }
-                                                                        }}
-                                                                    >
-                                                                        {mode}
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </td>
-
-                                                {/* Account (Computed & Colored) */}
-                                                <td className="px-4 py-2 text-center">
-                                                    {(() => {
-                                                        // Pièce Achat = Document fourni à la livraison.
-                                                        // Si déclarée (Validated) = Facture. Sinon = Brouillon.
-                                                        const isDraft = formData.status !== 'Validated';
-                                                        const isSynced = !!invoice?.syncTime;
-
-                                                        let account = "Caisse"; // Default appearance when not synced
-                                                        let colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
-
-                                                        if (isSynced) {
-                                                            if (isDraft) {
-                                                                // Even if draft, show the intended account based on mode?
-                                                                // User wants: "dès qu'on selectionne un mode de paiement, le compte associé doit être modifié"
-                                                                if (payment.mode === "Espèces") {
-                                                                    account = "Caisse";
-                                                                    colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
-                                                                } else {
-                                                                    account = "Banque";
-                                                                    colorClass = "bg-[#FFF8E1] text-[#A0522D] border-[#FFE0B2]";
-                                                                }
-                                                            } else {
-                                                                if (payment.mode === "Espèces") {
-                                                                    account = "Caisse";
-                                                                    colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
-                                                                } else {
-                                                                    account = "Banque";
-                                                                    colorClass = "bg-[#FFF8E1] text-[#A0522D] border-[#FFE0B2]";
-                                                                }
-                                                            }
-                                                        } else {
-                                                            // Non-synced Draft or Ready Invoice
-                                                            // User wants immediate feedback:
-                                                            if (payment.mode === "Espèces") {
-                                                                account = "Caisse";
-                                                                colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
-                                                            } else {
-                                                                account = "Banque";
-                                                                colorClass = "bg-[#FFF8E1] text-[#A0522D] border-[#FFE0B2]";
-                                                            }
-                                                        }
-
-                                                        return (
-                                                            <div className={cn(
-                                                                "mx-auto w-20 py-1 rounded-md border text-[10px] font-bold uppercase tracking-wider select-none",
-                                                                colorClass
-                                                            )}>
-                                                                {account}
-                                                            </div>
-                                                        );
-                                                    })()}
-                                                </td>
-
-                                                {/* Cheque Info (N° Chèque) - Swapped Order */}
-                                                <td className="px-4 py-2">
-                                                    {payment.mode === "Chèque" ? (
-                                                        <input
-                                                            ref={el => { paymentRefRefs.current[index] = el; }}
-                                                            placeholder="N° Chèque"
-                                                            value={payment.reference || ""}
-                                                            onChange={e => handlePaymentChange(index, "reference", e.target.value)}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "Tab" && !e.shiftKey) {
-                                                                    e.preventDefault();
-                                                                    paymentNoteRefs.current[index]?.focus();
-                                                                } else if (e.key === "Tab" && e.shiftKey) {
-                                                                    e.preventDefault();
-                                                                    // Tab back to Mode? Or Account (which is not focusable)?
-                                                                    // Account is visual. So Back to Mode button (paymentModeRefs).
-                                                                    paymentModeRefs.current[index]?.focus();
-                                                                }
-                                                            }}
-                                                            className="w-full bg-transparent border-b border-slate-200 focus:border-blue-400 outline-none text-xs placeholder:text-slate-300"
-                                                        />
-                                                    ) : (
-                                                        <span className="block w-full border-b border-transparent">&nbsp;</span>
-                                                    )}
-                                                </td>
-
-                                                {/* Note (Infos) - Swapped Order */}
-                                                <td className="px-4 py-2">
-                                                    <input
-                                                        ref={el => { paymentNoteRefs.current[index] = el; }}
-                                                        placeholder="Infos..."
-                                                        value={payment.note || ""}
-                                                        onChange={e => handlePaymentChange(index, "note", e.target.value)}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === "Tab" && !e.shiftKey) {
-                                                                if (index === (formData.payments?.length || 0) - 1) {
-                                                                    e.preventDefault();
-                                                                    // Exit editing and go to list
-                                                                    if (onExit) onExit();
-                                                                }
-                                                            } else if (e.key === "Tab" && e.shiftKey) {
-                                                                e.preventDefault();
-                                                                if (payment.mode === "Chèque") {
-                                                                    paymentRefRefs.current[index]?.focus();
-                                                                } else {
-                                                                    // Back to Mode
-                                                                    paymentModeRefs.current[index]?.focus();
-                                                                }
-                                                            }
-                                                        }}
-                                                        className="w-full bg-transparent border-b border-slate-100 focus:border-blue-400 outline-none text-xs placeholder:text-slate-300"
-                                                    />
-                                                </td>
-
-                                                {/* Delete */}
-                                                <td className="px-2 py-2 text-center">
-                                                    <button
-                                                        onClick={() => {
-                                                            const newPayments = formData.payments?.filter((_, i) => i !== index) || [];
-                                                            updatePayments(newPayments);
-                                                        }}
-                                                        className="text-slate-300 hover:text-red-500 transition-colors"
-                                                    >
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                    {(!formData.payments || formData.payments.length === 0) && (
-                                        <tr>
-                                            <td colSpan={6} className="py-6 text-center text-slate-400 italic text-xs">
-                                                Aucun paiement. Cliquez sur "Ajouter Paiement".
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    {/* Financial Summary */}
-                    <div className="grid grid-cols-2 gap-4 mt-4">
-                        {/* Total Payé */}
-                        <div className="bg-emerald-50/50 px-3 rounded-lg border border-emerald-100 flex flex-col items-center justify-center text-center h-16">
-                            <h4 className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider mb-0.5">Total Payé</h4>
-                            <div className="text-lg font-black text-emerald-700 leading-none">
-                                {(formData.deposit || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-xs opacity-60 font-medium">Dh</span>
-                            </div>
-                        </div>
-
-                        {/* Reste à Payer */}
-                        <div className="bg-red-50/50 px-3 rounded-lg border border-red-100 flex flex-col items-center justify-center text-center h-16">
-                            <h4 className="text-[9px] font-bold text-red-600 uppercase tracking-wider mb-0.5">Reste à Payer</h4>
-                            <div className="text-lg font-black text-red-700 leading-none">
-                                {(formData.balanceDue || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-xs opacity-60 font-medium">Dh</span>
-                            </div>
-                        </div>
-                    </div>
+                    {/* Separator */}
+                    <div className="border-b border-slate-200 mt-6" />
                 </div>
-            </div >
-        </GlassCard >
+
+                {/* Payments Table */}
+                {/* Payment Section - Extracted */}
+                <InvoicePayments
+                    payments={formData.payments || []}
+                    onPaymentsChange={updatePayments}
+                    status={formData.status || 'Draft'}
+                    invoiceSyncTime={invoice?.syncTime}
+                    balanceDue={formData.balanceDue || 0}
+                    deposit={formData.deposit || 0}
+                    onExit={onExit}
+                />
+
+                {/* Documents Section */}
+                <InvoiceDocuments
+                    comment={formData.comment}
+                    onCommentChange={(comment) => setFormData(prev => ({ ...prev, comment }))}
+                />
+            </div>
+        </GlassCard>
     );
 }

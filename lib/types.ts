@@ -110,6 +110,7 @@ export interface Invoice {
     // Dates
     dateEncaissement?: string;
     paymentDelay?: number;
+    comment?: string;
 }
 
 // Tiers
