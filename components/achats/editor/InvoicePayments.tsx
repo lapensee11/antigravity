@@ -177,7 +177,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
             <div className="flex items-center justify-between mb-4 mt-8">
                 <div className="flex items-center gap-3">
                     <div className="w-1.5 h-6 bg-[#1E293B] rounded-full" />
-                    <h3 className="text-lg font-black text-slate-800 uppercase tracking-widest">Paiements & Echéances</h3>
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Paiements & Echéances</h3>
                 </div>
                 <button
                     onClick={handleAddPayment}

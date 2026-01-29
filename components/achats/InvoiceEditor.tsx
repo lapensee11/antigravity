@@ -653,22 +653,24 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
 
                 <div className="flex-1 overflow-y-auto px-6 space-y-6 custom-scrollbar pb-20">
 
+                    {/* Separator Header/Body */}
+                    <div className="border-b border-slate-200" />
 
                     {/* Lines */}
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <div className="w-1.5 h-6 bg-[#1E293B] rounded-full" />
-                                <h3 className="text-lg font-black text-slate-800 uppercase tracking-widest">Lignes de Facture</h3>
+                                <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Lignes de Facture</h3>
                             </div>
                             <div className="flex items-center gap-2">
                                 <button
                                     type="button"
                                     onClick={handleAddLine}
-                                    className="w-10 h-10 flex items-center justify-center bg-[#1E293B] rounded-xl shadow-lg hover:scale-110 active:scale-95 transition-all group"
-                                    title="Ajouter Ligne (Stylisé)"
+                                    className="flex items-center gap-2 px-4 py-2 bg-[#1E293B] text-white rounded-lg hover:bg-slate-700 transition-colors shadow-lg shadow-gray-400/20 group"
                                 >
-                                    <Plus className="w-5 h-5 text-blue-400 stroke-[3px] group-hover:rotate-180 transition-transform duration-500" />
+                                    <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                                    <span className="text-xs font-bold uppercase tracking-wider">Ajouter Ligne</span>
                                 </button>
 
                             </div>
@@ -905,25 +907,24 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
 
                     {/* Separator */}
                     <div className="border-b border-slate-200 mt-6" />
+                    {/* Payments Table */}
+                    {/* Payment Section - Extracted */}
+                    <InvoicePayments
+                        payments={formData.payments || []}
+                        onPaymentsChange={updatePayments}
+                        status={formData.status || 'Draft'}
+                        invoiceSyncTime={invoice?.syncTime}
+                        balanceDue={formData.balanceDue || 0}
+                        deposit={formData.deposit || 0}
+                        onExit={onExit}
+                    />
+
+                    {/* Documents Section */}
+                    <InvoiceDocuments
+                        comment={formData.comment}
+                        onCommentChange={(comment) => setFormData(prev => ({ ...prev, comment }))}
+                    />
                 </div>
-
-                {/* Payments Table */}
-                {/* Payment Section - Extracted */}
-                <InvoicePayments
-                    payments={formData.payments || []}
-                    onPaymentsChange={updatePayments}
-                    status={formData.status || 'Draft'}
-                    invoiceSyncTime={invoice?.syncTime}
-                    balanceDue={formData.balanceDue || 0}
-                    deposit={formData.deposit || 0}
-                    onExit={onExit}
-                />
-
-                {/* Documents Section */}
-                <InvoiceDocuments
-                    comment={formData.comment}
-                    onCommentChange={(comment) => setFormData(prev => ({ ...prev, comment }))}
-                />
             </div>
         </GlassCard>
     );

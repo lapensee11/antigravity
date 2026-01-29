@@ -11,7 +11,7 @@ export const InvoiceDocuments: React.FC<InvoiceDocumentsProps> = ({ comment, onC
         <div className="space-y-3 pt-6 border-t border-slate-200 mt-6">
             <div className="flex items-center gap-3">
                 <div className="w-1.5 h-6 bg-[#1E293B] rounded-full" />
-                <h3 className="text-lg font-black text-slate-800 uppercase tracking-widest">Documents</h3>
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Documents</h3>
             </div>
 
             <div className="grid grid-cols-3 gap-6">
