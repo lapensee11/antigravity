@@ -69,6 +69,7 @@ interface StaffMember {
         loanAmount: number;
         payments: number;
         remaining: number;
+        monthlyPayment?: number;
     };
     history: {
         year: string;

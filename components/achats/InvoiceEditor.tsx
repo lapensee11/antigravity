@@ -1,10 +1,12 @@
-import { useRef } from "react";
+import { useRef, forwardRef } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { GlassInput } from "@/components/ui/GlassInput";
 import { Invoice, InvoiceLine } from "@/lib/types";
+import { initialFamilies, initialSubFamilies, initialUnits } from "@/lib/data";
 import { Save, Trash2, Copy, RefreshCw, Plus, Calendar, Check, CloudUpload } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 
 interface InvoiceEditorProps {
     invoice?: Invoice | null;
@@ -12,13 +14,16 @@ interface InvoiceEditorProps {
     onDelete: (id: string) => void;
     onSync: (id: string) => void;
     onUpdate?: (invoice: Invoice) => void;
+    onCreateNew?: () => void;
+    onDuplicate?: (isEmpty: boolean) => void;
     suppliers?: { id: string; name: string; code: string }[];
     onGenerateNumber?: (name: string) => string;
     articles?: any[];
+    onExit?: () => void;
 }
 
 // Helper Component for Strict Decimal Formatting (fr-FR)
-const DecimalInput = ({ value, onChange, className, ...props }: any) => {
+const DecimalInput = forwardRef<HTMLInputElement, any>(({ value, onChange, className, ...props }, ref) => {
     const [localValue, setLocalValue] = useState("");
     const [isEditing, setIsEditing] = useState(false);
 
@@ -30,20 +35,16 @@ const DecimalInput = ({ value, onChange, className, ...props }: any) => {
 
     const handleFocus = (e: any) => {
         setIsEditing(true);
-        // We set the value to string for editing. 
-        // If we want to keep it formatted: do nothing special, just editing the string.
         setTimeout(() => e.target.select(), 0);
     };
 
     const handleBlur = () => {
         setIsEditing(false);
-        // Parse: remove spaces (including non-breaking), replace comma with dot
         const normalized = localValue.replace(/[\s\u00A0]/g, '').replace(',', '.');
         const num = parseFloat(normalized);
         if (!isNaN(num)) {
             onChange(num);
         } else {
-            // Revert if invalid
             setLocalValue(Number(value).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
         }
     };
@@ -51,6 +52,7 @@ const DecimalInput = ({ value, onChange, className, ...props }: any) => {
     return (
         <input
             {...props}
+            ref={ref}
             type="text"
             inputMode="decimal"
             value={localValue}
@@ -64,9 +66,10 @@ const DecimalInput = ({ value, onChange, className, ...props }: any) => {
             className={className}
         />
     );
-};
+});
+DecimalInput.displayName = "DecimalInput";
 
-export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, suppliers = [], onGenerateNumber, articles = [] }: InvoiceEditorProps) {
+export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onCreateNew, onDuplicate, suppliers = [], onGenerateNumber, articles = [], onExit }: InvoiceEditorProps) {
     const [formData, setFormData] = useState<Partial<Invoice>>({});
 
     // Autocomplete State
@@ -80,10 +83,33 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
     const [filteredArticles, setFilteredArticles] = useState<any[]>([]);
     const [articleFocusIndex, setArticleFocusIndex] = useState(-1);
 
+    // Units State
+    const [units, setUnits] = usePersistedState<string[]>("bakery_units", initialUnits);
+    const [activeUnitRow, setActiveUnitRow] = useState<number | null>(null);
+    const [unitFocusIndex, setUnitFocusIndex] = useState(-1);
+
+    // Payment Autocomplete State
+    const [activePaymentRow, setActivePaymentRow] = useState<number | null>(null);
+    const [paymentModeFocusIndex, setPaymentModeFocusIndex] = useState(-1);
+
     // Refs for Focus Management
     const designationRefs = useRef<(HTMLInputElement | null)[]>([]);
     const quantityRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const unitRefs = useRef<(HTMLButtonElement | null)[]>([]);
+    const priceRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const vatRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const discountRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const paymentDateRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const amountRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const paymentModeRefs = useRef<(HTMLButtonElement | null)[]>([]);
+    const paymentNoteRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const paymentRefRefs = useRef<(HTMLInputElement | null)[]>([]);
     const prevLinesLength = useRef(0);
+
+    const supplierListRef = useRef<HTMLDivElement>(null);
+    const articleListRef = useRef<HTMLDivElement>(null);
+    const unitListRef = useRef<HTMLDivElement>(null);
+    const paymentListRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (formData.lines && formData.lines.length > prevLinesLength.current) {
@@ -100,12 +126,23 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
             const calculatedHT = lines.reduce((sum, l) => sum + (l.quantity * l.priceHT * (1 - (l.discount || 0) / 100)), 0);
             const calculatedTTC = lines.reduce((sum, l) => sum + l.totalTTC, 0);
 
-            const payments = invoice.payments || [];
+            let payments = invoice.payments || [];
+            if (payments.length === 0) {
+                payments = [{
+                    id: `pay_${Date.now()}`,
+                    date: new Date().toISOString().split('T')[0],
+                    amount: 0,
+                    mode: "Espèces" as const,
+                    account: "Caisse" as const
+                }];
+            }
+
             const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
             const balanceDue = calculatedTTC - totalPaid;
 
             setFormData({
                 ...invoice,
+                payments: payments, // Use the potentially modified payments array
                 totalHT: calculatedHT,
                 totalTTC: calculatedTTC,
                 deposit: totalPaid,
@@ -120,18 +157,71 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                 setShowSuggestions(true);
             }
         } else {
+            const initialPayment = {
+                id: `pay_${Date.now()}`,
+                date: new Date().toISOString().split('T')[0],
+                amount: 0,
+                mode: "Espèces" as const,
+                account: "Caisse" as const
+            };
             setFormData({
                 status: "Draft",
                 date: new Date().toISOString().split('T')[0],
                 dateEncaissement: new Date().toISOString().split('T')[0],
                 lines: [],
-                payments: [],
+                payments: [initialPayment],
                 totalTTC: 0,
                 balanceDue: 0
             });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [invoice]);
+
+    useEffect(() => {
+        setUnitFocusIndex(-1);
+    }, [activeUnitRow]);
+
+    // List navigation reset
+    useEffect(() => {
+        setArticleFocusIndex(-1);
+    }, [activeRow]);
+
+    useEffect(() => {
+        setPaymentModeFocusIndex(-1);
+    }, [activePaymentRow]);
+
+    useEffect(() => {
+        setFocusIndex(-1);
+    }, [showSuggestions]);
+
+    // Auto-scroll logic for suggestions
+    useEffect(() => {
+        if (focusIndex >= 0 && supplierListRef.current) {
+            const el = supplierListRef.current.children[focusIndex] as HTMLElement;
+            el?.scrollIntoView({ block: 'nearest' });
+        }
+    }, [focusIndex]);
+
+    useEffect(() => {
+        if (articleFocusIndex >= 0 && articleListRef.current) {
+            const el = articleListRef.current.children[articleFocusIndex] as HTMLElement;
+            el?.scrollIntoView({ block: 'nearest' });
+        }
+    }, [articleFocusIndex]);
+
+    useEffect(() => {
+        if (unitFocusIndex >= 0 && unitListRef.current) {
+            const el = unitListRef.current.children[unitFocusIndex] as HTMLElement;
+            el?.scrollIntoView({ block: 'nearest' });
+        }
+    }, [unitFocusIndex]);
+
+    useEffect(() => {
+        if (paymentModeFocusIndex >= 0 && paymentListRef.current) {
+            const el = paymentListRef.current.children[paymentModeFocusIndex] as HTMLElement;
+            el?.scrollIntoView({ block: 'nearest' });
+        }
+    }, [paymentModeFocusIndex]);
 
     // Filter Logic
     useEffect(() => {
@@ -275,7 +365,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
 
     const handleSelectArticle = (index: number, article: any) => {
         const newLines = [...(formData.lines || [])];
-        const vat = article.vatRate !== undefined ? article.vatRate : 0;
+        const vat = article.vatRate !== undefined ? Number(article.vatRate) : 20;
 
         const line = {
             ...newLines[index],
@@ -334,11 +424,17 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
             id: `pay_${Date.now()}`,
             date: new Date().toISOString().split('T')[0],
             amount: 0,
-            mode: "Virement",
-            account: "Banque"
+            mode: "Espèces" as const,
+            account: "Caisse" as const
         };
         const newPayments = [...(formData.payments || []), newPayment];
         updatePayments(newPayments);
+
+        // Focus the new date field
+        const index = newPayments.length - 1;
+        setTimeout(() => {
+            paymentDateRefs.current[index]?.focus();
+        }, 50);
     };
 
     const handlePaymentChange = (index: number, field: string, value: any) => {
@@ -348,12 +444,36 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
 
         // Auto Logic
         if (field === "mode") {
-            if (value === "Especes") payment.account = "Caisse";
+            if (value === "Espèces") payment.account = "Caisse";
             else payment.account = "Banque";
         }
 
         newPayments[index] = payment;
         updatePayments(newPayments);
+    };
+
+    const MODES = ["Chèque", "Virement", "Prélèvement", "Espèces", "Carte Bancaire"];
+
+    const handlePaymentModeKeyDown = (e: React.KeyboardEvent, index: number) => {
+        if (activePaymentRow !== index) return;
+
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setPaymentModeFocusIndex(prev => Math.min(prev + 1, MODES.length - 1));
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setPaymentModeFocusIndex(prev => Math.max(prev - 1, 0));
+        } else if (e.key === "Enter" || e.key === "Tab") {
+            if (paymentModeFocusIndex >= 0) {
+                e.preventDefault();
+                handlePaymentChange(index, "mode", MODES[paymentModeFocusIndex]);
+                setActivePaymentRow(null);
+                // Focus note field (Infos)
+                setTimeout(() => paymentNoteRefs.current[index]?.focus(), 50);
+            }
+        } else if (e.key === "Escape") {
+            setActivePaymentRow(null);
+        }
     };
 
 
@@ -371,30 +491,189 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
             if (filteredArticles.length > 0 && articleFocusIndex >= 0 && filteredArticles[articleFocusIndex]) {
                 e.preventDefault();
                 handleSelectArticle(index, filteredArticles[articleFocusIndex]);
+            } else if (e.key === "Enter") {
+                // If Enter but no selection, just focus quantity
+                e.preventDefault();
+                quantityRefs.current[index]?.focus();
             }
         } else if (e.key === "Escape") {
             setActiveRow(null);
         }
     };
 
+    const handleUnitKeyDown = (e: React.KeyboardEvent, index: number) => {
+        if (activeUnitRow !== index) return;
+
+        const allOptions = [...units, "Ajouter..."];
+
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setUnitFocusIndex(prev => Math.min(prev + 1, allOptions.length - 1));
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setUnitFocusIndex(prev => Math.max(prev - 1, 0));
+        } else if (e.key === "Enter" || e.key === "Tab") {
+            if (unitFocusIndex >= 0) {
+                e.preventDefault();
+                const selected = allOptions[unitFocusIndex];
+                if (selected === "Ajouter...") {
+                    handleAddNewUnit(index);
+                } else {
+                    handleLineChange(index, "unit", selected);
+                    setActiveUnitRow(null);
+                    setTimeout(() => priceRefs.current[index]?.focus(), 50);
+                }
+            }
+        } else if (e.key === "Escape") {
+            setActiveUnitRow(null);
+        }
+    };
+
+    const handleAddNewUnit = (index: number) => {
+        const newUnit = prompt("Nouvelle unité :");
+        if (newUnit && !units.includes(newUnit)) {
+            setUnits(prev => [...prev, newUnit]);
+            handleLineChange(index, "unit", newUnit);
+            setActiveUnitRow(null);
+            setTimeout(() => priceRefs.current[index]?.focus(), 50);
+        } else if (newUnit && units.includes(newUnit)) {
+            handleLineChange(index, "unit", newUnit);
+            setActiveUnitRow(null);
+            setTimeout(() => priceRefs.current[index]?.focus(), 50);
+        }
+    };
+
+    const paymentDayRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const paymentMonthRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const paymentYearRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+    // ... (existing refs)
+
+    // Click Outside Logic
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (activePaymentRow !== null && paymentListRef.current && !paymentListRef.current.contains(event.target as Node)) {
+                // Check if the click was on the button itself (to toggle)? 
+                // Actually, if we click outside the dropdown, just close it.
+                // But we need to make sure we don't close it if we just clicked the button to open it.
+                // The button onClick sets activePaymentRow.
+                // If we click elsewhere, we want to close.
+                // Let's rely on the fact that if we click the button, it might toggle.
+                // Simple approach: if target is not in paymentListRef, close.
+                // But wait, the button is outside the list ref usually? 
+                // In my code structure, the list is absolute positioned relative to the parent div.
+                // So if I click the button 'paymentModeRefs.current[index]', I might trigger toggle.
+
+                // Let's try a safer approach: checking if click is inside the container div of the mode cell?
+                // Or just:
+                if (activePaymentRow !== null && !paymentListRef.current?.contains(event.target as Node)) {
+                    // Check if target is the toggle button
+                    const btn = paymentModeRefs.current[activePaymentRow];
+                    if (btn && btn.contains(event.target as Node)) {
+                        // Clicked the button, let the button handler do its thing (toggle)
+                        return;
+                    }
+                    setActivePaymentRow(null);
+                }
+            }
+
+            if (activeUnitRow !== null && !unitListRef.current?.contains(event.target as Node)) {
+                const btn = unitRefs.current[activeUnitRow];
+                if (btn && btn.contains(event.target as Node)) return;
+                setActiveUnitRow(null);
+            }
+
+            if (activeRow !== null && !articleListRef.current?.contains(event.target as Node)) {
+                // allow click on input
+                if (designationRefs.current[activeRow] && designationRefs.current[activeRow]?.contains(event.target as Node)) return;
+                setActiveRow(null);
+            }
+
+            if (showSuggestions && !supplierListRef.current?.contains(event.target as Node)) {
+                if (inputRef.current && inputRef.current.contains(event.target as Node)) return;
+                setShowSuggestions(false);
+            }
+        };
+
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [activePaymentRow, activeUnitRow, activeRow, showSuggestions]);
+
+
+    const handleDatePartChange = (index: number, part: 'day' | 'month' | 'year', val: string) => {
+        const newPayments = [...(formData.payments || [])];
+        const payment = { ...newPayments[index] };
+
+        const currentParams = payment.date ? payment.date.split('-') : [new Date().getFullYear().toString(), '01', '01'];
+        // YYYY-MM-DD
+        let y = currentParams[0];
+        let m = currentParams[1];
+        let d = currentParams[2];
+
+        if (part === 'day') d = val.padStart(2, '0');
+        if (part === 'month') m = val.padStart(2, '0');
+        if (part === 'year') y = val;
+
+        // Validation simple
+        if (parseInt(m) > 12) m = '12';
+        if (parseInt(m) < 1) m = '01';
+        if (parseInt(d) > 31) d = '31'; // approx
+        if (parseInt(d) < 1) d = '01';
+
+        payment.date = `${y}-${m}-${d}`;
+        newPayments[index] = payment;
+        updatePayments(newPayments);
+    };
+
+    const handleDateArrow = (index: number, part: 'day' | 'month' | 'year', direction: 'up' | 'down') => {
+        const newPayments = [...(formData.payments || [])];
+        const payment = { ...newPayments[index] };
+
+        const parts = payment.date ? payment.date.split('-') : [];
+        let date;
+        if (parts.length === 3) {
+            date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        } else {
+            date = new Date();
+        }
+
+        const change = direction === 'up' ? 1 : -1;
+
+        if (part === 'day') {
+            date.setDate(date.getDate() + change);
+        } else if (part === 'month') {
+            date.setMonth(date.getMonth() + change);
+        } else if (part === 'year') {
+            date.setFullYear(date.getFullYear() + change);
+        }
+
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+
+        payment.date = `${y}-${m}-${d}`;
+        newPayments[index] = payment;
+        updatePayments(newPayments);
+    };
+
     return (
-        <GlassCard className="h-full flex flex-col overflow-hidden rounded-none shadow-none border-0">
+        <GlassCard className="h-full flex flex-col overflow-hidden rounded-none shadow-none border-0 font-outfit">
             {/* Content Container */}
             <div className="flex-1 flex flex-col overflow-hidden relative">
 
-                {/* Header Section */}
-                <div className="shrink-0 pt-6 pb-8 pl-5 pr-3 flex items-end justify-between gap-4 bg-gradient-to-b from-white to-[#FDF6E3]/20">
-
-                    {/* LEFT: Toggle & Info */}
+                {/* Header Section - Restored Light Style */}
+                <div className="shrink-0 pt-6 pb-8 pl-8 pr-6 flex items-end justify-between gap-4 bg-[#FBF7F4] border-b border-slate-100">
                     <div className="flex items-center gap-4">
-                        {/* Green Toggle Button */}
+                        {/* Status Toggle Button (Restored) */}
                         <button
                             onClick={handleToggleStatus}
                             className={cn(
-                                "w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-500 shadow-md border shrink-0",
+                                "w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-500 shadow-sm border shrink-0",
                                 isValidated
-                                    ? "bg-[#4CAF50] border-[#43A047] shadow-green-200 scale-100"
-                                    : "bg-white border-slate-200 text-slate-300 hover:border-slate-300 shadow-sm"
+                                    ? "bg-[#4CAF50] border-[#43A047] shadow-green-200"
+                                    : "bg-white border-slate-200 text-slate-300 hover:border-slate-300 hover:bg-slate-50 shadow-sm"
                             )}
                             title={isValidated ? "Facture Déclarée" : "Cliquer pour valider"}
                         >
@@ -405,7 +684,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                         </button>
 
                         {/* Info Block */}
-                        <div className="flex flex-col gap-0 relative">
+                        <div className="flex flex-col gap-1 relative">
                             <input
                                 ref={inputRef}
                                 value={formData.supplierId || ""}
@@ -418,19 +697,19 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                                 onFocus={() => setShowSuggestions(true)}
                                 onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                                 onKeyDown={handleKeyDown}
-                                className="text-3xl font-serif font-black text-slate-900 bg-transparent outline-none placeholder:text-slate-300 min-w-[250px] leading-none"
+                                className="text-3xl font-serif font-black text-slate-800 bg-transparent outline-none placeholder:text-slate-200 min-w-[250px] leading-none"
                                 placeholder="Nom du Fournisseur"
                             />
 
                             {/* Autocomplete Dropdown */}
                             {showSuggestions && filteredSuppliers.length > 0 && (
-                                <div className="absolute top-full left-0 w-[350px] bg-white shadow-2xl rounded-xl border border-slate-100 z-50 max-h-[200px] overflow-y-auto mt-2 animate-in fade-in slide-in-from-top-2 custom-scrollbar">
+                                <div ref={supplierListRef} className="absolute top-full left-0 w-[400px] bg-white shadow-2xl rounded-xl border border-slate-200 z-50 max-h-[200px] overflow-y-auto mt-2 animate-in fade-in slide-in-from-top-2 custom-scrollbar">
                                     {filteredSuppliers.map((s, i) => (
                                         <div
                                             key={s.id}
                                             className={cn(
-                                                "px-4 py-3 text-sm font-bold text-slate-700 cursor-pointer transition-colors border-b border-slate-50 last:border-0",
-                                                i === focusIndex ? "bg-[#FFF8E1] text-[#5D4037]" : "hover:bg-slate-50"
+                                                "px-4 py-3 text-sm font-bold text-slate-600 cursor-pointer transition-colors border-b border-slate-50 last:border-0",
+                                                i === focusIndex ? "bg-[#E5D1BD] text-[#5D4037]" : "hover:bg-slate-50"
                                             )}
                                             onClick={() => selectSupplier(s.name)}
                                         >
@@ -440,58 +719,42 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                                 </div>
                             )}
 
-                            <span className="text-xs font-bold text-[#A0522D] uppercase tracking-wider font-mono opacity-80 pl-0.5 mt-1">
-                                {/* Editable Number */}
-                                <input
-                                    value={formData.number || ""}
-                                    onChange={e => {
-                                        setFormData({ ...formData, number: e.target.value });
-                                        // Update on type too?
-                                        if (onUpdate && invoice) onUpdate({ ...invoice, ...formData, number: e.target.value } as Invoice);
-                                    }}
-                                    className="bg-transparent outline-none text-[#A0522D] placeholder:text-[#A0522D]/50 w-full"
-                                    placeholder="N° Facture"
-                                />
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono opacity-80 pl-0.5 mt-1">
+                                N° {formData.number || "---"}
                             </span>
                         </div>
                     </div>
 
-
-                    {/* RIGHT: Date Selector & Delay Pill */}
+                    {/* RIGHT: Date Selector (Classic Light Design) */}
                     <div className="flex items-center gap-2">
-                        {/* Dual Date Selector */}
-                        <div className="bg-white px-1 py-0.5 h-11 rounded-xl flex items-center border border-[#D7CCC8] shadow-sm">
+                        <div className="bg-white px-2 py-1 h-16 rounded-2xl flex items-center border border-slate-200 shadow-sm">
                             {/* Date 1: Facture */}
-                            <div className="flex flex-col px-3 border-r border-[#D7CCC8] hover:bg-[#FAF3E0]/50 transition-colors rounded-l-lg group justify-center h-full">
-                                <span className="text-[8px] font-bold text-[#A0522D] uppercase tracking-wide group-hover:text-[#5D4037] leading-none mb-0.5">Date Facture</span>
+                            <div className="flex flex-col px-4 border-r border-slate-100 hover:bg-slate-50 transition-colors rounded-l-lg group justify-center h-full">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">Date Facture</span>
                                 <input
                                     type="date"
                                     value={formData.date || ""}
                                     onChange={e => setFormData({ ...formData, date: e.target.value })}
-                                    className="bg-transparent text-[11px] font-bold text-[#5D4037] focus:outline-none w-20 cursor-pointer leading-none"
+                                    className="bg-transparent text-lg font-black text-slate-700 focus:outline-none w-32 cursor-pointer leading-none"
                                 />
                             </div>
 
                             {/* Date 2: Echéance */}
-                            <div className="flex flex-col px-3 hover:bg-[#FAF3E0]/50 transition-colors rounded-r-lg group justify-center h-full">
-                                <span className="text-[8px] font-bold text-[#A0522D] uppercase tracking-wide group-hover:text-[#5D4037] leading-none mb-0.5">Echéance</span>
+                            <div className="flex flex-col px-4 hover:bg-slate-50 transition-colors rounded-r-lg group justify-center h-full">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">Echéance</span>
                                 <input
                                     type="date"
-                                    // Simple calc logic placeholder
                                     value={formData.date ? new Date(new Date(formData.date).setDate(new Date(formData.date).getDate() + 30)).toISOString().split('T')[0] : ""}
                                     disabled
-                                    className="bg-transparent text-[11px] font-bold text-[#5D4037] opacity-60 w-20 cursor-not-allowed leading-none"
+                                    className="bg-transparent text-lg font-black text-slate-300 focus:outline-none w-32 cursor-not-allowed leading-none"
                                 />
                             </div>
                         </div>
 
-                        {/* Delay Pill (Conditional) */}
-                        <div className={cn(
-                            "h-11 w-11 rounded-xl flex flex-col items-center justify-center border shadow-sm transition-all",
-                            "bg-[#FFF8E1] border-[#FFE0B2] text-[#F57C00]" // Amber/Orange look
-                        )}>
-                            <span className="text-sm font-black leading-none">30</span>
-                            <span className="text-[8px] font-bold uppercase leading-none mt-0.5">Jours</span>
+                        {/* Delay Pill */}
+                        <div className="h-16 w-16 rounded-2xl flex flex-col items-center justify-center border shadow-sm transition-all bg-[#E5D1BD]/10 border-[#E5D1BD]/30 text-[#5D4037]">
+                            <span className="text-2xl font-black leading-none">30</span>
+                            <span className="text-[10px] font-bold uppercase leading-none mt-1">Jours</span>
                         </div>
                     </div>
                 </div>
@@ -502,7 +765,10 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                     {/* Lines */}
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-bold text-slate-700">Lignes de Facture</h3>
+                            <div className="flex items-center gap-2">
+                                <div className="w-1 h-4 bg-[#E5D1BD] rounded-full" />
+                                <h3 className="text-sm font-bold text-slate-700">Lignes de Facture</h3>
+                            </div>
                             <button
                                 type="button"
                                 onClick={handleAddLine}
@@ -550,13 +816,13 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                                                     />
                                                     {/* Suggestions */}
                                                     {activeRow === index && filteredArticles.length > 0 && (
-                                                        <div className="absolute top-full left-0 w-[300px] bg-white shadow-xl rounded-lg border border-slate-200 z-50 max-h-[200px] overflow-y-auto mt-1 custom-scrollbar">
+                                                        <div ref={articleListRef} className="absolute top-full left-0 w-[300px] bg-white shadow-xl rounded-lg border border-slate-200 z-50 max-h-[200px] overflow-y-auto mt-1 custom-scrollbar">
                                                             {filteredArticles.map((a, i) => (
                                                                 <div
                                                                     key={a.id}
                                                                     className={cn(
                                                                         "px-3 py-2 text-xs font-semibold cursor-pointer transition-colors border-b border-slate-50 last:border-0",
-                                                                        i === articleFocusIndex ? "bg-[#FFF8E1] text-[#5D4037]" : "hover:bg-slate-50 text-slate-700"
+                                                                        i === articleFocusIndex ? "bg-[#E5D1BD] text-[#5D4037]" : "hover:bg-slate-50 text-slate-700"
                                                                     )}
                                                                     onClick={() => handleSelectArticle(index, a)}
                                                                 >
@@ -580,22 +846,72 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                                                     />
                                                 </td>
 
-                                                {/* Unit (Select) */}
+                                                {/* Unit (Custom Select) */}
                                                 <td className="px-2 py-2">
-                                                    <select
-                                                        value={line.unit}
-                                                        onChange={e => handleLineChange(index, "unit", e.target.value)}
-                                                        className="w-full text-center bg-transparent outline-none text-xs font-medium cursor-pointer"
-                                                    >
-                                                        {["Kg", "L", "Unité", "Carton", "Quintal", "Sac", "Palette", "Plateau"].map(u => (
-                                                            <option key={u} value={u}>{u}</option>
-                                                        ))}
-                                                    </select>
+                                                    <div className="relative">
+                                                        <button
+                                                            ref={el => { unitRefs.current[index] = el; }}
+                                                            disabled={isValidated}
+                                                            onClick={() => {
+                                                                setActiveUnitRow(index);
+                                                                setUnitFocusIndex(units.indexOf(line.unit));
+                                                            }}
+                                                            onKeyDown={(e) => handleUnitKeyDown(e, index)}
+                                                            className={cn(
+                                                                "w-full text-center bg-transparent outline-none text-xs font-medium cursor-pointer py-1 border border-transparent rounded transition-all",
+                                                                !isValidated ? "hover:border-slate-200" : "cursor-default"
+                                                            )}
+                                                        >
+                                                            {line.unit || "Unit"}
+                                                        </button>
+
+                                                        {activeUnitRow === index && !isValidated && (
+                                                            <div ref={unitListRef} className="absolute top-full left-1/2 -translate-x-1/2 w-32 bg-white shadow-xl rounded-lg border border-slate-200 z-50 mt-1 py-1 max-h-[200px] overflow-y-auto custom-scrollbar">
+                                                                {units.concat("Ajouter...").map((u, i) => (
+                                                                    <div
+                                                                        key={u}
+                                                                        className={cn(
+                                                                            "group flex items-center justify-between px-3 py-2 text-[10px] font-bold cursor-pointer transition-colors border-b border-slate-50 last:border-0",
+                                                                            i === unitFocusIndex ? "bg-[#E5D1BD] text-[#5D4037]" : "hover:bg-slate-50 text-slate-700",
+                                                                            u === "Ajouter..." && "text-blue-600 border-t border-slate-100"
+                                                                        )}
+                                                                        onClick={() => {
+                                                                            if (u === "Ajouter...") {
+                                                                                handleAddNewUnit(index);
+                                                                            } else {
+                                                                                handleLineChange(index, "unit", u);
+                                                                                setActiveUnitRow(null);
+                                                                                setTimeout(() => priceRefs.current[index]?.focus(), 50);
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        <span>{u}</span>
+                                                                        {u !== "Ajouter..." && (
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    const confirmDelete = window.confirm(`Supprimer l'unité "${u}" ?`);
+                                                                                    if (confirmDelete) {
+                                                                                        setUnits(prev => prev.filter(unit => unit !== u));
+                                                                                    }
+                                                                                }}
+                                                                                className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-all"
+                                                                                title="Supprimer l'unité"
+                                                                            >
+                                                                                <Trash2 className="w-3 h-3" />
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </td>
 
                                                 {/* PU HT */}
                                                 <td className="px-2 py-2">
                                                     <DecimalInput
+                                                        ref={el => { priceRefs.current[index] = el; }}
                                                         value={line.priceHT}
                                                         onChange={(val: number) => handleLineChange(index, "priceHT", val)}
                                                         className="w-full text-right bg-transparent outline-none font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -606,6 +922,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                                                 <td className="px-2 py-2">
                                                     <div className="relative flex items-center">
                                                         <input
+                                                            ref={(el) => { vatRefs.current[index] = el; }}
                                                             type="number"
                                                             value={line.vatRate !== undefined ? line.vatRate : 0}
                                                             onChange={e => handleLineChange(index, "vatRate", e.target.value)}
@@ -620,10 +937,17 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                                                 <td className="px-2 py-2">
                                                     <div className="relative flex items-center">
                                                         <input
+                                                            ref={(el) => { discountRefs.current[index] = el; }}
                                                             type="number"
                                                             value={line.discount}
                                                             onChange={e => handleLineChange(index, "discount", e.target.value)}
                                                             onFocus={(e) => e.target.select()}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "Tab" && !e.shiftKey && index === (formData.lines?.length || 0) - 1) {
+                                                                    e.preventDefault();
+                                                                    handleAddLine();
+                                                                }
+                                                            }}
                                                             className="w-full text-right bg-transparent outline-none font-medium text-slate-500 pr-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                         />
                                                         <span className="absolute right-0 text-[10px] text-slate-400 font-bold pointer-events-none">%</span>
@@ -681,7 +1005,10 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                     {/* Payments Table */}
                     <div className="space-y-3 pt-6 border-t border-slate-200">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-bold text-slate-700">Paiements</h3>
+                            <div className="flex items-center gap-2">
+                                <div className="w-1 h-4 bg-[#E5D1BD] rounded-full" />
+                                <h3 className="text-sm font-bold text-slate-700">Paiements</h3>
+                            </div>
                             <button
                                 type="button"
                                 onClick={handleAddPayment}
@@ -695,67 +1022,301 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                             <table className="w-full text-sm">
                                 <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-200 tracking-wider">
                                     <tr>
-                                        <th className="px-4 py-3 text-left w-[15%]">Date</th>
-                                        <th className="px-4 py-3 text-right w-[15%]">Montant</th>
-                                        <th className="px-4 py-3 text-center w-[15%]">Mode</th>
-                                        <th className="px-4 py-3 text-center w-[15%]">Compte</th>
-                                        <th className="px-4 py-3 text-left w-[30%]">Infos Chèque</th>
+                                        <th className="px-4 py-3 text-left w-[12%]">Date</th>
+                                        <th className="px-4 py-3 text-right w-[12%]">Montant</th>
+                                        <th className="px-4 py-3 text-center w-[12%]">Mode</th>
+                                        <th className="px-4 py-3 text-center w-[10%]">Compte</th>
+                                        <th className="px-4 py-3 text-left w-[15%]">N° Chèque</th>
+                                        <th className="px-4 py-3 text-left w-[25%]">Info</th>
                                         <th className="px-2 py-3 w-8"></th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {formData.payments?.map((payment, index) => (
-                                        <tr key={payment.id} className="group hover:bg-slate-50/50">
-                                            {/* Date */}
-                                            <td className="px-4 py-2">
-                                                <input
-                                                    type="date"
-                                                    value={payment.date}
-                                                    onChange={e => handlePaymentChange(index, "date", e.target.value)}
-                                                    className="w-full bg-transparent font-medium text-slate-700 outline-none text-xs"
-                                                />
-                                            </td>
+                                    {formData.payments?.map((payment, index) => {
+                                        const handleDateArrow = (paymentIndex: number, part: "day" | "month" | "year", direction: "up" | "down") => {
+                                            const currentPayment = formData.payments?.[paymentIndex];
+                                            if (!currentPayment || !currentPayment.date) return;
 
-                                            {/* Amount */}
-                                            <td className="px-4 py-2">
-                                                <DecimalInput
-                                                    value={payment.amount}
-                                                    onChange={(val: number) => handlePaymentChange(index, "amount", val)}
-                                                    className="w-full text-right bg-transparent outline-none font-bold text-slate-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                                />
-                                            </td>
+                                            const [yearStr, monthStr, dayStr] = currentPayment.date.split('-');
+                                            let year = parseInt(yearStr, 10);
+                                            let month = parseInt(monthStr, 10);
+                                            let day = parseInt(dayStr, 10);
 
-                                            {/* Mode */}
-                                            <td className="px-4 py-2">
-                                                <select
-                                                    value={payment.mode}
-                                                    onChange={e => handlePaymentChange(index, "mode", e.target.value)}
-                                                    className="w-full text-center bg-transparent outline-none text-xs font-medium cursor-pointer"
-                                                >
-                                                    <option value="Cheque">Chèque</option>
-                                                    <option value="Virement">Virement</option>
-                                                    <option value="Prelevement">Prélèvement</option>
-                                                    <option value="Especes">Espèces</option>
-                                                </select>
-                                            </td>
+                                            const date = new Date(year, month - 1, day); // Month is 0-indexed for Date object
 
-                                            {/* Account (Computed & Colored) */}
-                                            <td className="px-4 py-2 text-center">
-                                                {(() => {
-                                                    // Pièce Achat = Document fourni à la livraison.
-                                                    // Si déclarée (Validated) = Facture. Sinon = Brouillon.
-                                                    const isDraft = formData.status !== 'Validated';
-                                                    const isSynced = !!invoice?.syncTime;
+                                            if (direction === "up") {
+                                                if (part === "day") {
+                                                    date.setDate(date.getDate() + 1);
+                                                } else if (part === "month") {
+                                                    date.setMonth(date.getMonth() + 1);
+                                                } else if (part === "year") {
+                                                    date.setFullYear(date.getFullYear() + 1);
+                                                }
+                                            } else { // direction === "down"
+                                                if (part === "day") {
+                                                    date.setDate(date.getDate() - 1);
+                                                } else if (part === "month") {
+                                                    date.setMonth(date.getMonth() - 1);
+                                                } else if (part === "year") {
+                                                    date.setFullYear(date.getFullYear() - 1);
+                                                }
+                                            }
 
-                                                    let account = "Caisse"; // Default appearance when not synced
-                                                    let colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
+                                            const newYear = date.getFullYear().toString();
+                                            const newMonth = (date.getMonth() + 1).toString().padStart(2, '0');
+                                            const newDay = date.getDate().toString().padStart(2, '0');
 
-                                                    if (isSynced) {
-                                                        if (isDraft) {
-                                                            account = "Coffre";
-                                                            colorClass = "bg-slate-100 text-slate-500 border-slate-200";
+                                            // Update the entire date string
+                                            const newDateString = `${newYear}-${newMonth}-${newDay}`;
+                                            handlePaymentChange(paymentIndex, "date", newDateString);
+                                        };
+
+                                        return (
+                                            <tr key={payment.id} className="group hover:bg-slate-50/50">
+                                                {/* Date Split */}
+                                                <td className="px-4 py-2">
+                                                    <div className="flex items-center gap-1">
+                                                        {/* DD */}
+                                                        <input
+                                                            ref={el => { paymentDayRefs.current[index] = el; }}
+                                                            type="text"
+                                                            maxLength={2}
+                                                            placeholder="JJ"
+                                                            value={payment.date ? payment.date.split('-')[2] : ""}
+                                                            onChange={e => {
+                                                                const val = e.target.value.replace(/\D/g, '');
+                                                                handleDatePartChange(index, "day", val);
+                                                                if (val.length === 2) paymentMonthRefs.current[index]?.focus();
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "ArrowUp") {
+                                                                    e.preventDefault();
+                                                                    handleDateArrow(index, "day", "up");
+                                                                } else if (e.key === "ArrowDown") {
+                                                                    e.preventDefault();
+                                                                    handleDateArrow(index, "day", "down");
+                                                                } else if (e.key === "Tab" && !e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    paymentMonthRefs.current[index]?.focus();
+                                                                }
+                                                            }}
+                                                            onFocus={(e) => e.target.select()}
+                                                            className="w-7 text-center bg-transparent border-b border-slate-200 outline-none text-xs font-medium placeholder:text-slate-300 focus:bg-[#2196F3] focus:text-white focus:border-transparent focus:rounded-sm transition-all"
+                                                        />
+                                                        <span className="text-slate-300">/</span>
+                                                        {/* MM */}
+                                                        <input
+                                                            ref={el => { paymentMonthRefs.current[index] = el; }}
+                                                            type="text"
+                                                            maxLength={2}
+                                                            placeholder="MM"
+                                                            value={payment.date ? payment.date.split('-')[1] : ""}
+                                                            onChange={e => {
+                                                                const val = e.target.value.replace(/\D/g, '');
+                                                                handleDatePartChange(index, "month", val);
+                                                                if (val.length === 2) paymentYearRefs.current[index]?.focus();
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "ArrowUp") {
+                                                                    e.preventDefault();
+                                                                    handleDateArrow(index, "month", "up");
+                                                                } else if (e.key === "ArrowDown") {
+                                                                    e.preventDefault();
+                                                                    handleDateArrow(index, "month", "down");
+                                                                } else if (e.key === "Tab" && !e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    paymentYearRefs.current[index]?.focus();
+                                                                } else if (e.key === "Tab" && e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    paymentDayRefs.current[index]?.focus();
+                                                                } else if (e.key === "Backspace" && !e.currentTarget.value) {
+                                                                    paymentDayRefs.current[index]?.focus();
+                                                                }
+                                                            }}
+                                                            onFocus={(e) => e.target.select()}
+                                                            className="w-7 text-center bg-transparent border-b border-slate-200 outline-none text-xs font-medium placeholder:text-slate-300 focus:bg-[#2196F3] focus:text-white focus:border-transparent focus:rounded-sm transition-all"
+                                                        />
+                                                        <span className="text-slate-300">/</span>
+                                                        {/* YYYY */}
+                                                        <input
+                                                            ref={el => { paymentYearRefs.current[index] = el; }}
+                                                            type="text"
+                                                            maxLength={4}
+                                                            placeholder="AAAA"
+                                                            value={payment.date ? payment.date.split('-')[0] : ""}
+                                                            onChange={e => {
+                                                                const val = e.target.value.replace(/\D/g, '');
+                                                                handleDatePartChange(index, "year", val);
+                                                                if (val.length === 4) amountRefs.current[index]?.focus();
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "ArrowUp") {
+                                                                    e.preventDefault();
+                                                                    handleDateArrow(index, "year", "up");
+                                                                } else if (e.key === "ArrowDown") {
+                                                                    e.preventDefault();
+                                                                    handleDateArrow(index, "year", "down");
+                                                                } else if (e.key === "Tab" && !e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    amountRefs.current[index]?.focus();
+                                                                } else if (e.key === "Tab" && e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    paymentMonthRefs.current[index]?.focus();
+                                                                } else if (e.key === "Backspace" && !e.currentTarget.value) {
+                                                                    paymentMonthRefs.current[index]?.focus();
+                                                                }
+                                                            }}
+                                                            onFocus={(e) => e.target.select()}
+                                                            className="w-10 text-center bg-transparent border-b border-slate-200 outline-none text-xs font-medium placeholder:text-slate-300 focus:bg-[#2196F3] focus:text-white focus:border-transparent focus:rounded-sm transition-all"
+                                                        />
+                                                    </div>
+                                                </td>
+
+                                                {/* Amount */}
+                                                <td className="px-4 py-2">
+                                                    <DecimalInput
+                                                        ref={el => { amountRefs.current[index] = el; }}
+                                                        value={payment.amount}
+                                                        onChange={(val: number) => handlePaymentChange(index, "amount", val)}
+                                                        onKeyDown={(e: React.KeyboardEvent) => {
+                                                            if (e.key === "Tab" && !e.shiftKey) {
+                                                                e.preventDefault();
+                                                                paymentModeRefs.current[index]?.focus();
+                                                            } else if (e.key === "Tab" && e.shiftKey) {
+                                                                e.preventDefault();
+                                                                paymentYearRefs.current[index]?.focus();
+                                                            }
+                                                        }}
+                                                        className="w-full text-right bg-transparent outline-none font-bold text-slate-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                    />
+                                                </td>
+
+                                                {/* Mode */}
+                                                <td className="px-4 py-2">
+                                                    <div className="relative">
+                                                        <button
+                                                            ref={el => { paymentModeRefs.current[index] = el; }}
+                                                            onClick={() => {
+                                                                if (activePaymentRow === index) {
+                                                                    setActivePaymentRow(null);
+                                                                } else {
+                                                                    setActivePaymentRow(index);
+                                                                    setPaymentModeFocusIndex(MODES.indexOf(payment.mode));
+                                                                }
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    if (activePaymentRow !== index) {
+                                                                        setActivePaymentRow(index);
+                                                                        setPaymentModeFocusIndex(MODES.indexOf(payment.mode));
+                                                                    } else {
+                                                                        const dir = e.key === "ArrowDown" ? 1 : -1;
+                                                                        const nextIndex = Math.min(Math.max(0, paymentModeFocusIndex + dir), MODES.length - 1);
+                                                                        setPaymentModeFocusIndex(nextIndex);
+                                                                    }
+                                                                } else if (e.key === "Enter" || e.key === " ") {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    if (activePaymentRow === index) {
+                                                                        if (paymentModeFocusIndex >= 0) {
+                                                                            const selectedMode = MODES[paymentModeFocusIndex];
+                                                                            handlePaymentChange(index, "mode", selectedMode);
+                                                                            setActivePaymentRow(null);
+                                                                            if (selectedMode === "Chèque") {
+                                                                                setTimeout(() => paymentRefRefs.current[index]?.focus(), 50);
+                                                                            } else {
+                                                                                setTimeout(() => paymentNoteRefs.current[index]?.focus(), 50);
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        setActivePaymentRow(index);
+                                                                        setPaymentModeFocusIndex(MODES.indexOf(payment.mode));
+                                                                    }
+                                                                } else if (e.key === "Tab" && !e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    setActivePaymentRow(null);
+                                                                    if (payment.mode === "Chèque") {
+                                                                        paymentRefRefs.current[index]?.focus();
+                                                                    } else {
+                                                                        paymentNoteRefs.current[index]?.focus();
+                                                                    }
+                                                                } else if (e.key === "Tab" && e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    amountRefs.current[index]?.focus();
+                                                                } else if (e.key === "Escape") {
+                                                                    setActivePaymentRow(null);
+                                                                }
+                                                            }}
+                                                            className="w-full text-center bg-transparent outline-none text-xs font-medium cursor-pointer py-1 border border-transparent hover:border-slate-200 rounded focus:border-blue-500 focus:bg-slate-50"
+                                                        >
+                                                            {payment.mode}
+                                                        </button>
+
+                                                        {activePaymentRow === index && (
+                                                            <div ref={paymentListRef} className="absolute top-full left-1/2 -translate-x-1/2 w-40 bg-white shadow-xl rounded-lg border border-slate-200 z-50 mt-1 py-1">
+                                                                {MODES.map((mode, i) => (
+                                                                    <div
+                                                                        key={mode}
+                                                                        className={cn(
+                                                                            "px-3 py-2 text-xs font-semibold cursor-pointer transition-colors border-b border-slate-50 last:border-0",
+                                                                            i === paymentModeFocusIndex ? "bg-[#e5d1bd] text-[#5D4037]" : "hover:bg-slate-50 text-slate-700"
+                                                                        )}
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation(); // Stop propagation to prevent button's onClick from firing again
+                                                                            handlePaymentChange(index, "mode", mode);
+                                                                            setActivePaymentRow(null);
+                                                                            if (mode === "Chèque") {
+                                                                                setTimeout(() => paymentRefRefs.current[index]?.focus(), 50);
+                                                                            } else {
+                                                                                setTimeout(() => paymentNoteRefs.current[index]?.focus(), 50);
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        {mode}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </td>
+
+                                                {/* Account (Computed & Colored) */}
+                                                <td className="px-4 py-2 text-center">
+                                                    {(() => {
+                                                        // Pièce Achat = Document fourni à la livraison.
+                                                        // Si déclarée (Validated) = Facture. Sinon = Brouillon.
+                                                        const isDraft = formData.status !== 'Validated';
+                                                        const isSynced = !!invoice?.syncTime;
+
+                                                        let account = "Caisse"; // Default appearance when not synced
+                                                        let colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
+
+                                                        if (isSynced) {
+                                                            if (isDraft) {
+                                                                // Even if draft, show the intended account based on mode?
+                                                                // User wants: "dès qu'on selectionne un mode de paiement, le compte associé doit être modifié"
+                                                                if (payment.mode === "Espèces") {
+                                                                    account = "Caisse";
+                                                                    colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
+                                                                } else {
+                                                                    account = "Banque";
+                                                                    colorClass = "bg-[#FFF8E1] text-[#A0522D] border-[#FFE0B2]";
+                                                                }
+                                                            } else {
+                                                                if (payment.mode === "Espèces") {
+                                                                    account = "Caisse";
+                                                                    colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
+                                                                } else {
+                                                                    account = "Banque";
+                                                                    colorClass = "bg-[#FFF8E1] text-[#A0522D] border-[#FFE0B2]";
+                                                                }
+                                                            }
                                                         } else {
-                                                            if (payment.mode === "Especes") {
+                                                            // Non-synced Draft or Ready Invoice
+                                                            // User wants immediate feedback:
+                                                            if (payment.mode === "Espèces") {
                                                                 account = "Caisse";
                                                                 colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
                                                             } else {
@@ -763,59 +1324,87 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                                                                 colorClass = "bg-[#FFF8E1] text-[#A0522D] border-[#FFE0B2]";
                                                             }
                                                         }
-                                                    } else {
-                                                        // Non-synced Draft or Ready Invoice
-                                                        // User said: "sa ligne de paiement [...] passe au compte Caisse dans l’attente d’une synchronisation"
-                                                        account = "Caisse";
-                                                        colorClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
-                                                    }
 
-                                                    return (
-                                                        <div className={cn(
-                                                            "mx-auto w-20 py-1 rounded-md border text-[10px] font-bold uppercase tracking-wider select-none",
-                                                            colorClass
-                                                        )}>
-                                                            {account}
-                                                        </div>
-                                                    );
-                                                })()}
-                                            </td>
+                                                        return (
+                                                            <div className={cn(
+                                                                "mx-auto w-20 py-1 rounded-md border text-[10px] font-bold uppercase tracking-wider select-none",
+                                                                colorClass
+                                                            )}>
+                                                                {account}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </td>
 
-                                            {/* Cheque Info */}
-                                            <td className="px-4 py-2">
-                                                {payment.mode === "Cheque" && (
-                                                    <div className="flex gap-2">
+                                                {/* Cheque Info (N° Chèque) - Swapped Order */}
+                                                <td className="px-4 py-2">
+                                                    {payment.mode === "Chèque" ? (
                                                         <input
+                                                            ref={el => { paymentRefRefs.current[index] = el; }}
                                                             placeholder="N° Chèque"
                                                             value={payment.reference || ""}
                                                             onChange={e => handlePaymentChange(index, "reference", e.target.value)}
-                                                            className="flex-1 bg-transparent border-b border-slate-200 focus:border-blue-400 outline-none text-xs placeholder:text-slate-300"
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === "Tab" && !e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    paymentNoteRefs.current[index]?.focus();
+                                                                } else if (e.key === "Tab" && e.shiftKey) {
+                                                                    e.preventDefault();
+                                                                    // Tab back to Mode? Or Account (which is not focusable)?
+                                                                    // Account is visual. So Back to Mode button (paymentModeRefs).
+                                                                    paymentModeRefs.current[index]?.focus();
+                                                                }
+                                                            }}
+                                                            className="w-full bg-transparent border-b border-slate-200 focus:border-blue-400 outline-none text-xs placeholder:text-slate-300"
                                                         />
-                                                        <input
-                                                            type="number"
-                                                            placeholder="Montant Chèque"
-                                                            value={payment.checkAmount || ""}
-                                                            onChange={e => handlePaymentChange(index, "checkAmount", parseFloat(e.target.value))}
-                                                            className="w-24 bg-transparent border-b border-slate-200 focus:border-blue-400 outline-none text-xs text-right placeholder:text-slate-300"
-                                                        />
-                                                    </div>
-                                                )}
-                                            </td>
+                                                    ) : (
+                                                        <span className="block w-full border-b border-transparent">&nbsp;</span>
+                                                    )}
+                                                </td>
 
-                                            {/* Delete */}
-                                            <td className="px-2 py-2 text-center">
-                                                <button
-                                                    onClick={() => {
-                                                        const newPayments = formData.payments?.filter((_, i) => i !== index) || [];
-                                                        updatePayments(newPayments);
-                                                    }}
-                                                    className="text-slate-300 hover:text-red-500 transition-colors"
-                                                >
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                                {/* Note (Infos) - Swapped Order */}
+                                                <td className="px-4 py-2">
+                                                    <input
+                                                        ref={el => { paymentNoteRefs.current[index] = el; }}
+                                                        placeholder="Infos..."
+                                                        value={payment.note || ""}
+                                                        onChange={e => handlePaymentChange(index, "note", e.target.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Tab" && !e.shiftKey) {
+                                                                if (index === (formData.payments?.length || 0) - 1) {
+                                                                    e.preventDefault();
+                                                                    // Exit editing and go to list
+                                                                    if (onExit) onExit();
+                                                                }
+                                                            } else if (e.key === "Tab" && e.shiftKey) {
+                                                                e.preventDefault();
+                                                                if (payment.mode === "Chèque") {
+                                                                    paymentRefRefs.current[index]?.focus();
+                                                                } else {
+                                                                    // Back to Mode
+                                                                    paymentModeRefs.current[index]?.focus();
+                                                                }
+                                                            }
+                                                        }}
+                                                        className="w-full bg-transparent border-b border-slate-100 focus:border-blue-400 outline-none text-xs placeholder:text-slate-300"
+                                                    />
+                                                </td>
+
+                                                {/* Delete */}
+                                                <td className="px-2 py-2 text-center">
+                                                    <button
+                                                        onClick={() => {
+                                                            const newPayments = formData.payments?.filter((_, i) => i !== index) || [];
+                                                            updatePayments(newPayments);
+                                                        }}
+                                                        className="text-slate-300 hover:text-red-500 transition-colors"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                     {(!formData.payments || formData.payments.length === 0) && (
                                         <tr>
                                             <td colSpan={6} className="py-6 text-center text-slate-400 italic text-xs">
@@ -828,8 +1417,8 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                         </div>
                     </div>
 
-                    {/* Financial Summary & Sync */}
-                    <div className="grid grid-cols-3 gap-4 mt-4">
+                    {/* Financial Summary */}
+                    <div className="grid grid-cols-2 gap-4 mt-4">
                         {/* Total Payé */}
                         <div className="bg-emerald-50/50 px-3 rounded-lg border border-emerald-100 flex flex-col items-center justify-center text-center h-16">
                             <h4 className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider mb-0.5">Total Payé</h4>
@@ -845,34 +1434,9 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, sup
                                 {(formData.balanceDue || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-xs opacity-60 font-medium">Dh</span>
                             </div>
                         </div>
-
-                        {/* Sync Button (Mirror) */}
-                        <button
-                            onClick={() => invoice && onSync(invoice.id)}
-                            className={cn(
-                                "flex flex-row items-center justify-center gap-3 rounded-lg border transition-all shadow-sm active:scale-95 group relative overflow-hidden h-16",
-                                "bg-[#E5D1BD] border-[#D7CCC8] hover:bg-[#D7CCC8]"
-                            )}
-                        >
-                            <div className="relative">
-                                {(formData.status === "Synced" || formData.syncTime) ? (
-                                    <div className="w-8 h-8 rounded-full bg-[#3E2723] flex items-center justify-center">
-                                        <CloudUpload className="w-5 h-5 text-white stroke-[3px]" />
-                                    </div>
-                                ) : (
-                                    <div className="w-8 h-8 rounded-full bg-[#3E2723] flex items-center justify-center group-hover:rotate-180 transition-transform duration-500">
-                                        <RefreshCw className="w-5 h-5 text-white" />
-                                    </div>
-                                )}
-                            </div>
-
-                            <span className="text-xs font-bold leading-none text-[#5D4037]">
-                                {(formData.status === "Synced" || formData.syncTime) ? "Synchronisé" : "Prêt"}
-                            </span>
-                        </button>
                     </div>
                 </div>
-            </div>
-        </GlassCard>
+            </div >
+        </GlassCard >
     );
 }

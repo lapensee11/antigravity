@@ -2,80 +2,27 @@
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { InvoiceEditor } from "@/components/achats/InvoiceEditor";
-import { Invoice, Transaction } from "@/lib/types";
-import { useState, useMemo, useEffect, Suspense } from "react";
+import { Invoice, Transaction, Article, Tier } from "@/lib/types";
+import { useState, useMemo, useEffect, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, Plus, X, FileText, File, Calendar, RefreshCw, Copy, Files, Trash2, Check, CloudUpload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 
-// Mock Data
-const initialInvoices: Invoice[] = [
-    {
-        id: "inv1",
-        supplierId: "Grands Moulins du Maghreb",
-        number: "FC-2024-001",
-        date: "2024-01-24", // Current
-        status: "Validated",
-        syncTime: "10:30",
-        lines: [],
-        payments: [],
-        totalHT: 5400,
-        totalTTC: 6480,
-        rounding: 0,
-        deposit: 0,
-        balanceDue: 0
-    },
-    {
-        id: "inv2",
-        supplierId: "Centrale Danone",
-        number: "FC-2024-002",
-        date: "2024-01-20",
-        status: "Draft",
-        lines: [],
-        payments: [],
-        totalHT: 0,
-        totalTTC: 0,
-        rounding: 0,
-        deposit: 0,
-        balanceDue: 0
-    },
-    {
-        id: "inv3",
-        supplierId: "Coca-Cola Maroc",
-        number: "FC-2023-128",
-        date: "2023-12-15", // Last month
-        status: "Validated",
-        lines: [],
-        payments: [],
-        totalHT: 3000,
-        totalTTC: 3600,
-        rounding: 0,
-        deposit: 3600,
-        balanceDue: 0
-    }
-];
-
-const mockSuppliers = [
-    { id: "1", name: "Grands Moulins du Maghreb", code: "Frs01" },
-    { id: "2", name: "Centrale Danone", code: "Frs02" },
-    { id: "3", name: "Coca-Cola Maroc", code: "Frs03" },
-    { id: "4", name: "Ferme Atlas", code: "Frs04" },
-    { id: "5", name: "Boulangerie Patisserie", code: "Frs05" }
-];
-
-const mockArticles: any[] = [
-    { id: "a1", name: "Farine T55", code: "FA55", unitAchat: "Kg", vatRate: 0, subFamilyId: "sf1" },
-    { id: "a2", name: "Sucre Semoule", code: "SUC", unitAchat: "Kg", vatRate: 20, subFamilyId: "sf2" },
-    { id: "a3", name: "Beurre Doux", code: "BEU", unitAchat: "Kg", vatRate: 14, subFamilyId: "sf2" },
-    { id: "a4", name: "Oeufs Calibre A", code: "OEU", unitAchat: "Plateau", vatRate: 0, subFamilyId: "sf2" },
-    { id: "a5", name: "Levure Boulangère", code: "LEV", unitAchat: "Kg", vatRate: 0, subFamilyId: "sf2" },
-    { id: "a6", name: "Emballage Croissant", code: "EMB", unitAchat: "Carton", vatRate: 20, subFamilyId: "sf3" },
-];
+// Initial empty states
+const initialInvoices: Invoice[] = [];
+const initialArticles: Article[] = [];
+const initialTiers: Tier[] = [];
 
 function AchatsContent() {
     const [invoices, setInvoices, isLoaded] = usePersistedState<Invoice[]>("bakery_invoices", initialInvoices);
+    const [articles, setArticles] = usePersistedState<Article[]>("bakery_articles", initialArticles);
+    const [tiers] = usePersistedState<Tier[]>("bakery_tiers", initialTiers);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+
+    // Filter suppliers from tiers
+    const suppliers = useMemo(() => tiers.filter(t => t.type === "Fournisseur"), [tiers]);
+    const sidebarListRef = useRef<HTMLDivElement>(null);
 
 
     // URL Params
@@ -133,14 +80,35 @@ function AchatsContent() {
     // Filters
     const [statusFilter, setStatusFilter] = useState<"TOUS" | "FACTURES" | "BROUILLONS">("TOUS");
     const [supplierSearch, setSupplierSearch] = useState("");
-    const [periodFilter, setPeriodFilter] = useState<"MOIS" | "TRIMESTRE" | "PÉRIODE">("MOIS");
+    const [periodFilter, setPeriodFilter] = useState<"TOUT" | "MOIS" | "TRIMESTRE">("MOIS");
 
     // Custom Date Range
-    const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: "", end: "" });
+    const [dateRange, setDateRange] = useState<{ start: string; end: string }>(() => {
+        const now = new Date();
+        const start = new Date(new Date().setDate(now.getDate() - 30)).toISOString().split('T')[0];
+        const end = now.toISOString().split('T')[0];
+        return { start, end };
+    });
+
+    const setPeriod = (period: "TOUT" | "MOIS" | "TRIMESTRE") => {
+        setPeriodFilter(period);
+        const now = new Date();
+        const end = now.toISOString().split('T')[0];
+
+        if (period === "TOUT") {
+            setDateRange({ start: "", end: "" });
+        } else if (period === "MOIS") {
+            const start = new Date(new Date().setDate(now.getDate() - 30)).toISOString().split('T')[0];
+            setDateRange({ start, end });
+        } else if (period === "TRIMESTRE") {
+            const start = new Date(new Date().setDate(now.getDate() - 90)).toISOString().split('T')[0];
+            setDateRange({ start, end });
+        }
+    };
 
     // Generator
     const generateInvoiceNumber = (supplierName: string) => {
-        const supplier = mockSuppliers.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
+        const supplier = suppliers.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
         const code = supplier ? supplier.code : supplierName.substring(0, 3).toUpperCase();
 
         // Count invoices with this supplier to increment
@@ -185,7 +153,7 @@ function AchatsContent() {
             let account: "Banque" | "Caisse" | "Coffre" = "Coffre";
 
             if (!isDraft) {
-                account = p.mode === "Especes" ? "Caisse" : "Banque";
+                account = p.mode === "Espèces" ? "Caisse" : "Banque";
             }
 
             return {
@@ -205,6 +173,37 @@ function AchatsContent() {
 
         const finalTxs = [...newTxs, ...filteredTxs];
         localStorage.setItem(financeKey, JSON.stringify(finalTxs));
+    };
+
+    const syncArticlePrices = (currentInvoices: Invoice[], currentArticles: Article[]) => {
+        if (currentInvoices.length === 0) return;
+
+        const updatedArticles = currentArticles.map(article => {
+            const articlePurchaseLines: { date: string; priceHT: number }[] = [];
+            currentInvoices.forEach(inv => {
+                inv.lines.forEach(line => {
+                    if (line.articleId === article.id || (line.articleName === article.name && !line.articleId)) {
+                        articlePurchaseLines.push({ date: inv.date, priceHT: line.priceHT });
+                    }
+                });
+            });
+
+            if (articlePurchaseLines.length === 0) return article;
+
+            articlePurchaseLines.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            const latest = articlePurchaseLines[0];
+            const pivotPrice = latest.priceHT / (article.contenace || 1);
+
+            if (article.lastPivotPrice === pivotPrice) return article;
+
+            return { ...article, lastPivotPrice: pivotPrice };
+        });
+
+        // Only update if something changed
+        const hasChanges = updatedArticles.some((a, i) => a.lastPivotPrice !== currentArticles[i].lastPivotPrice);
+        if (hasChanges) {
+            setArticles(updatedArticles);
+        }
     };
 
     const handleCreateNew = () => {
@@ -256,7 +255,9 @@ function AchatsContent() {
 
     const handleDelete = (id: string) => {
         if (!confirm("Êtes-vous sûr de vouloir supprimer cette facture ?")) return;
-        setInvoices(prev => prev.filter(i => i.id !== id));
+        const newInvoices = invoices.filter(i => i.id !== id);
+        setInvoices(newInvoices);
+        syncArticlePrices(newInvoices, articles);
         if (selectedInvoice?.id === id) setSelectedInvoice(null);
     };
 
@@ -284,13 +285,24 @@ function AchatsContent() {
             }
         }
 
-        setInvoices(prev => prev.map(inv => inv.id === finalInvoice.id ? finalInvoice : inv));
+        const newInvoices = invoices.map(inv => inv.id === finalInvoice.id ? finalInvoice : inv);
+        setInvoices(newInvoices);
+        syncArticlePrices(newInvoices, articles);
         if (selectedInvoice?.id === finalInvoice.id) {
             setSelectedInvoice(finalInvoice);
         }
     };
 
     const resetDateRange = () => setDateRange({ start: "", end: "" });
+
+    const handleExitEdit = () => {
+        if (!selectedInvoice || !sidebarListRef.current) return;
+        const index = filteredInvoices.findIndex(inv => inv.id === selectedInvoice.id);
+        if (index >= 0) {
+            const el = sidebarListRef.current.children[index] as HTMLElement;
+            el?.focus();
+        }
+    };
 
     // Filter Logic
     const filteredInvoices = useMemo(() => {
@@ -305,21 +317,9 @@ function AchatsContent() {
             }
 
             // 3. Date Filter
-            const invDate = new Date(inv.date);
-            const now = new Date();
-
-            if (periodFilter === "MOIS") {
-                // Current Month
-                if (invDate.getMonth() !== now.getMonth() || invDate.getFullYear() !== now.getFullYear()) return false;
-            } else if (periodFilter === "TRIMESTRE") {
-                // Current Quarter
-                const currentQuarter = Math.floor(now.getMonth() / 3);
-                const invQuarter = Math.floor(invDate.getMonth() / 3);
-                if (invQuarter !== currentQuarter || invDate.getFullYear() !== now.getFullYear()) return false;
-            } else if (periodFilter === "PÉRIODE") {
-                if (dateRange.start && new Date(dateRange.start) > invDate) return false;
-                if (dateRange.end && new Date(dateRange.end) < invDate) return false;
-            }
+            const invDateStr = inv.date; // Already YYYY-MM-DD
+            if (dateRange.start && invDateStr < dateRange.start) return false;
+            if (dateRange.end && invDateStr > dateRange.end) return false;
 
             return true;
         }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -366,6 +366,17 @@ function AchatsContent() {
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [filteredInvoices, selectedInvoice]);
+
+    // Auto-scroll sidebar logic
+    useEffect(() => {
+        if (selectedInvoice && sidebarListRef.current) {
+            const index = filteredInvoices.findIndex(inv => inv.id === selectedInvoice.id);
+            if (index >= 0) {
+                const el = sidebarListRef.current.children[index] as HTMLElement;
+                el?.scrollIntoView({ block: 'nearest' });
+            }
+        }
+    }, [selectedInvoice, filteredInvoices]);
 
     return (
         <div className="flex h-screen bg-[#F6F8FC] overflow-hidden">
@@ -427,69 +438,86 @@ function AchatsContent() {
                             <button
                                 onClick={handleCreateNew}
                                 className="w-9 h-9 bg-[#E5D1BD] rounded-full flex items-center justify-center text-[#5D4037] shadow-lg hover:bg-[#D7CCC8] hover:scale-105 transition-all shrink-0"
+                                title="Nouvelle Facture"
                             >
                                 <Plus className="w-5 h-5" />
                             </button>
+                            {selectedInvoice && (
+                                <button
+                                    onClick={() => handleDelete(selectedInvoice.id)}
+                                    className="w-9 h-9 bg-white border border-slate-200 rounded-full flex items-center justify-center text-red-500 shadow-md hover:bg-red-50 hover:border-red-200 hover:scale-105 transition-all shrink-0"
+                                    title="Supprimer la sélection"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            )}
                         </div>
 
-                        {/* Period Tabs */}
-                        <div className="bg-white p-1 rounded-xl flex gap-1 shadow-sm">
-                            {["MOIS", "TRIMESTRE", "PÉRIODE"].map((label) => {
-                                const isActive = periodFilter === label;
-                                return (
-                                    <button
-                                        key={label}
-                                        onClick={() => setPeriodFilter(label as any)}
-                                        className={cn(
-                                            "flex-1 py-1.5 rounded-md text-[10px] font-bold tracking-wide transition-all relative overflow-hidden mb-[1px]",
-                                            isActive
-                                                ? "bg-[#E5D1BD] text-[#5D4037] shadow-md"
-                                                : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
-                                        )}
-                                    >
-                                        {label}
-                                    </button>
-                                );
-                            })}
-                        </div>
+                        {/* Date Filtering Zone */}
+                        <div className="flex flex-col gap-2">
+                            {/* Line 1: Quick Filters */}
+                            <div className="bg-white p-1 rounded-xl flex gap-1 shadow-sm">
+                                {["TOUT", "TRIMESTRE", "MOIS"].map((label) => {
+                                    const isActive = periodFilter === label;
+                                    return (
+                                        <button
+                                            key={label}
+                                            onClick={() => setPeriod(label as any)}
+                                            className={cn(
+                                                "flex-1 py-1.5 rounded-md text-[10px] font-bold tracking-wide transition-all relative overflow-hidden",
+                                                isActive
+                                                    ? "bg-[#E5D1BD] text-[#5D4037] shadow-md"
+                                                    : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                                            )}
+                                        >
+                                            {label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
 
-                        {/* Custom Period UI */}
-                        {periodFilter === "PÉRIODE" && (
-                            <div className="bg-slate-100/50 p-2 rounded-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2 border border-slate-100">
-                                <div className="flex-1 flex flex-col gap-1">
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase ml-1">Du</span>
+                            {/* Line 2: Manual Inputs (Single Line) */}
+                            <div className="bg-white/40 p-2 rounded-xl flex items-center gap-1.5 border border-white/60 shadow-inner">
+                                <div className="flex-1 flex items-center gap-1.5">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase">Du</span>
                                     <input
                                         type="date"
                                         value={dateRange.start}
-                                        onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-                                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 focus:outline-none focus:border-blue-400"
+                                        onChange={(e) => {
+                                            setDateRange(prev => ({ ...prev, start: e.target.value }));
+                                            setPeriodFilter("" as any);
+                                        }}
+                                        className="flex-1 bg-white border border-slate-100 rounded-lg px-2 py-1 text-[11px] font-black text-slate-800 focus:outline-none focus:border-[#E5D1BD]"
                                     />
                                 </div>
-                                <div className="flex-1 flex flex-col gap-1">
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase ml-1">Au</span>
+                                <div className="flex-1 flex items-center gap-1.5">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase">Au</span>
                                     <input
                                         type="date"
                                         value={dateRange.end}
-                                        onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-                                        className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 focus:outline-none focus:border-blue-400"
+                                        onChange={(e) => {
+                                            setDateRange(prev => ({ ...prev, end: e.target.value }));
+                                            setPeriodFilter("" as any);
+                                        }}
+                                        className="flex-1 bg-white border border-slate-100 rounded-lg px-2 py-1 text-[11px] font-black text-slate-800 focus:outline-none focus:border-[#E5D1BD]"
                                     />
                                 </div>
-                                <div className="flex flex-col justify-end">
+                                {(dateRange.start || dateRange.end) && (
                                     <button
-                                        onClick={resetDateRange}
-                                        className="mb-[1px] w-7 h-7 flex items-center justify-center bg-white border border-slate-200 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                        onClick={() => setPeriod("TOUT")}
+                                        className="w-6 h-6 flex items-center justify-center bg-white border border-slate-100 rounded-lg text-slate-300 hover:text-red-500 transition-all shrink-0"
                                         title="Réinitialiser"
                                     >
-                                        <X className="w-3.5 h-3.5" />
+                                        <X className="w-3 h-3" />
                                     </button>
-                                </div>
+                                )}
                             </div>
-                        )}
+                        </div>
 
                     </div>
 
                     {/* Invoices List */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar border-t border-slate-200 bg-white">
+                    <div ref={sidebarListRef} className="flex-1 overflow-y-auto custom-scrollbar border-t border-slate-200 bg-white">
                         {filteredInvoices.map(inv => {
                             const isSelected = selectedInvoice?.id === inv.id;
                             const isValidated = inv.status === "Validated";
@@ -497,17 +525,24 @@ function AchatsContent() {
                             return (
                                 <div
                                     key={inv.id}
+                                    tabIndex={0}
                                     onClick={() => setSelectedInvoice(inv)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === " ") {
+                                            e.preventDefault();
+                                            setSelectedInvoice(inv);
+                                        }
+                                    }}
                                     className={cn(
-                                        "relative w-full rounded-none px-5 py-3 transition-all duration-200 cursor-pointer group overflow-hidden border-b border-slate-100 min-h-[76px] flex flex-col justify-center",
+                                        "relative w-full rounded-none px-5 py-3 transition-all duration-200 cursor-pointer group overflow-hidden border-b border-slate-100 min-h-[76px] flex flex-col justify-center outline-none focus:bg-slate-100",
                                         isSelected
-                                            ? "bg-white z-10"
+                                            ? "bg-[#E5D1BD] z-10"
                                             : "bg-[#FAF7F2] hover:bg-slate-50 z-0"
                                     )}
                                 >
                                     {/* Selection Bar */}
                                     {isSelected && (
-                                        <div className="absolute left-0 top-0 bottom-0 w-3 bg-[#E5D1BD]" />
+                                        <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-[#5D4037]/20" />
                                     )}
 
                                     {/* Validated Decoration */}
@@ -524,19 +559,47 @@ function AchatsContent() {
                                         </>
                                     )}
 
-                                    <div className={cn("relative z-10 flex flex-col gap-0.5", isSelected ? "pl-4" : "")}>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs font-bold text-[#B0BEC5] font-outfit tracking-wide">
+                                    <div className={cn("relative z-10 flex flex-col h-full justify-center gap-1", isSelected ? "pl-2" : "")}>
+                                        {/* Row 1: Date & Total */}
+                                        <div className="flex justify-between items-center w-full">
+                                            <span className={cn(
+                                                "text-xs font-bold font-outfit tracking-wide",
+                                                isSelected ? "text-[#5D4037]/70" : "text-[#B0BEC5]"
+                                            )}>
                                                 {new Date(inv.date).toLocaleDateString('fr-FR')}
                                             </span>
-                                            <span className="text-[13px] font-extrabold text-[#8D6E63]">
-                                                {inv.totalTTC.toLocaleString('fr-FR')} <span className="text-[9px] font-bold opacity-70">Dh</span>
+                                            <span className={cn(
+                                                "text-[13px] font-extrabold",
+                                                isSelected ? "text-[#3E2723]" : "text-[#8D6E63]"
+                                            )}>
+                                                {inv.totalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[9px] font-bold opacity-70">Dh</span>
                                             </span>
                                         </div>
 
-                                        <h3 className="text-sm font-black text-[#263238] uppercase tracking-tight truncate pr-6 leading-tight">
-                                            {inv.supplierId || "Fournisseur"}
-                                        </h3>
+                                        {/* Row 2: Supplier & Balance (Aligned Bottom) */}
+                                        <div className="flex justify-between items-end w-full">
+                                            <h3 className={cn(
+                                                "text-sm font-black uppercase tracking-tight truncate pr-2 leading-none mb-0.5",
+                                                isSelected ? "text-[#3E2723]" : "text-[#263238]"
+                                            )}>
+                                                {inv.supplierId || "Fournisseur"}
+                                            </h3>
+
+                                            {/* Calculated Balance on the fly */}
+                                            {(() => {
+                                                const totalPaid = (inv.payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+                                                const activeBalance = inv.totalTTC - totalPaid;
+
+                                                if (activeBalance > 0.05) {
+                                                    return (
+                                                        <span className="text-[11px] font-black text-red-500/90 leading-none shrink-0 mb-0.5">
+                                                            {activeBalance.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
+                                                        </span>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
+                                        </div>
                                     </div>
                                 </div>
                             );
@@ -572,105 +635,89 @@ function AchatsContent() {
 
                 {/* RIGHT COLUMN: Editor */}
                 <div className="flex-1 bg-white h-full relative z-10 flex flex-col">
-
-                    {/* TOP TOOLBAR - 6 Equal Columns */}
-                    <div className="h-20 border-b border-[#D7CCC8]/50 bg-[#E5D1BD] shrink-0 shadow-md z-20 px-4 py-2">
-                        <div className="grid grid-cols-6 gap-3 h-full w-full">
-                            {/* 1. Nouvelle Facture */}
+                    {/* TOP TOOLBAR - Midnight Blue Band with Actions & Sync */}
+                    <div className="h-24 border-b border-white/10 bg-[#1E293B] shrink-0 shadow-md z-20 px-4 flex items-center justify-between gap-4">
+                        {/* 1. Shrunken Action Buttons (40% width) */}
+                        <div className="flex w-[40%] h-16 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden shadow-xl">
                             <button
                                 onClick={handleCreateNew}
-                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-[#5D4037]/5 border border-[#5D4037]/10 rounded-xl text-[#5D4037] hover:bg-[#5D4037]/10 transition-all shadow-sm group"
+                                className="flex-1 flex items-center justify-center text-blue-400 hover:bg-white/10 transition-colors text-xs font-black uppercase tracking-widest border-r border-white/10 active:bg-white/20"
                             >
-                                <div className="w-8 h-8 shrink-0 rounded-full bg-[#3E2723] flex items-center justify-center group-hover:rotate-180 transition-transform duration-500">
-                                    <Plus className="w-5 h-5 text-white stroke-[3px]" />
-                                </div>
-                                <span className="text-xs font-bold leading-none text-left">Facture</span>
+                                F. Nouvelle
                             </button>
-
-                            {/* 2. Dupliquer Vide */}
-                            {/* 2. Dupliquer Vide */}
                             <button
                                 onClick={() => selectedInvoice && handleDuplicate(true)}
                                 disabled={!selectedInvoice}
-                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-[#5D4037]/5 border border-[#5D4037]/10 rounded-xl text-[#5D4037] hover:bg-[#5D4037]/10 transition-all shadow-sm disabled:opacity-30 disabled:hover:bg-transparent group"
+                                className="flex-1 flex items-center justify-center text-white hover:bg-white/10 transition-colors text-xs font-black uppercase tracking-widest border-r border-white/10 active:bg-white/20 disabled:opacity-20 disabled:hover:bg-transparent"
                             >
-                                <div className="w-8 h-8 shrink-0 rounded-full bg-[#3E2723] flex items-center justify-center group-hover:rotate-180 transition-transform duration-500">
-                                    <Copy className="w-5 h-5 text-white" />
-                                </div>
-                                <span className="text-xs font-bold leading-none text-left">Vide</span>
+                                F. Vide
                             </button>
-
-                            {/* 3. Dupliquer Pleine */}
-                            {/* 3. Dupliquer Pleine */}
                             <button
                                 onClick={() => selectedInvoice && handleDuplicate(false)}
                                 disabled={!selectedInvoice}
-                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-[#5D4037]/5 border border-[#5D4037]/10 rounded-xl text-[#5D4037] hover:bg-[#5D4037]/10 transition-all shadow-sm disabled:opacity-30 disabled:hover:bg-transparent group"
+                                className="flex-1 flex items-center justify-center text-white hover:bg-white/10 transition-colors text-xs font-black uppercase tracking-widest active:bg-white/20 disabled:opacity-20 disabled:hover:bg-transparent"
                             >
-                                <div className="w-8 h-8 shrink-0 rounded-full bg-[#3E2723] flex items-center justify-center group-hover:rotate-180 transition-transform duration-500">
-                                    <Files className="w-5 h-5 text-white" />
-                                </div>
-                                <span className="text-xs font-bold leading-none text-left">Pleine</span>
+                                F. Pleine
                             </button>
+                        </div>
 
-                            {/* 4. Supprimer */}
+                        {/* 2. NEW Delete Button (Red Glass Style) */}
+                        {selectedInvoice && (
                             <button
-                                onClick={() => selectedInvoice && handleDelete(selectedInvoice.id)}
-                                disabled={!selectedInvoice}
-                                className="col-span-1 flex flex-row items-center justify-start pl-3 gap-3 bg-[#5D4037]/5 border border-[#5D4037]/10 rounded-xl text-[#5D4037] hover:bg-red-50 hover:border-red-200 hover:text-red-700 transition-all shadow-sm disabled:opacity-30 disabled:hover:bg-transparent group"
+                                onClick={() => handleDelete(selectedInvoice.id)}
+                                className="h-16 w-16 shrink-0 rounded-2xl flex items-center justify-center bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20 active:scale-95 transition-all shadow-md group"
+                                title="Supprimer la facture"
                             >
-                                <div className="w-8 h-8 shrink-0 rounded-full bg-[#3E2723] group-hover:bg-red-600 flex items-center justify-center group-hover:rotate-180 transition-all duration-500">
-                                    <Trash2 className="w-5 h-5 text-white" />
-                                </div>
-                                <span className="text-xs font-bold leading-none text-left">Supprimer</span>
+                                <Trash2 className="w-7 h-7 stroke-[2.5px] group-hover:rotate-12 transition-transform" />
                             </button>
+                        )}
 
-                            {/* Sync Button & 6. Info */}
-                            {selectedInvoice ? (
-                                <>
-                                    {/* Sync Action */}
-                                    <button
-                                        onClick={() => handleSync(selectedInvoice.id)}
-                                        className="col-span-1 flex flex-row items-center justify-center gap-3 rounded-xl border bg-[#5D4037]/5 border-[#5D4037]/10 hover:bg-[#5D4037]/10 transition-all shadow-sm active:scale-95 group relative overflow-hidden"
-                                    >
-                                        <div className="relative">
-                                            {(selectedInvoice.syncTime) ? (
-                                                <div className="w-8 h-8 rounded-full bg-[#3E2723] flex items-center justify-center">
-                                                    <CloudUpload className="w-5 h-5 text-white stroke-[3px]" />
-                                                </div>
-                                            ) : (
-                                                <div className="w-8 h-8 rounded-full bg-[#3E2723] flex items-center justify-center group-hover:rotate-180 transition-transform duration-500">
-                                                    <RefreshCw className="w-5 h-5 text-white" />
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <span className="text-xs font-bold leading-none text-[#5D4037]">
-                                            {(selectedInvoice.syncTime) ? "Synchronisé" : "Prêt"}
-                                        </span>
-                                    </button>
-
-                                    {/* Sync Time Info */}
-                                    <div className="col-span-1 flex flex-col items-center justify-center gap-0.5 bg-[#5D4037]/5 border border-[#5D4037]/10 rounded-xl text-[#5D4037]">
+                        {/* 2. Synchronization Info (Moved from Editor) */}
+                        {selectedInvoice && (
+                            <div className="flex items-center gap-2">
+                                <div className="bg-white/5 backdrop-blur-md px-2 py-1 h-16 rounded-2xl flex items-center border border-white/10 shadow-sm">
+                                    {/* State: Prêt / Synchronisé */}
+                                    <div className="flex flex-col px-4 border-r border-white/10 transition-colors rounded-l-lg group justify-center h-full">
+                                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider leading-none mb-1">État Synchro</span>
                                         <span className={cn(
-                                            "text-[9px] font-medium uppercase tracking-wider",
-                                            selectedInvoice.syncTime ? "text-[#5D4037] opacity-100" : "text-[#5D4037] opacity-60"
-                                        )}>Heure Synchro</span>
-                                        <span className="text-xs font-mono font-bold text-[#5D4037] tracking-tight">
-                                            {selectedInvoice.syncTime
-                                                ? <div className="flex flex-col items-center leading-none gap-0.5">
-                                                    <span>{new Date(selectedInvoice.syncTime).toLocaleDateString('fr-FR')}</span>
-                                                    <span className="text-[#5D4037]/80">{new Date(selectedInvoice.syncTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
-                                                </div>
-                                                : <span className="opacity-40">--/-- --:--</span>
-                                            }
+                                            "text-lg font-black leading-none",
+                                            (selectedInvoice.status === "Synced" || selectedInvoice.syncTime) ? "text-green-400" : "text-orange-400"
+                                        )}>
+                                            {(selectedInvoice.status === "Synced" || selectedInvoice.syncTime) ? "Synchronisé" : "Prêt"}
                                         </span>
                                     </div>
-                                </>
-                            ) : (
-                                <div className="col-span-2" />
-                            )}
-                        </div>
+
+                                    {/* Last Send Time */}
+                                    <div className="flex flex-col px-4 transition-colors rounded-r-lg group justify-center h-full min-w-[140px]">
+                                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider leading-none mb-1">Dernier Envoi</span>
+                                        {selectedInvoice.syncTime ? (
+                                            <div className="flex flex-col leading-none">
+                                                <span className="text-sm font-black text-white">{new Date(selectedInvoice.syncTime).toLocaleDateString('fr-FR')}</span>
+                                                <span className="text-[11px] font-bold text-white/40 mt-0.5">
+                                                    {new Date(selectedInvoice.syncTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <span className="text-sm font-bold text-white/20">--/-- --:--</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Icon Pill (Static) */}
+                                <div className={cn(
+                                    "h-16 w-16 rounded-2xl flex flex-col items-center justify-center border shadow-sm",
+                                    (selectedInvoice.status === "Synced" || selectedInvoice.syncTime)
+                                        ? "bg-green-500/10 border-green-500/20 text-green-400"
+                                        : "bg-orange-500/10 border-orange-500/20 text-orange-400"
+                                )}>
+                                    {(selectedInvoice.status === "Synced" || selectedInvoice.syncTime) ? (
+                                        <CloudUpload className="w-7 h-7 stroke-[2.5px]" />
+                                    ) : (
+                                        <RefreshCw className="w-7 h-7 stroke-[2.5px]" />
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {selectedInvoice ? (
@@ -681,9 +728,12 @@ function AchatsContent() {
                                 onDelete={() => { }}
                                 onSync={handleSync}
                                 onUpdate={handleUpdate}
-                                suppliers={mockSuppliers}
-                                articles={mockArticles}
+                                onCreateNew={handleCreateNew}
+                                onDuplicate={handleDuplicate}
+                                suppliers={suppliers}
+                                articles={articles}
                                 onGenerateNumber={generateInvoiceNumber}
+                                onExit={handleExitEdit}
                             />
                         </div>
                     ) : (

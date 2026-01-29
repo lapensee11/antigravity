@@ -2,7 +2,7 @@
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ArticleEditor } from "@/components/articles/ArticleEditor";
-import { Article } from "@/lib/types";
+import { Article, Invoice } from "@/lib/types";
 import { initialFamilies, initialSubFamilies } from "@/lib/data";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Search, ChevronDown, Check, Plus, X } from "lucide-react";
@@ -10,45 +10,11 @@ import { cn } from "@/lib/utils";
 import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 
 // Mock Data
-const initialArticles: Article[] = [
-    {
-        id: "a1",
-        name: "Farine Viennoiserie",
-        code: "PA011-01",
-        subFamilyId: "FA011", // Farines
-        unitAchat: "Quintal",
-        unitPivot: "kg",
-        unitProduction: "g",
-        contenace: 100,
-        coeffProd: 1000,
-        lastPivotPrice: 5.00,
-        vatRate: 20,
-        priceHistory: [
-            { date: "2023-12-01", price: 5.20 },
-            { date: "2023-11-01", price: 5.00 }
-        ]
-    },
-    {
-        id: "a2",
-        name: "Sucre Semoule",
-        code: "PA012-01",
-        subFamilyId: "FA012", // Sucres
-        unitAchat: "Sac 25kg",
-        unitPivot: "kg",
-        unitProduction: "g",
-        contenace: 25,
-        coeffProd: 1000,
-        lastPivotPrice: 8.50,
-        vatRate: 20,
-        priceHistory: [
-            { date: "2024-01-10", price: 8.50 },
-            { date: "2023-12-05", price: 8.20 }
-        ]
-    },
-];
+const initialArticles: Article[] = [];
 
 export default function ArticlesPage() {
     const [articles, setArticles] = usePersistedState<Article[]>("bakery_articles", initialArticles);
+    const [invoices] = usePersistedState<Invoice[]>("bakery_invoices", []);
     const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
     const [editTrigger, setEditTrigger] = useState(0); // Trigger for editor focus
 
@@ -456,6 +422,7 @@ export default function ArticlesPage() {
                             <ArticleEditor
                                 article={selectedArticle}
                                 existingArticles={articles}
+                                invoices={invoices}
                                 forceEditTrigger={editTrigger}
                                 onSave={handleSave}
                                 onDelete={handleDelete}

@@ -12,6 +12,8 @@ export const metadata: Metadata = {
   description: "Modern Bakery Management System",
 };
 
+import { DataRestorer } from "@/components/utils/DataRestorer";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -22,6 +24,7 @@ export default function RootLayout({
       <body
         className={`${outfit.className} antialiased min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 text-slate-900`}
       >
+        <DataRestorer />
         {children}
       </body>
     </html>

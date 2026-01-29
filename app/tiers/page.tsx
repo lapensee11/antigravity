@@ -9,32 +9,7 @@ import { cn } from "@/lib/utils";
 import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 
 // Mock Data
-const initialTiers: Tier[] = [
-    {
-        id: "t1",
-        code: "Frs-023",
-        type: "Fournisseur",
-        name: "Minoterie du Nord",
-        phone: "06 61 22 33 44",
-        city: "Tanger"
-    } as Tier,
-    {
-        id: "t2",
-        code: "Cli-145",
-        type: "Client",
-        name: "Café de Paris",
-        phone: "05 39 99 88 77",
-        ice: "00123456789"
-    } as Tier,
-    {
-        id: "t3",
-        code: "Frs-024",
-        type: "Fournisseur",
-        name: "Centrale Laitière",
-        phone: "05 22 00 00 00",
-        city: "Casablanca"
-    } as Tier,
-];
+const initialTiers: Tier[] = [];
 
 export default function TiersPage() {
     // State

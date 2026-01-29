@@ -68,9 +68,15 @@ export function TypeColumn({
                 </div>
                 <button
                     onClick={() => onAddFamily(structureType.id)}
-                    className="w-7 h-7 flex items-center justify-center bg-white rounded-full text-slate-400 hover:text-indigo-600 shadow-sm hover:shadow-md transition-all"
+                    className={cn(
+                        "w-7 h-7 flex items-center justify-center rounded-full text-white shadow-sm hover:shadow-md hover:scale-105 transition-all",
+                        structureType.name === "Achat" && "bg-blue-500 hover:bg-blue-600",
+                        structureType.name === "Fonctionnement" && "bg-slate-500 hover:bg-slate-600",
+                        structureType.name === "Production" && "bg-green-500 hover:bg-green-600",
+                        structureType.name === "Vente" && "bg-orange-500 hover:bg-orange-600"
+                    )}
                 >
-                    <Plus className="w-4 h-4" />
+                    <Plus className="w-4 h-4 stroke-[3px]" />
                 </button>
             </div>
 

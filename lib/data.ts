@@ -173,3 +173,5 @@ export const initialSubFamilies: SubFamily[] = [
     { id: "FV081", name: "Supp Traiteurs", code: "FV081", familyId: "FV08" },
     { id: "FV082", name: "Supp Caisse", code: "FV082", familyId: "FV08" },
 ];
+
+export const initialUnits = ["Kg", "Litre", "Unité", "Carton", "Quintal", "Sac", "Palette", "Plateau", "Barquette", "Boite"];

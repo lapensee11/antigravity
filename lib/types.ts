@@ -39,6 +39,25 @@ export interface Article {
     lastPivotPrice?: number;
     priceHistory?: { date: string; price: number }[]; // History
     vatRate: number; // %
+    accountingNature?: string;
+    accountingAccount?: string;
+    nutritionalInfo?: {
+        calories?: number; // Energie
+        water?: number; // Eau
+        protein?: number; // Protéines
+        fat?: number; // Lipides
+        minerals?: number; // Minéraux
+        carbs?: number; // Glucides
+        sugars?: number; // Dont sucres
+        starch?: number; // Dont amidons
+        fiber?: number; // Dont fibres
+        salt?: number;
+        ig?: number; // Index Glycémique
+        cg?: number; // Charge Glycémique
+    };
+    allergens?: string[];
+    storageConditions?: string;
+    leadTimeDays?: number;
 }
 
 // Invoices
@@ -56,14 +75,17 @@ export interface InvoiceLine {
     totalTTC: number; // Calculated
 }
 
+export type PaymentMode = "Virement" | "Espèces" | "Chèque" | "Prélèvement" | "Carte Bancaire";
+
 export interface Payment {
     id: string;
     date: string;
     amount: number;
-    mode: "Especes" | "Cheque" | "Virement" | "Prelevement";
+    mode: PaymentMode;
     account: "Banque" | "Caisse" | "Coffre";
     reference?: string; // N° Chèque
     checkAmount?: number; // Montant Chèque
+    note?: string; // Infos
     isReconciled?: boolean; // Pointé en banque
 }
 
