@@ -344,7 +344,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 text-center">Contenance</label>
                                 <input
                                     type="number"
-                                    value={formData.contenace}
+                                    value={formData.contenace || ""}
                                     onChange={(e) => handleChange("contenace", parseFloat(e.target.value))}
                                     className="w-full text-sm font-bold text-slate-800 text-center outline-none bg-transparent border-none focus:ring-0 transition-all p-1"
                                 />
@@ -377,7 +377,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 text-center">Coeff</label>
                                 <input
                                     type="number"
-                                    value={formData.coeffProd}
+                                    value={formData.coeffProd || ""}
                                     onChange={(e) => handleChange("coeffProd", parseFloat(e.target.value))}
                                     className="w-full text-sm font-bold text-green-600 text-center outline-none bg-transparent border-none focus:ring-0 transition-all p-1"
                                 />
@@ -489,7 +489,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             <input
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.calories || ""}
-                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...prev.nutritionalInfo, calories: parseFloat(e.target.value) } }))}
+                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...(prev.nutritionalInfo || {}), calories: parseFloat(e.target.value) } }))}
                                                 className="w-20 text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>
@@ -499,7 +499,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             <input
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.water || ""}
-                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...prev.nutritionalInfo, water: parseFloat(e.target.value) } }))}
+                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...(prev.nutritionalInfo || {}), water: parseFloat(e.target.value) } }))}
                                                 className="w-20 text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>
@@ -541,7 +541,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                 <input
                                                     type="number"
                                                     value={(formData.nutritionalInfo as any)?.carbs || ""}
-                                                    onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...prev.nutritionalInfo, carbs: parseFloat(e.target.value) } }))}
+                                                    onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...(prev.nutritionalInfo || {}), carbs: parseFloat(e.target.value) } }))}
                                                     className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                 />
                                             </div>
@@ -582,7 +582,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             <input
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.ig || ""}
-                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...prev.nutritionalInfo, ig: parseFloat(e.target.value) } }))}
+                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...(prev.nutritionalInfo || {}), ig: parseFloat(e.target.value) } }))}
                                                 className="w-16 text-center bg-slate-50 border border-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-bold focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>
@@ -591,7 +591,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             <input
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.cg || ""}
-                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...prev.nutritionalInfo, cg: parseFloat(e.target.value) } }))}
+                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...(prev.nutritionalInfo || {}), cg: parseFloat(e.target.value) } }))}
                                                 className="w-16 text-center bg-slate-50 border border-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-bold focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>

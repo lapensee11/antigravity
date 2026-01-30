@@ -13,8 +13,9 @@
     "windows": [
       {
         "title": "BAKO",
-        "width": 800,
-        "height": 600,
+        "width": 1900,
+        "height": 1200,
+        "center": true,
         "resizable": true,
         "fullscreen": false
       }

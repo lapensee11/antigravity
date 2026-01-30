@@ -133,7 +133,7 @@ export function ProductionContent({
         return matchesSearch && matchesFamily;
     });
 
-    const selectedRecipe = recipes.find(r => r.id === selectedRecipeId) || recipes[0];
+    const selectedRecipe = recipes.find(r => r.id === selectedRecipeId) || recipes[0] || null;
 
     const getAvailableSubFamilies = () => {
         if (!editData) return [];

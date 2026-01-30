@@ -68,15 +68,26 @@ export async function saveInvoice(invoiceData: Invoice) {
             const tauriDb = await getDesktopDB();
             const { lines, payments: invPayments } = invoiceData;
 
+            console.log("Tauri: Saving invoice", invoiceData.id, invoiceData.number);
             await tauriDb.execute(`
-                INSERT INTO invoices (id, supplier_id, number, date, status, total_ht, total_ttc, rounding, deposit, balance_due, comment)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                INSERT INTO invoices (
+                    id, supplier_id, number, date, status, total_ht, total_ttc, 
+                    rounding, deposit, balance_due, comment, date_encaissement, payment_delay
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET 
+                    supplier_id=excluded.supplier_id,
                     number=excluded.number, 
+                    date=excluded.date,
                     status=excluded.status, 
+                    total_ht=excluded.total_ht,
                     total_ttc=excluded.total_ttc,
+                    rounding=excluded.rounding,
+                    deposit=excluded.deposit,
                     balance_due=excluded.balance_due,
-                    comment=excluded.comment
+                    comment=excluded.comment,
+                    date_encaissement=excluded.date_encaissement,
+                    payment_delay=excluded.payment_delay
             `, [
                 invoiceData.id,
                 invoiceData.supplierId,
@@ -88,24 +99,29 @@ export async function saveInvoice(invoiceData: Invoice) {
                 invoiceData.rounding || 0,
                 invoiceData.deposit || 0,
                 invoiceData.balanceDue,
-                invoiceData.comment || null
+                invoiceData.comment || null,
+                invoiceData.dateEncaissement || null,
+                invoiceData.paymentDelay || null
             ]);
 
-            await tauriDb.execute("DELETE FROM invoice_lines WHERE invoice_id = $1", [invoiceData.id]);
+            console.log("Tauri: Deleting and re-inserting lines for", invoiceData.id);
+            await tauriDb.execute("DELETE FROM invoice_lines WHERE invoice_id = ?", [invoiceData.id]);
             for (const l of (lines || [])) {
                 await tauriDb.execute(`
                     INSERT INTO invoice_lines (id, invoice_id, article_id, article_name, quantity, unit, price_ht, discount, vat_rate, total_ttc)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `, [l.id, invoiceData.id, l.articleId, l.articleName, l.quantity, l.unit, l.priceHT, l.discount, l.vatRate, l.totalTTC]);
             }
 
-            await tauriDb.execute("DELETE FROM payments WHERE invoice_id = $1", [invoiceData.id]);
+            console.log("Tauri: Deleting and re-inserting payments for", invoiceData.id);
+            await tauriDb.execute("DELETE FROM payments WHERE invoice_id = ?", [invoiceData.id]);
             for (const p of (invPayments || [])) {
                 await tauriDb.execute(`
                     INSERT INTO payments (id, invoice_id, date, amount, mode, account, reference, check_amount, note, is_reconciled)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `, [p.id, invoiceData.id, p.date, p.amount, p.mode, p.account, p.reference || null, p.checkAmount || 0, p.note || null, p.isReconciled ? 1 : 0]);
             }
+            console.log("Tauri: Save invoice SUCCESS.");
             return { success: true };
         } catch (error) {
             console.error("Tauri Save Invoice Error:", error);
@@ -143,12 +159,28 @@ export async function saveInvoice(invoiceData: Invoice) {
 
 export async function deleteInvoice(id: string) {
     if (isTauri()) {
-        const tauriDb = await getDesktopDB();
-        await tauriDb.execute("DELETE FROM invoice_lines WHERE invoice_id = $1", [id]);
-        await tauriDb.execute("DELETE FROM payments WHERE invoice_id = $1", [id]);
-        await tauriDb.execute("DELETE FROM invoices WHERE id = $1", [id]);
-        await tauriDb.execute("DELETE FROM transactions WHERE invoice_id = $1", [id]);
-        return { success: true };
+        try {
+            console.log("Tauri: Final Delete Invoice attempt for ID:", id);
+            const tauriDb = await getDesktopDB();
+
+            console.log("Tauri: Deleting lines...");
+            await tauriDb.execute("DELETE FROM invoice_lines WHERE invoice_id = ?", [id]);
+
+            console.log("Tauri: Deleting payments...");
+            await tauriDb.execute("DELETE FROM payments WHERE invoice_id = ?", [id]);
+
+            console.log("Tauri: Deleting transactions...");
+            await tauriDb.execute("DELETE FROM transactions WHERE invoice_id = ?", [id]);
+
+            console.log("Tauri: Deleting invoice itself...");
+            const res = await tauriDb.execute("DELETE FROM invoices WHERE id = ?", [id]);
+
+            console.log("Tauri: Delete result from driver:", res);
+            return { success: true };
+        } catch (error) {
+            console.error("Tauri: Delete Invoice CRITICAL FAILURE:", error);
+            return { success: false, error: String(error) };
+        }
     }
 
     try {
@@ -201,7 +233,7 @@ export async function saveTransaction(txData: Transaction) {
             const tauriDb = await getDesktopDB();
             await tauriDb.execute(`
                 INSERT INTO transactions (id, date, label, amount, type, category, account, invoice_id, tier, piece_number, is_reconciled, reconciled_date)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET label=excluded.label, amount=excluded.amount, is_reconciled=excluded.is_reconciled
             `, [txData.id, txData.date, txData.label, txData.amount, txData.type, txData.category, txData.account, txData.invoiceId, txData.tier, txData.pieceNumber, txData.isReconciled ? 1 : 0, txData.reconciledDate]);
             return { success: true };
@@ -232,7 +264,7 @@ export async function saveTransaction(txData: Transaction) {
 export async function deleteTransaction(id: string) {
     if (isTauri()) {
         const tauriDb = await getDesktopDB();
-        await tauriDb.execute("DELETE FROM transactions WHERE id = $1", [id]);
+        await tauriDb.execute("DELETE FROM transactions WHERE id = ?", [id]);
         return { success: true };
     }
     try {
@@ -253,11 +285,11 @@ export async function syncInvoiceTransactions(invoiceId: string, newTxs: Transac
     if (isTauri()) {
         try {
             const tauriDb = await getDesktopDB();
-            await tauriDb.execute("DELETE FROM transactions WHERE invoice_id = $1", [invoiceId]);
+            await tauriDb.execute("DELETE FROM transactions WHERE invoice_id = ?", [invoiceId]);
             for (const tx of newTxs) {
                 await tauriDb.execute(`
                     INSERT INTO transactions (id, date, label, amount, type, category, account, invoice_id, tier, piece_number, is_reconciled, reconciled_date)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `, [tx.id, tx.date, tx.label, tx.amount, tx.type, tx.category, tx.account, tx.invoiceId, tx.tier, tx.pieceNumber, tx.isReconciled ? 1 : 0, tx.reconciledDate]);
             }
             return { success: true };
@@ -290,7 +322,7 @@ export async function updateArticlePivotPrices(articlesToUpdate: { id: string, l
         try {
             const tauriDb = await getDesktopDB();
             for (const art of articlesToUpdate) {
-                await tauriDb.execute("UPDATE articles SET last_pivot_price = $1 WHERE id = $2", [art.lastPivotPrice, art.id]);
+                await tauriDb.execute("UPDATE articles SET last_pivot_price = ? WHERE id = ?", [art.lastPivotPrice, art.id]);
             }
             return { success: true };
         } catch (e) {

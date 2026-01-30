@@ -7,7 +7,8 @@ import { initialFamilies, initialSubFamilies } from "@/lib/data";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Search, ChevronDown, Check, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { saveArticle, deleteArticle } from "@/lib/actions/articles";
+import { saveArticle, deleteArticle, getArticles } from "@/lib/actions/articles";
+import { isTauri } from "@/lib/actions/db-desktop";
 
 interface ArticlesContentProps {
     initialArticles: Article[];
@@ -18,6 +19,18 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
     const [invoices] = useState<Invoice[]>([]);
     const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
     const [editTrigger, setEditTrigger] = useState(0);
+
+    // --- RUNTIME LOAD (TAURI) ---
+    useEffect(() => {
+        const loadArticles = async () => {
+            if (isTauri()) {
+                console.log("ArticlesContent: Loading live data from SQLite...");
+                const liveArticles = await getArticles();
+                setArticles(liveArticles || []);
+            }
+        };
+        loadArticles();
+    }, []);
 
     const handleSave = async (article: Article) => {
         const res = await saveArticle(article);

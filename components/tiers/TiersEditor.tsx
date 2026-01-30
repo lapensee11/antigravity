@@ -8,10 +8,11 @@ import { cn } from "@/lib/utils";
 interface TiersEditorProps {
     tier?: Tier | null;
     onSave: (tier: Tier) => void;
+    onDelete?: (id: string) => void;
     onGetTypeCode?: (type: "Fournisseur" | "Client") => string;
 }
 
-export function TiersEditor({ tier, onSave, onGetTypeCode }: TiersEditorProps) {
+export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEditorProps) {
     const router = useRouter();
     const [formData, setFormData] = useState<Partial<Tier>>({});
     const [activeTab, setActiveTab] = useState("Contact");
@@ -68,9 +69,10 @@ export function TiersEditor({ tier, onSave, onGetTypeCode }: TiersEditorProps) {
     };
 
     const handleDelete = () => {
+        if (!formData.id || formData.id === "new") return;
         if (confirm("Êtes-vous sûr de vouloir supprimer ce tiers ? Cette action est irréversible.")) {
-            console.log("Deleted", formData.id);
-            // In a real app, call onDelete prop
+            console.log("TiersEditor: Deleting", formData.id);
+            if (onDelete) onDelete(formData.id);
         }
     };
 
@@ -173,10 +175,10 @@ export function TiersEditor({ tier, onSave, onGetTypeCode }: TiersEditorProps) {
                                 CA
                             </p>
                             <div className="text-xl font-black text-[#6A1B9A]">
-                                45.200 <span className="text-[10px] font-bold text-[#8E24AA]/80">DH</span>
+                                0 <span className="text-[10px] font-bold text-[#8E24AA]/80">DH</span>
                             </div>
                             <div className="text-[10px] text-[#8E24AA] font-medium leading-none pb-1">
-                                12 Factures
+                                0 Factures
                             </div>
                         </div>
                     </div>
@@ -558,37 +560,12 @@ export function TiersEditor({ tier, onSave, onGetTypeCode }: TiersEditorProps) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {[
-                                    { date: "01/12/2023", ref: "FAC-2023-089", amount: "6 240,00", status: "Payée" },
-                                    { date: "15/11/2023", ref: "FAC-2023-072", amount: "3 150,00", status: "En attente" },
-                                    { date: "01/11/2023", ref: "FAC-2023-065", amount: "12 400,00", status: "Payée" },
-                                ].map((row, i) => (
-                                    <tr
-                                        key={i}
-                                        onClick={() => {
-                                            if (formData.type === "Fournisseur") {
-                                                // Visualize in Achats
-                                                router.push(`/achats?invoiceRef=${row.ref}`);
-                                            } else {
-                                                // Client - Future window
-                                                alert("Visualisation facture client : fonctionnalité à venir.");
-                                            }
-                                        }}
-                                        className="hover:bg-slate-50/50 transition-colors cursor-pointer"
-                                    >
-                                        <td className="px-6 py-4 text-slate-500 font-mono font-medium">{row.date}</td>
-                                        <td className="px-6 py-4 text-[#3E2723] font-bold">{row.ref}</td>
-                                        <td className="px-6 py-4 text-right font-black text-slate-700">{row.amount} <span className="text-[10px] text-slate-400 font-normal">DH</span></td>
-                                        <td className="px-6 py-4 text-center">
-                                            <span className={cn(
-                                                "px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide",
-                                                row.status === "Payée" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"
-                                            )}>
-                                                {row.status}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {/* Empty History Message */}
+                                <tr>
+                                    <td colSpan={4} className="px-6 py-12 text-center text-slate-400 font-medium">
+                                        Aucune opération enregistrée pour ce tiers.
+                                    </td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>

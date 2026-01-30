@@ -52,7 +52,7 @@ export async function saveDayData(date: string, type: "real" | "declared", dayDa
 
             await tauriDb.execute(`
                 INSERT INTO daily_sales (date, ${jsonField})
-                VALUES ($1, $2)
+                VALUES (?, ?)
                 ON CONFLICT(date) DO UPDATE SET ${jsonField} = excluded.${jsonField}
             `, [date, jsonData]);
 

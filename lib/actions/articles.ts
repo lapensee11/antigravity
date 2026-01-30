@@ -18,6 +18,8 @@ export async function getArticles() {
                 lastPivotPrice: a.last_pivot_price,
                 vatRate: a.vat_rate,
                 leadTimeDays: a.lead_time_days,
+                accountingNature: a.accounting_nature,
+                accountingAccount: a.accounting_account,
                 nutritionalInfo: a.nutritional_info ? JSON.parse(a.nutritional_info) : null
             }));
         } catch (error) {
@@ -51,16 +53,27 @@ export async function saveArticle(data: any) {
             const tauriDb = await getDesktopDB();
             const nutritionalJson = data.nutritionalInfo ? JSON.stringify(data.nutritionalInfo) : null;
             await tauriDb.execute(`
-                INSERT INTO articles (id, name, code, sub_family_id, unit_pivot, unit_achat, unit_production, nutritional_info, last_pivot_price, vat_rate)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                INSERT INTO articles (id, name, code, sub_family_id, unit_pivot, unit_achat, unit_production, nutritional_info, last_pivot_price, vat_rate, contenace, coeff_prod, accounting_nature, accounting_account)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     code = excluded.code,
                     sub_family_id = excluded.sub_family_id,
+                    unit_pivot = excluded.unit_pivot,
+                    unit_achat = excluded.unit_achat,
+                    unit_production = excluded.unit_production,
                     nutritional_info = excluded.nutritional_info,
                     last_pivot_price = excluded.last_pivot_price,
-                    vat_rate = excluded.vat_rate
-            `, [data.id, data.name, data.code, data.subFamilyId, data.unitPivot, data.unitAchat, data.unitProduction, nutritionalJson, data.lastPivotPrice, data.vatRate]);
+                    vat_rate = excluded.vat_rate,
+                    contenace = excluded.contenace,
+                    coeff_prod = excluded.coeff_prod,
+                    accounting_nature = excluded.accounting_nature,
+                    accounting_account = excluded.accounting_account
+            `, [
+                data.id, data.name, data.code, data.subFamilyId, data.unitPivot, data.unitAchat, data.unitProduction,
+                nutritionalJson, data.lastPivotPrice, data.vatRate, data.contenace || 0, data.coeffProd || 0,
+                data.accountingNature || null, data.accountingAccount || null
+            ]);
             return { success: true };
         } catch (error) {
             console.error("Tauri Save Article Error:", error);
@@ -128,7 +141,7 @@ export async function deleteArticle(id: string) {
     if (isTauri()) {
         try {
             const tauriDb = await getDesktopDB();
-            await tauriDb.execute("DELETE FROM articles WHERE id = $1", [id]);
+            await tauriDb.execute("DELETE FROM articles WHERE id = ?", [id]);
             return { success: true };
         } catch (error) {
             return { success: false, error: String(error) };
@@ -163,7 +176,7 @@ export async function saveFamily(data: any) {
         const tauriDb = await getDesktopDB();
         await tauriDb.execute(`
             INSERT INTO families (id, name, code, type_id, icon)
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET name=excluded.name, code=excluded.code, type_id=excluded.type_id, icon=excluded.icon
         `, [data.id, data.name, data.code, data.typeId, data.icon]);
         return { success: true };
@@ -190,7 +203,7 @@ export async function saveFamily(data: any) {
 export async function deleteFamily(id: string) {
     if (isTauri()) {
         const tauriDb = await getDesktopDB();
-        await tauriDb.execute("DELETE FROM families WHERE id = $1", [id]);
+        await tauriDb.execute("DELETE FROM families WHERE id = ?", [id]);
         return { success: true };
     }
     try {
@@ -211,7 +224,7 @@ export async function saveSubFamily(data: any) {
         const tauriDb = await getDesktopDB();
         await tauriDb.execute(`
             INSERT INTO sub_families (id, name, code, family_id, icon)
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET name=excluded.name, code=excluded.code, family_id=excluded.family_id, icon=excluded.icon
         `, [data.id, data.name, data.code, data.familyId, data.icon]);
         return { success: true };
@@ -238,7 +251,7 @@ export async function saveSubFamily(data: any) {
 export async function deleteSubFamily(id: string) {
     if (isTauri()) {
         const tauriDb = await getDesktopDB();
-        await tauriDb.execute("DELETE FROM sub_families WHERE id = $1", [id]);
+        await tauriDb.execute("DELETE FROM sub_families WHERE id = ?", [id]);
         return { success: true };
     }
     try {

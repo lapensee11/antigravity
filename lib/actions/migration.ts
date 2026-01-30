@@ -97,21 +97,21 @@ export async function seedInitialStructure(types: any[], families: any[], subFam
 
             for (const t of types) {
                 await tauriDb.execute(`
-                    INSERT INTO structure_types (id, name, color) VALUES ($1, $2, $3)
+                    INSERT INTO structure_types (id, name, color) VALUES (?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color
                 `, [t.id, t.name, t.color]);
             }
 
             for (const f of families) {
                 await tauriDb.execute(`
-                    INSERT INTO families (id, name, code, type_id, icon) VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO families (id, name, code, type_id, icon) VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET name=excluded.name, code=excluded.code, type_id=excluded.type_id, icon=excluded.icon
                 `, [f.id, f.name, f.code, f.typeId, f.icon || null]);
             }
 
             for (const s of subFamilies) {
                 await tauriDb.execute(`
-                    INSERT INTO sub_families (id, name, code, family_id, icon) VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO sub_families (id, name, code, family_id, icon) VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET name=excluded.name, code=excluded.code, family_id=excluded.family_id, icon=excluded.icon
                 `, [s.id, s.name, s.code, s.familyId, s.icon || null]);
             }
@@ -151,7 +151,7 @@ export async function migrateAllData(data: any) {
                     try {
                         await tauriDb.execute(`
                             INSERT INTO tiers (id, code, type, name, phone, email, address, city, ice, "if", rc, cnss)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(id) DO NOTHING
                         `, [t.id, t.code || 'T-000', t.type || 'Fournisseur', t.name || 'Sans nom', t.phone || null, t.email || null, t.address || null, t.city || null, t.ice || null, t.if || null, t.rc || null, t.cnss || null]);
                     } catch (e) { console.error(e); }
@@ -164,7 +164,7 @@ export async function migrateAllData(data: any) {
                     try {
                         await tauriDb.execute(`
                             INSERT INTO articles (id, name, code, sub_family_id, unit_pivot, unit_achat, unit_production, last_pivot_price, vat_rate)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(id) DO NOTHING
                         `, [a.id, a.name, a.code, a.subFamilyId, a.unitPivot, a.unitAchat, a.unitProduction, a.lastPivotPrice || 0, a.vatRate || 20]);
                     } catch (e) { console.error(e); }
@@ -177,7 +177,7 @@ export async function migrateAllData(data: any) {
                     try {
                         await tauriDb.execute(`
                             INSERT INTO invoices (id, supplier_id, number, date, status, total_ht, total_ttc, rounding, deposit, balance_due)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(id) DO NOTHING
                         `, [inv.id, inv.supplierId, inv.number, inv.date, inv.status, inv.totalHT, inv.totalTTC, inv.rounding || 0, inv.deposit || 0, inv.balanceDue]);
 
@@ -185,7 +185,7 @@ export async function migrateAllData(data: any) {
                             for (const l of inv.lines) {
                                 await tauriDb.execute(`
                                     INSERT INTO invoice_lines (id, invoice_id, article_id, article_name, quantity, unit, price_ht, discount, vat_rate, total_ttc)
-                                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     ON CONFLICT(id) DO NOTHING
                                 `, [l.id, inv.id, l.articleId, l.articleName, l.quantity, l.unit, l.priceHT, l.discount || 0, l.vatRate, l.totalTTC]);
                             }
@@ -195,7 +195,7 @@ export async function migrateAllData(data: any) {
                             for (const p of inv.payments) {
                                 await tauriDb.execute(`
                                     INSERT INTO payments (id, invoice_id, date, amount, mode, account, is_reconciled)
-                                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?)
                                     ON CONFLICT(id) DO NOTHING
                                 `, [p.id, inv.id, p.date, p.amount, p.mode, p.account, p.isReconciled ? 1 : 0]);
                             }
@@ -210,7 +210,7 @@ export async function migrateAllData(data: any) {
                     try {
                         await tauriDb.execute(`
                             INSERT INTO staff_members (id, initials, name, first_name, last_name, role, gender, birth_date, matricule, situation_familiale, children_count, credit, personal_info, contract, credit_info, history, monthly_data)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(id) DO NOTHING
                         `, [
                             s.id, s.initials, s.name, s.firstName, s.lastName, s.role, s.gender, s.birthDate, s.matricule,
@@ -230,11 +230,15 @@ export async function migrateAllData(data: any) {
                         const typedDayData = dayData as any;
                         await tauriDb.execute(`
                             INSERT INTO daily_sales (date, real_data, declared_data)
-                            VALUES ($1, $2, $3)
+                            VALUES (?, ?, ?)
                             ON CONFLICT(date) DO UPDATE SET 
-                                real_data = CASE WHEN $2 IS NOT NULL THEN $2 ELSE real_data END,
-                                declared_data = CASE WHEN $3 IS NOT NULL THEN $3 ELSE declared_data END
-                        `, [date, typedDayData.real ? JSON.stringify(typedDayData.real) : null, typedDayData.declared ? JSON.stringify(typedDayData.declared) : null]);
+                                real_data = EXCLUDED.real_data,
+                                declared_data = EXCLUDED.declared_data
+                        `, [
+                            date,
+                            typedDayData.real ? JSON.stringify(typedDayData.real) : null,
+                            typedDayData.declared ? JSON.stringify(typedDayData.declared) : null
+                        ]);
                     } catch (e) { console.error(e); }
                 }
             }
@@ -245,7 +249,7 @@ export async function migrateAllData(data: any) {
                     try {
                         await tauriDb.execute(`
                             INSERT INTO transactions (id, date, label, amount, type, category, account, invoice_id, tier, piece_number, is_reconciled)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(id) DO NOTHING
                         `, [tx.id, tx.date, tx.label, tx.amount, tx.type, tx.category, tx.account, tx.invoiceId || null, tx.tier || null, tx.pieceNumber || null, tx.isReconciled ? 1 : 0]);
                     } catch (e) { console.error(e); }

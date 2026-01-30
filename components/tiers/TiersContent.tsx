@@ -5,15 +5,35 @@ import { TiersEditor } from "@/components/tiers/TiersEditor";
 import { useState, useEffect } from "react";
 import { Search, Plus, User, Briefcase, Phone, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { saveTier } from "@/lib/actions/tiers";
+import { saveTier, deleteTier, getTiers } from "@/lib/actions/tiers";
 import { Tier } from "@/lib/types";
+import { isTauri } from "@/lib/actions/db-desktop";
 
 export function TiersContent({ initialTiers }: { initialTiers: Tier[] }) {
     // State
     const [tiers, setTiers] = useState<Tier[]>(initialTiers);
-    const [selectedTier, setSelectedTier] = useState<Tier | null>(initialTiers[0]);
+    const [selectedTier, setSelectedTier] = useState<Tier | null>(null);
     const [typeFilter, setTypeFilter] = useState<"TOUS" | "Fournisseur" | "Client">("TOUS");
     const [searchQuery, setSearchQuery] = useState("");
+
+    // --- RUNTIME LOAD (TAURI) ---
+    useEffect(() => {
+        const loadTiers = async () => {
+            if (isTauri()) {
+                console.log("TiersContent: Loading live data from SQLite...");
+                const liveTiers = await getTiers();
+                setTiers(liveTiers || []);
+                if (liveTiers && liveTiers.length > 0) {
+                    setSelectedTier(liveTiers[0]);
+                } else {
+                    setSelectedTier(null);
+                }
+            } else {
+                setSelectedTier(initialTiers[0]);
+            }
+        };
+        loadTiers();
+    }, [initialTiers]);
 
     // Filter Logic
     const filteredTiers = tiers.filter(tier => {
@@ -221,6 +241,15 @@ export function TiersContent({ initialTiers }: { initialTiers: Tier[] }) {
                                 setSelectedTier(updatedTier);
                             }
                             await saveTier(updatedTier);
+                        }}
+                        onDelete={async (id) => {
+                            const res = await deleteTier(id);
+                            if (res.success) {
+                                setTiers(prev => prev.filter(t => t.id !== id));
+                                setSelectedTier(tiers[0] || null);
+                            } else {
+                                alert("Erreur lors de la suppression : " + res.error);
+                            }
                         }}
                         onGetTypeCode={getNextTierCode}
                     />

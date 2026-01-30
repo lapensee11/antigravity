@@ -365,7 +365,16 @@ export function PayeContent({ initialStaff }: { initialStaff: StaffMember[] }) {
     };
 
     // Helper to get current month data
-    const getMonthData = (emp: StaffMember, mStr = currentMonthStr, y = currentYear) => {
+    const getMonthData = (emp: StaffMember | undefined, mStr = currentMonthStr, y = currentYear) => {
+        if (!emp) return {
+            jours: 26,
+            hSup: 0,
+            pRegul: 0,
+            pOccas: 0,
+            virement: 0,
+            avances: 0,
+            monthlyDeduction: 0,
+        };
         const key = `${mStr}-${y}`;
         return emp.monthlyData?.[key] || {
             jours: 26,

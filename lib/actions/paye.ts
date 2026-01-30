@@ -58,10 +58,18 @@ export async function saveStaffMember(member: StaffMember) {
 
             await tauriDb.execute(`
                 INSERT INTO staff_members (id, initials, name, first_name, last_name, role, gender, birth_date, matricule, situation_familiale, children_count, credit, personal_info, contract, credit_info, history, monthly_data)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
+                    initials = excluded.initials,
                     name = excluded.name, 
+                    first_name = excluded.first_name,
+                    last_name = excluded.last_name,
                     role = excluded.role, 
+                    gender = excluded.gender,
+                    birth_date = excluded.birth_date,
+                    matricule = excluded.matricule,
+                    situation_familiale = excluded.situation_familiale,
+                    children_count = excluded.children_count,
                     credit = excluded.credit,
                     personal_info = excluded.personal_info, 
                     contract = excluded.contract,
@@ -113,9 +121,14 @@ export async function saveStaffMember(member: StaffMember) {
 
 export async function deleteStaffMember(id: number) {
     if (isTauri()) {
-        const tauriDb = await getDesktopDB();
-        await tauriDb.execute("DELETE FROM staff_members WHERE id = $1", [id]);
-        return { success: true };
+        try {
+            const tauriDb = await getDesktopDB();
+            await tauriDb.execute("DELETE FROM staff_members WHERE id = ?", [id]);
+            return { success: true };
+        } catch (error) {
+            console.error("Tauri Delete Staff Error:", error);
+            return { success: false, error: String(error) };
+        }
     }
 
     try {

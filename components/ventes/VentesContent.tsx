@@ -8,7 +8,8 @@ import { useState, useEffect, Suspense, useRef, useMemo, useCallback } from "rea
 import { useSearchParams } from "next/navigation";
 import { Calendar, TrendingUp, ShieldCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { saveDayData } from "@/lib/actions/ventes";
+import { saveDayData, getSalesData } from "@/lib/actions/ventes";
+import { isTauri } from "@/lib/actions/db-desktop";
 
 // Define the shape of saved data for a day
 interface DayData {
@@ -206,6 +207,20 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
     // Keyboard Navigation State
     const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
     const tableRef = useRef<HTMLTableElement>(null);
+
+    // RUNTIME LOAD (TAURI)
+    useEffect(() => {
+        const loadSales = async () => {
+            if (isTauri()) {
+                console.log("VentesContent: Loading live data from SQLite...");
+                const liveData = await getSalesData();
+                if (Object.keys(liveData).length > 0) {
+                    setSalesData(liveData as any);
+                }
+            }
+        };
+        loadSales();
+    }, []);
 
     const handleToday = () => {
         const today = new Date();

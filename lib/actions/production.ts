@@ -61,7 +61,7 @@ export async function saveRecipe(recipeData: Recipe) {
 
             await tauriDb.execute(`
                 INSERT INTO recipes (id, name, family_id, sub_family_id, yield, yield_unit, nutrition, costing, image, reference)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET 
                     name=excluded.name, 
                     family_id=excluded.family_id,
@@ -85,21 +85,21 @@ export async function saveRecipe(recipeData: Recipe) {
                 recipeData.reference || null
             ]);
 
-            await tauriDb.execute("DELETE FROM ingredients WHERE recipe_id = $1", [recipeData.id]);
+            await tauriDb.execute("DELETE FROM ingredients WHERE recipe_id = ?", [recipeData.id]);
             for (const ing of ings) {
                 await tauriDb.execute(`
                     INSERT INTO ingredients (id, recipe_id, article_id, name, quantity, unit, cost)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                `, [ing.id || `${recipeData.id}-ing-${Date.now()}`, recipeData.id, ing.articleId, ing.name, ing.quantity, ing.unit, ing.cost]);
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                `, [ing.id || `${recipeData.id}-ing-${Date.now()}-${Math.random()}`, recipeData.id, ing.articleId, ing.name, ing.quantity, ing.unit, ing.cost]);
             }
 
-            await tauriDb.execute("DELETE FROM production_steps WHERE recipe_id = $1", [recipeData.id]);
+            await tauriDb.execute("DELETE FROM production_steps WHERE recipe_id = ?", [recipeData.id]);
             for (let i = 0; i < steps.length; i++) {
                 const step = steps[i];
                 await tauriDb.execute(`
                     INSERT INTO production_steps (id, recipe_id, \"order\", description, duration)
-                    VALUES ($1, $2, $3, $4, $5)
-                `, [`${recipeData.id}-step-${i}`, recipeData.id, step.order || i + 1, step.description, step.duration || null]);
+                    VALUES (?, ?, ?, ?, ?)
+                `, [`${recipeData.id}-step-${i}-${Date.now()}`, recipeData.id, step.order || i + 1, step.description, step.duration || null]);
             }
             return { success: true };
         } catch (error) {
@@ -154,11 +154,16 @@ export async function saveRecipe(recipeData: Recipe) {
 
 export async function deleteRecipe(id: string) {
     if (isTauri()) {
-        const tauriDb = await getDesktopDB();
-        await tauriDb.execute("DELETE FROM ingredients WHERE recipe_id = $1", [id]);
-        await tauriDb.execute("DELETE FROM production_steps WHERE recipe_id = $1", [id]);
-        await tauriDb.execute("DELETE FROM recipes WHERE id = $1", [id]);
-        return { success: true };
+        try {
+            const tauriDb = await getDesktopDB();
+            await tauriDb.execute("DELETE FROM ingredients WHERE recipe_id = ?", [id]);
+            await tauriDb.execute("DELETE FROM production_steps WHERE recipe_id = ?", [id]);
+            await tauriDb.execute("DELETE FROM recipes WHERE id = ?", [id]);
+            return { success: true };
+        } catch (error) {
+            console.error("Tauri Delete Recipe Error:", error);
+            return { success: false, error: String(error) };
+        }
     }
 
     try {

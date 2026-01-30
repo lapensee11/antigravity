@@ -9,11 +9,15 @@ import { useSearchParams } from "next/navigation";
 import { Search, Plus, X, FileText, File, Calendar, RefreshCw, Copy, Files, Trash2, Check, CloudUpload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+    getInvoices,
     saveInvoice,
     deleteInvoice,
     syncInvoiceTransactions,
     updateArticlePivotPrices
 } from "@/lib/actions/finance";
+import { getArticles } from "@/lib/actions/articles";
+import { getTiers } from "@/lib/actions/tiers";
+import { isTauri } from "@/lib/actions/db-desktop";
 
 export function AchatsContent({
     initialInvoices,
@@ -26,18 +30,72 @@ export function AchatsContent({
 }) {
     const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
     const [articles, setArticles] = useState<Article[]>(initialArticles);
-    const [tiers] = useState<Tier[]>(initialTiers);
+    const [tiers, setTiers] = useState<Tier[]>(initialTiers);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
-    // Filter suppliers from tiers
-    const suppliers = useMemo(() => tiers.filter(t => t.type === "Fournisseur"), [tiers]);
+    // Filter suppliers from tiers (Extremely Robust filtering)
+    const suppliers = useMemo(() => {
+        const filtered = tiers.filter(t => {
+            const typeLower = (t.type || "").trim().toLowerCase();
+            return typeLower === "fournisseur" || typeLower === "fournisseurs" || typeLower === "frs";
+        });
+
+        console.log(`AchatsContent: Found ${filtered.length} suppliers in ${tiers.length} total tiers.`);
+        if (tiers.length > 0 && filtered.length === 0) {
+            console.warn("AchatsContent: NO SUPPLIERS FOUND. Checking first tier types:", tiers.slice(0, 3).map(t => `"${t.type}"`));
+        }
+        return filtered;
+    }, [tiers]);
     const sidebarListRef = useRef<HTMLDivElement>(null);
 
     // URL Params
     const searchParams = useSearchParams();
 
-    // Initial Load Sync (Cleanup any "Synced" status that might have come from migration/old data)
+    // Runtime Data Load (Crucial for static export in Tauri)
     useEffect(() => {
+        const loadData = async () => {
+            const tauriStatus = isTauri();
+            console.log("AchatsContent: Loading data from DB...", tauriStatus ? "TAURI" : "WEB");
+
+            // Helpful debug alert for the user (only in dev/tauri)
+            if (tauriStatus) {
+                console.log("AchatsContent: Running in TAURI mode. Proceeding with SQLite.");
+            } else {
+                console.warn("AchatsContent: Running in WEB mode. SQLite will NOT work. Falls back to LocalStorage.");
+            }
+
+            try {
+                const [invs, arts, ts] = await Promise.all([
+                    getInvoices(),
+                    getArticles(),
+                    getTiers()
+                ]);
+                console.log(`AchatsContent: DB Load - Invoices: ${invs.length}, Articles: ${arts.length}, Tiers: ${ts.length}`);
+
+                if (ts.length > 0) {
+                    setTiers(ts);
+                } else if (!tauriStatus && initialTiers.length > 0) {
+                    setTiers(initialTiers);
+                } else {
+                    setTiers([]);
+                }
+
+                // Prioritize live DB data. Fallback to initial only if DB is empty AND not in Tauri
+                setInvoices(invs.length > 0 ? invs : (tauriStatus ? [] : initialInvoices));
+                setArticles(arts.length > 0 ? arts : (tauriStatus ? [] : initialArticles));
+
+                if (tauriStatus && invs.length === 0 && ts.length === 0) {
+                    console.info("AchatsContent: Database seems empty. Migration might be needed.");
+                }
+            } catch (error) {
+                console.error("AchatsContent: Critical Load Error:", error);
+                alert("Erreur de chargement des données : " + String(error));
+            }
+        };
+
+        loadData();
+
+        // Initial Load Sync (Cleanup any "Synced" status)
         const hasSynced = invoices.some(inv => (inv as any).status === "Synced");
         if (hasSynced) {
             const updated = invoices.map(inv => (inv as any).status === "Synced" ? { ...inv, status: "Validated" } as Invoice : inv);
@@ -245,11 +303,28 @@ export function AchatsContent({
 
     const handleDelete = async (id: string) => {
         if (!confirm("Êtes-vous sûr de vouloir supprimer cette facture ?")) return;
+
+        console.log("Deleting invoice:", id);
+        const originalInvoices = [...invoices];
         const newInvoices = invoices.filter(i => i.id !== id);
         setInvoices(newInvoices);
-        await deleteInvoice(id);
-        syncArticlePrices(newInvoices, articles);
-        if (selectedInvoice?.id === id) setSelectedInvoice(null);
+
+        try {
+            const result = await deleteInvoice(id);
+            if (!result.success) {
+                console.error("Delete Invoice Failed:", result.error);
+                alert("Erreur lors de la suppression : " + (result.error || "Inconnu"));
+                setInvoices(originalInvoices); // Rollback
+                return;
+            }
+            console.log("Invoice deleted successfully");
+            syncArticlePrices(newInvoices, articles);
+            if (selectedInvoice?.id === id) setSelectedInvoice(null);
+        } catch (error) {
+            console.error("HandleDelete Error:", error);
+            alert("Erreur critique lors de la suppression");
+            setInvoices(originalInvoices); // Rollback
+        }
     };
 
     const handleUpdate = async (updatedInvoice: Invoice) => {
@@ -355,6 +430,21 @@ export function AchatsContent({
     return (
         <div className="flex h-screen bg-[#F6F8FC] overflow-hidden">
             <Sidebar />
+
+            {/* DIAGNOSTIC OVERLAY (Temporary for debugging) */}
+            <div className="fixed top-0 right-0 m-4 z-[9999] pointer-events-none">
+                <div className="bg-slate-900/90 text-[10px] font-mono p-3 rounded-lg border border-white/20 shadow-2xl backdrop-blur-md flex flex-col gap-1 text-white opacity-80">
+                    <div className="flex justify-between gap-4"><span>Total Tiers:</span> <span className="text-blue-400 font-bold">{tiers.length}</span></div>
+                    <div className="flex justify-between gap-4"><span>Suppliers Filtered:</span> <span className="text-green-400 font-bold">{suppliers.length}</span></div>
+                    <div className="flex justify-between gap-4"><span>Env Detection:</span> <span className="text-orange-400 font-bold">{isTauri() ? "TAURI" : "WEB"}</span></div>
+                    {tiers.length > 0 && suppliers.length === 0 && (
+                        <div className="mt-1 border-t border-white/10 pt-1 text-red-300 animate-pulse">
+                            ERR: No match for type 'Fournisseur'
+                            Types found: {Array.from(new Set(tiers.map(t => t.type))).join(', ')}
+                        </div>
+                    )}
+                </div>
+            </div>
 
             <main className="flex-1 ml-64 min-h-screen flex">
                 <div className="w-[340px] flex flex-col h-full border-r border-slate-200 bg-[#F6F8FC]">
@@ -657,7 +747,7 @@ export function AchatsContent({
                             <InvoiceEditor
                                 invoice={selectedInvoice}
                                 onSave={() => { }}
-                                onDelete={() => { }}
+                                onDelete={handleDelete}
                                 onSync={handleSync}
                                 onUpdate={handleUpdate}
                                 onCreateNew={handleCreateNew}
