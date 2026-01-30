@@ -1,18 +1,22 @@
 import type { Metadata } from "next";
-import { Outfit } from "next/font/google";
+import { Inter, Outfit } from "next/font/google";
 import "./globals.css";
+import { MigrationManager } from "@/components/structure/MigrationManager";
+
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+});
 
 const outfit = Outfit({
-  subsets: ["latin"],
   variable: "--font-outfit",
+  subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "Bakery SAAS",
-  description: "Modern Bakery Management System",
+  title: "BAKO - Bakery Management",
+  description: "Système de gestion intégré pour boulangerie",
 };
-
-import { DataRestorer } from "@/components/utils/DataRestorer";
 
 export default function RootLayout({
   children,
@@ -20,11 +24,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="fr">
       <body
-        className={`${outfit.className} antialiased min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 text-slate-900`}
+        className={`${inter.variable} ${outfit.variable} antialiased`}
       >
-        <DataRestorer />
+        <MigrationManager />
         {children}
       </body>
     </html>

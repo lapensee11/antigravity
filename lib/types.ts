@@ -11,7 +11,7 @@ export interface Family {
     name: string;
     code: string;
     typeId: string;
-    icon?: string;
+    icon?: string | null;
 }
 
 export interface SubFamily {
@@ -19,8 +19,8 @@ export interface SubFamily {
     name: string;
     code: string;
     familyId: string;
-    fiscalNature?: string;
-    icon?: string;
+    fiscalNature?: string | null;
+    icon?: string | null;
 }
 
 export interface Article {
@@ -217,4 +217,59 @@ export interface Transaction {
 
     isReconciled?: boolean; // For Bank
     reconciledDate?: string;
+}
+
+// Staff / Payroll
+export interface StaffMember {
+    id: number;
+    initials: string;
+    name: string;
+    firstName: string;
+    lastName: string;
+    role: string;
+    gender: string;
+    birthDate: string;
+    matricule: string;
+    situationFamiliale: string;
+    childrenCount: number;
+    credit: number;
+    personalInfo: {
+        cin: string;
+        cnss: string;
+        phone: string;
+        phone2?: string;
+        city: string;
+        address: string;
+    };
+    contract: {
+        post: string;
+        hireDate: string;
+        exitDate: string;
+        seniority: string;
+        leaveBalance: string;
+        baseSalary: number;
+        fixedBonus: number;
+    };
+    creditInfo: {
+        loanAmount: number;
+        payments: number;
+        remaining: number;
+        monthlyPayment?: number;
+    };
+    history: {
+        year: string;
+        type: string;
+        amount: number;
+        bonus: number;
+        date: string;
+    }[];
+    monthlyData: Record<string, {
+        jours: number;
+        hSup: number;
+        pRegul: number;
+        pOccas: number;
+        virement: number;
+        avances: number;
+        monthlyDeduction: number;
+    }>;
 }

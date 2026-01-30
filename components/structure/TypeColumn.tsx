@@ -23,6 +23,8 @@ interface TypeColumnProps {
     onAddSubFamily: (familyId: string) => void;
     onEditFamily: (family: Family) => void;
     onEditSubFamily: (subFamily: SubFamily) => void;
+    onDeleteFamily: (id: string) => void;
+    onDeleteSubFamily: (id: string) => void;
     customTitle?: string;
     icon?: React.ReactNode;
 }
@@ -38,6 +40,8 @@ export function TypeColumn({
     onAddSubFamily,
     onEditFamily,
     onEditSubFamily,
+    onDeleteFamily,
+    onDeleteSubFamily,
     customTitle,
     icon
 }: TypeColumnProps) {
@@ -136,7 +140,10 @@ export function TypeColumn({
                                         </button>
                                         <button
                                             className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                                            onClick={(e) => e.stopPropagation()}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onDeleteFamily(family.id);
+                                            }}
                                         >
                                             <Trash2 className="w-3.5 h-3.5" />
                                         </button>
@@ -165,12 +172,20 @@ export function TypeColumn({
                                                 <span className="font-bold text-slate-600 text-xs truncate">{sub.name}</span>
                                             </div>
 
-                                            <button
-                                                onClick={() => onEditSubFamily(sub)}
-                                                className="opacity-0 group-hover/sub:opacity-100 p-1 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 rounded transition-all"
-                                            >
-                                                <PenLine className="w-3 h-3" />
-                                            </button>
+                                            <div className="flex items-center gap-0.5 opacity-0 group-hover/sub:opacity-100 transition-all">
+                                                <button
+                                                    onClick={() => onEditSubFamily(sub)}
+                                                    className="p-1 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 rounded"
+                                                >
+                                                    <PenLine className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                    onClick={() => onDeleteSubFamily(sub.id)}
+                                                    className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                </button>
+                                            </div>
                                         </div>
                                     ))}
 
