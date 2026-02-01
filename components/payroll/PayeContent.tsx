@@ -5,7 +5,7 @@ import {
     Search, Plus, User, FileText, DollarSign, Calendar,
     ChevronRight, Mail, Phone, MapPin, Briefcase,
     CreditCard, Building2, UserCircle, Trash2, Save,
-    Calculator, Users, Edit3, Table, ChevronLeft, Minus, ArrowRight, Check
+    Calculator, Users, Edit3, Table, ChevronLeft, Minus, ArrowRight, Check, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -41,6 +41,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
     // Pour Base Personnel
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
+    const [isEditing, setIsEditing] = useState(false);
     const [activeDetailTab, setActiveDetailTab] = useState<"profile" | "contract" | "salary">("profile");
 
     // Runtime Load
@@ -487,10 +488,10 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
                     {/* BASE PERSONNEL VIEW (3-Column Card Layout) */}
                     {viewMode === "BASE" && (
-                        <div className="h-full flex flex-col bg-[#F6F8FC] p-6 overflow-hidden font-outfit">
-                            <div className="flex-1 flex flex-row gap-8 overflow-hidden">
+                        <div className="h-full flex flex-col bg-[#F6F8FC] overflow-hidden font-outfit">
+                            <div className="flex-1 flex flex-row overflow-hidden">
                                 {/* Sidebar Column Card */}
-                                <div className="w-[360px] bg-white border-r border-slate-100 flex flex-col shrink-0 overflow-hidden">
+                                <div className="w-[360px] bg-[#F6F8FC] border-r border-slate-200 flex flex-col shrink-0 overflow-hidden">
                                     <div className="p-8 pb-6">
                                         <h2 className="text-3xl font-black text-slate-800 tracking-tight">Personnel</h2>
                                         <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1 mb-8">Base de données RH</p>
@@ -518,17 +519,25 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                     value={searchQuery}
                                                     onChange={(e) => setSearchQuery(e.target.value)}
                                                     placeholder="Rechercher..."
-                                                    className="w-full bg-slate-50 border border-slate-100 rounded-2xl pl-12 pr-4 py-3.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all placeholder:text-slate-300"
+                                                    className="w-full bg-white border-none rounded-2xl pl-12 pr-10 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-100 shadow-sm shadow-slate-200/50 transition-all placeholder:text-slate-300"
                                                 />
+                                                {searchQuery && (
+                                                    <button
+                                                        onClick={() => setSearchQuery("")}
+                                                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-50 rounded-lg transition-all text-slate-300 hover:text-slate-400"
+                                                    >
+                                                        <X className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
                                             </div>
-                                            <button className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-100 hover:scale-105 active:scale-95 transition-all">
-                                                <Plus className="w-6 h-6 stroke-[3px]" />
+                                            <button className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-100/50 hover:scale-105 active:scale-95 transition-all shrink-0">
+                                                <Plus className="w-5 h-5 stroke-[3px]" />
                                             </button>
                                         </div>
                                     </div>
 
                                     {/* Employee List Items */}
-                                    <div ref={sidebarListRef} className="flex-1 overflow-y-auto custom-scrollbar px-6 space-y-3 pb-10">
+                                    <div ref={sidebarListRef} className="flex-1 overflow-y-auto custom-scrollbar space-y-0 pb-10">
                                         {filteredEmployees.map(emp => {
                                             const isSelected = selectedEmployeeId === emp.id;
                                             return (
@@ -536,10 +545,10 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                     key={emp.id}
                                                     onClick={() => setSelectedEmployeeId(emp.id)}
                                                     className={cn(
-                                                        "w-full flex items-center gap-4 px-4 py-4 rounded-3xl transition-all text-left relative group border transition-all duration-300",
+                                                        "w-full flex items-center gap-4 px-8 py-4 rounded-none transition-all text-left relative group border-b border-transparent transition-all duration-300",
                                                         isSelected
-                                                            ? "bg-blue-50 border-blue-100 border-l-[6px] border-l-blue-600 shadow-sm"
-                                                            : "bg-white border-transparent hover:bg-slate-50 hover:border-slate-100"
+                                                            ? "bg-blue-50/50 border-l-[6px] border-l-blue-600 shadow-sm"
+                                                            : "bg-transparent border-l-[6px] border-l-transparent hover:bg-slate-100/50 hover:border-b-slate-100"
                                                     )}
                                                 >
                                                     <div className={cn(
@@ -555,7 +564,24 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         <div className="flex flex-col">
                                                             <div className="flex items-center justify-between">
                                                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">M00{emp.id}</span>
-                                                                {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />}
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setSelectedEmployeeId(emp.id);
+                                                                        setIsEditing(true);
+                                                                    }}
+                                                                    className={cn(
+                                                                        "p-1.5 rounded-lg transition-all shadow-sm border",
+                                                                        isSelected && isEditing
+                                                                            ? cn(
+                                                                                "opacity-100 bg-white shadow-md scale-110",
+                                                                                emp.gender === "F" ? "text-red-600 border-red-100" : "text-blue-600 border-blue-100"
+                                                                            )
+                                                                            : "opacity-0 group-hover:opacity-100 text-slate-300 hover:text-slate-400 border-transparent hover:bg-white hover:border-slate-100"
+                                                                    )}
+                                                                >
+                                                                    <Edit3 className="w-3.5 h-3.5" />
+                                                                </button>
                                                             </div>
                                                             <span className={cn(
                                                                 "text-[15px] font-black truncate leading-tight",
@@ -579,60 +605,158 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                             {/* Column Left: Infos & Finance */}
                                             <div className="flex-[1.8] flex flex-col gap-8 pb-20">
                                                 {/* Profile Header Card */}
-                                                <div className="bg-white rounded-[2rem] p-8 border border-slate-100 shadow-sm flex items-center gap-8">
+                                                <div className="flex items-center gap-8 px-4">
                                                     <div className="w-24 h-24 rounded-3xl bg-blue-50 flex items-center justify-center text-blue-600 border border-blue-100 shrink-0">
                                                         <User className="w-10 h-10 stroke-[2.5px]" />
                                                     </div>
                                                     <div className="flex-1">
-                                                        <div className="flex items-center gap-4 mb-3">
+                                                        <div className="mb-2">
                                                             <h2 className="text-4xl font-black text-slate-800 tracking-tighter uppercase whitespace-nowrap">
                                                                 {selectedEmployee.lastName} <span className="text-slate-400 font-bold capitalize">{selectedEmployee.firstName}</span>
                                                             </h2>
-                                                            <div className="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-1.5 rounded-full shadow-lg shadow-blue-100">
-                                                                <span className="text-[12px] font-black tracking-widest uppercase">M00{selectedEmployee.id}</span>
-                                                            </div>
                                                         </div>
-                                                        <div className="flex items-center gap-3 text-slate-400 text-[11px] font-black uppercase tracking-[0.2em]">
-                                                            <span className="text-blue-600/60 font-black">RH</span>
-                                                            <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
-                                                            <span className="bg-slate-50 px-3 py-1 rounded-lg border border-slate-100 font-black">{selectedEmployee.role}</span>
+
+                                                        <div className="flex items-center gap-8 mb-4">
+                                                            <div className={cn(
+                                                                "flex items-center justify-center w-6 h-6 rounded-md text-[11px] font-black shadow-sm",
+                                                                selectedEmployee.gender === "F" ? "bg-red-600 text-white shadow-red-100" : "bg-blue-600 text-white shadow-blue-100"
+                                                            )}>
+                                                                {selectedEmployee.gender === "F" ? "F" : "H"}
+                                                            </div>
+
+                                                            <span className="text-[12px] font-black tracking-widest text-slate-400 uppercase">M00{selectedEmployee.id}</span>
+
+                                                            <div className="text-slate-400 text-[11px] font-black uppercase tracking-[0.2em]">
+                                                                {selectedEmployee.role}
+                                                            </div>
+
+                                                            {isEditing && (
+                                                                <div className="flex items-center gap-4 ml-4 border-l border-slate-200 pl-4 animate-in fade-in slide-in-from-left-2 duration-300">
+                                                                    <label className="flex items-center gap-2 cursor-pointer group/radio">
+                                                                        <input
+                                                                            type="radio"
+                                                                            name="gender"
+                                                                            value="M"
+                                                                            checked={selectedEmployee.gender === "M"}
+                                                                            onChange={() => handleEmployeeChange(selectedEmployee.id, 'gender', 'M')}
+                                                                            className="w-3.5 h-3.5 text-blue-600 focus:ring-blue-500 border-slate-300 transition-all cursor-pointer"
+                                                                        />
+                                                                        <span className="text-[10px] font-black text-slate-400 group-hover/radio:text-blue-600 uppercase transition-colors">Homme</span>
+                                                                    </label>
+                                                                    <label className="flex items-center gap-2 cursor-pointer group/radio">
+                                                                        <input
+                                                                            type="radio"
+                                                                            name="gender"
+                                                                            value="F"
+                                                                            checked={selectedEmployee.gender === "F"}
+                                                                            onChange={() => handleEmployeeChange(selectedEmployee.id, 'gender', 'F')}
+                                                                            className="w-3.5 h-3.5 text-red-600 focus:ring-red-500 border-slate-300 transition-all cursor-pointer"
+                                                                        />
+                                                                        <span className="text-[10px] font-black text-slate-400 group-hover/radio:text-red-600 uppercase transition-colors">Femme</span>
+                                                                    </label>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
+                                                    {isEditing && (
+                                                        <div className="flex items-center gap-3 ml-auto animate-in fade-in slide-in-from-right-4 duration-300">
+                                                            <button
+                                                                onClick={() => setIsEditing(false)}
+                                                                className="px-6 py-2.5 rounded-xl text-slate-400 font-black text-[11px] uppercase tracking-widest hover:bg-slate-50 transition-all border border-slate-100"
+                                                            >
+                                                                Annuler
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    handleSaveEmployee();
+                                                                    setIsEditing(false);
+                                                                }}
+                                                                className="px-8 py-2.5 rounded-xl bg-blue-600 text-white font-black text-[11px] uppercase tracking-widest shadow-lg shadow-blue-100 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                                                            >
+                                                                <Save className="w-3.5 h-3.5" />
+                                                                Enregistrer
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </div>
 
                                                 {/* 1- INFORMATIONS PERSONNELLES */}
-                                                <div className="bg-white rounded-[2rem] p-10 border border-slate-100 shadow-sm">
-                                                    <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] mb-10 flex items-center gap-4">
-                                                        <span className="w-8 h-8 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center text-[10px] border border-slate-100">1</span>
+                                                <div className="flex items-center gap-3 mb-2 px-1">
+                                                    <div className={cn("w-1 h-5 rounded-full", selectedEmployee.gender === "F" ? "bg-red-600" : "bg-blue-600")} />
+                                                    <h3 className="text-[13px] font-black text-slate-800 uppercase tracking-[0.3em]">
                                                         Informations Personnelles
                                                     </h3>
-
+                                                </div>
+                                                <div className="bg-white rounded-[2rem] p-10 border border-slate-100 shadow-sm">
                                                     <div className="grid grid-cols-3 gap-y-10 gap-x-12">
                                                         <div>
                                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Naissance</label>
                                                             <div className="flex items-center gap-3">
-                                                                <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.birthDate || "12/05/1985"}</span>
-                                                                <span className="bg-blue-50 text-[10px] font-black text-blue-600 px-2 py-0.5 rounded-lg border border-blue-100">40 ans</span>
+                                                                {isEditing ? (
+                                                                    <input
+                                                                        value={selectedEmployee.birthDate || ""}
+                                                                        onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'birthDate', e.target.value)}
+                                                                        className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                    />
+                                                                ) : (
+                                                                    <>
+                                                                        <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.birthDate || "12/05/1985"}</span>
+                                                                        <span className="bg-blue-50 text-[10px] font-black text-blue-600 px-2 py-0.5 rounded-lg border border-blue-100">40 ans</span>
+                                                                    </>
+                                                                )}
                                                             </div>
                                                         </div>
                                                         <div>
                                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">N° CIN</label>
-                                                            <span className="text-base font-black text-slate-800 tracking-tight uppercase">{selectedEmployee.personalInfo.cin || "BH123456"}</span>
+                                                            {isEditing ? (
+                                                                <input
+                                                                    value={selectedEmployee.personalInfo.cin || ""}
+                                                                    onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'personalInfo.cin', e.target.value)}
+                                                                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all uppercase"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-base font-black text-slate-800 tracking-tight uppercase">{selectedEmployee.personalInfo.cin || "BH123456"}</span>
+                                                            )}
                                                         </div>
                                                         <div>
                                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">N° CNSS</label>
-                                                            <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.personalInfo.cnss || "123456789"}</span>
+                                                            {isEditing ? (
+                                                                <input
+                                                                    value={selectedEmployee.personalInfo.cnss || ""}
+                                                                    onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'personalInfo.cnss', e.target.value)}
+                                                                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.personalInfo.cnss || "123456789"}</span>
+                                                            )}
                                                         </div>
 
                                                         <div className="col-span-3 h-px bg-slate-50 my-2" />
 
                                                         <div>
                                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Situation Familiale</label>
-                                                            <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.situationFamiliale || "Marié(e)"}</span>
+                                                            {isEditing ? (
+                                                                <input
+                                                                    value={selectedEmployee.situationFamiliale || ""}
+                                                                    onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'situationFamiliale', e.target.value)}
+                                                                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.situationFamiliale || "Marié(e)"}</span>
+                                                            )}
                                                         </div>
                                                         <div>
                                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Enfants</label>
-                                                            <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.childrenCount || 2}</span>
+                                                            {isEditing ? (
+                                                                <input
+                                                                    type="number"
+                                                                    value={selectedEmployee.childrenCount || 0}
+                                                                    onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'childrenCount', parseInt(e.target.value))}
+                                                                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.childrenCount || 2}</span>
+                                                            )}
                                                         </div>
 
                                                         <div className="col-span-3 h-px bg-slate-50 my-2" />
@@ -642,43 +766,106 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                 <Phone className="w-3 h-3 text-blue-600" /> Téléphones
                                                             </label>
                                                             <div className="flex flex-col gap-1">
-                                                                <span className="text-[13px] font-black text-slate-800">{selectedEmployee.personalInfo.phone || "06 12 34 56 78"}</span>
-                                                                <span className="text-[13px] font-black text-slate-400">{selectedEmployee.personalInfo.phone2 || "05 12 34 56 78"}</span>
+                                                                {isEditing ? (
+                                                                    <>
+                                                                        <input
+                                                                            value={selectedEmployee.personalInfo.phone || ""}
+                                                                            onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'personalInfo.phone', e.target.value)}
+                                                                            className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1 text-[13px] font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                            placeholder="Pro..."
+                                                                        />
+                                                                        <input
+                                                                            value={selectedEmployee.personalInfo.phone2 || ""}
+                                                                            onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'personalInfo.phone2', e.target.value)}
+                                                                            className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1 text-[13px] font-black text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                            placeholder="Perso..."
+                                                                        />
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <span className="text-[13px] font-black text-slate-800">{selectedEmployee.personalInfo.phone || "06 12 34 56 78"}</span>
+                                                                        <span className="text-[13px] font-black text-slate-400">{selectedEmployee.personalInfo.phone2 || "05 12 34 56 78"}</span>
+                                                                    </>
+                                                                )}
                                                             </div>
                                                         </div>
                                                         <div className="col-span-2 flex flex-col">
                                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                                                                 <MapPin className="w-3 h-3 text-blue-600" /> Adresse
                                                             </label>
-                                                            <span className="text-[13px] font-black text-slate-800 leading-relaxed">
-                                                                {selectedEmployee.personalInfo.address || "Quartier Maârif, Rue 123, Immeuble 45"}
-                                                            </span>
-                                                            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                                                                {selectedEmployee.personalInfo.city || "Casablanca"}
-                                                            </span>
+                                                            {isEditing ? (
+                                                                <div className="space-y-2">
+                                                                    <input
+                                                                        value={selectedEmployee.personalInfo.address || ""}
+                                                                        onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'personalInfo.address', e.target.value)}
+                                                                        className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-[13px] font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                    />
+                                                                    <input
+                                                                        value={selectedEmployee.personalInfo.city || ""}
+                                                                        onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'personalInfo.city', e.target.value)}
+                                                                        className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                        placeholder="Ville"
+                                                                    />
+                                                                </div>
+                                                            ) : (
+                                                                <>
+                                                                    <span className="text-[13px] font-black text-slate-800 leading-relaxed">
+                                                                        {selectedEmployee.personalInfo.address || "Quartier Maârif, Rue 123, Immeuble 45"}
+                                                                    </span>
+                                                                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                                                                        {selectedEmployee.personalInfo.city || "Casablanca"}
+                                                                    </span>
+                                                                </>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
 
                                                 {/* 2- POSTE & SITUATION FINANCIÈRE */}
-                                                <div className="bg-white rounded-[2rem] p-10 border border-slate-100 shadow-sm">
-                                                    <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] mb-10 flex items-center gap-4">
-                                                        <span className="w-8 h-8 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center text-[10px] border border-slate-100">2</span>
+                                                <div className="flex items-center gap-3 mb-2 px-1">
+                                                    <div className={cn("w-1 h-5 rounded-full", selectedEmployee.gender === "F" ? "bg-red-600" : "bg-blue-600")} />
+                                                    <h3 className="text-[13px] font-black text-slate-800 uppercase tracking-[0.3em]">
                                                         Poste & FINANCE
                                                     </h3>
-
+                                                </div>
+                                                <div className="bg-white rounded-[2rem] p-10 border border-slate-100 shadow-sm">
                                                     <div className="grid grid-cols-3 gap-8 mb-12">
                                                         <div>
                                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Date Embauche</label>
-                                                            <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.contract?.hireDate}</span>
+                                                            {isEditing ? (
+                                                                <input
+                                                                    value={selectedEmployee.contract?.hireDate || ""}
+                                                                    onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'contract.hireDate', e.target.value)}
+                                                                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.contract?.hireDate}</span>
+                                                            )}
                                                         </div>
                                                         <div>
                                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Date de Sortie</label>
-                                                            <span className="text-base font-black text-slate-400 tracking-tight">—</span>
+                                                            {isEditing ? (
+                                                                <input
+                                                                    value={selectedEmployee.contract?.exitDate || ""}
+                                                                    onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'contract.exitDate', e.target.value)}
+                                                                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                    placeholder="—"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-base font-black text-slate-400 tracking-tight">—</span>
+                                                            )}
                                                         </div>
                                                         <div>
                                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Ancienneté</label>
-                                                            <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.contract?.seniority || "3 ans"}</span>
+                                                            {isEditing ? (
+                                                                <input
+                                                                    value={selectedEmployee.contract?.seniority || ""}
+                                                                    onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'contract.seniority', e.target.value)}
+                                                                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-base font-black text-slate-800 tracking-tight">{selectedEmployee.contract?.seniority || "3 ans"}</span>
+                                                            )}
                                                         </div>
                                                     </div>
 
@@ -721,83 +908,86 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                             </div>
 
                                             {/* Column Right: Historique (Full Height) */}
-                                            <div className="w-[420px] bg-white rounded-[2rem] p-10 border border-slate-100 shadow-sm flex flex-col h-full sticky top-0">
-                                                <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] mb-10 flex items-center gap-4 shrink-0">
-                                                    <span className="w-8 h-8 rounded-xl bg-slate-50 text-slate-400 flex items-center justify-center text-[10px] border border-slate-100">3</span>
-                                                    HISTORIQUE & ÉVOLUTION
-                                                </h3>
-
-                                                {/* Recharts Salary Chart */}
-                                                <div className="h-48 mb-12 shrink-0">
-                                                    <div className="flex items-center justify-between mb-4">
-                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Progression Salaire</span>
-                                                        <span className="text-[10px] font-black text-[#27AE60] bg-[#EBFAF2] px-2 py-0.5 rounded-md">+30%</span>
-                                                    </div>
-                                                    <ResponsiveContainer width="100%" height="80%">
-                                                        <LineChart data={selectedEmployee.history || []}>
-                                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                                                            <XAxis dataKey="date" hide />
-                                                            <YAxis hide domain={['auto', 'auto']} />
-                                                            <Line
-                                                                type="monotone"
-                                                                dataKey="amount"
-                                                                stroke="#2563EB"
-                                                                strokeWidth={4}
-                                                                dot={{ r: 4, fill: '#2563EB', strokeWidth: 0 }}
-                                                                activeDot={{ r: 6, strokeWidth: 0 }}
-                                                            />
-                                                        </LineChart>
-                                                    </ResponsiveContainer>
+                                            <div className="w-[420px] sticky top-0 flex flex-col">
+                                                <div className="flex items-center gap-3 mb-2 px-1 shrink-0">
+                                                    <div className={cn("w-1 h-5 rounded-full", selectedEmployee.gender === "F" ? "bg-red-600" : "bg-blue-600")} />
+                                                    <h3 className="text-[13px] font-black text-slate-800 uppercase tracking-[0.3em]">
+                                                        HISTORIQUE & ÉVOLUTION
+                                                    </h3>
                                                 </div>
+                                                <div className="bg-white rounded-[2rem] p-10 border border-slate-100 shadow-sm flex flex-col h-full">
+                                                    {/* Recharts Salary Chart */}
+                                                    <div className="h-48 mb-12 shrink-0">
+                                                        <div className="flex items-center justify-between mb-4">
+                                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Progression Salaire</span>
+                                                            <span className="text-[10px] font-black text-[#27AE60] bg-[#EBFAF2] px-2 py-0.5 rounded-md">+30%</span>
+                                                        </div>
+                                                        <ResponsiveContainer width="100%" height="80%">
+                                                            <LineChart data={selectedEmployee.history || []}>
+                                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                                                                <XAxis dataKey="date" hide />
+                                                                <YAxis hide domain={['auto', 'auto']} />
+                                                                <Line
+                                                                    type="monotone"
+                                                                    dataKey="amount"
+                                                                    stroke="#2563EB"
+                                                                    strokeWidth={4}
+                                                                    dot={{ r: 4, fill: '#2563EB', strokeWidth: 0 }}
+                                                                    activeDot={{ r: 6, strokeWidth: 0 }}
+                                                                />
+                                                            </LineChart>
+                                                        </ResponsiveContainer>
+                                                    </div>
 
-                                                {/* Timeline Content */}
-                                                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-                                                    <div className="space-y-4 relative pl-8">
-                                                        <div className="absolute left-[15px] top-2 bottom-2 w-0.5 bg-slate-50" />
+                                                    {/* Timeline Content */}
+                                                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                                                        <div className="space-y-4 relative pl-8">
+                                                            <div className="absolute left-[15px] top-2 bottom-2 w-0.5 bg-slate-50" />
 
-                                                        {[
-                                                            { date: selectedEmployee.contract?.hireDate, type: "EMBAUCHE", amount: 5000 },
-                                                            ...(selectedEmployee.history?.map(h => ({ date: h.date, type: h.type || "AUGMENTATION", amount: h.amount })) || []).reverse()
-                                                        ].map((event, idx) => {
-                                                            const isLatest = idx === 0;
-                                                            return (
-                                                                <div
-                                                                    key={idx}
-                                                                    className={cn(
-                                                                        "relative p-5 rounded-2xl group transition-all duration-300 border",
-                                                                        isLatest
-                                                                            ? "bg-blue-600 border-blue-500 shadow-xl shadow-blue-100 transform -translate-x-1"
-                                                                            : "bg-white border-transparent hover:border-slate-100"
-                                                                    )}
-                                                                >
-                                                                    <div className={cn(
-                                                                        "absolute -left-10 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-4 border-white flex items-center justify-center text-[8px] font-black shadow-sm z-10 transition-colors",
-                                                                        isLatest ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-blue-600 group-hover:text-white"
-                                                                    )}>
-                                                                        {idx + 1}
-                                                                    </div>
-
-                                                                    <div className="flex flex-col">
-                                                                        <div className="flex items-center justify-between mb-2">
-                                                                            <span className={cn("text-[8px] font-black uppercase tracking-widest", isLatest ? "text-blue-200" : "text-slate-300")}>
-                                                                                {event.type}
-                                                                            </span>
-                                                                            <span className={cn("text-[9px] font-bold", isLatest ? "text-blue-100" : "text-slate-400")}>
-                                                                                {event.date}
-                                                                            </span>
+                                                            {[
+                                                                { date: selectedEmployee.contract?.hireDate, type: "EMBAUCHE", amount: 5000 },
+                                                                ...(selectedEmployee.history?.map(h => ({ date: h.date, type: h.type || "AUGMENTATION", amount: h.amount })) || []).reverse()
+                                                            ].map((event, idx) => {
+                                                                const isLatest = idx === 0;
+                                                                return (
+                                                                    <div
+                                                                        key={idx}
+                                                                        className={cn(
+                                                                            "relative p-5 rounded-2xl group transition-all duration-300 border",
+                                                                            isLatest
+                                                                                ? "bg-blue-600 border-blue-500 shadow-xl shadow-blue-100 transform -translate-x-1"
+                                                                                : "bg-white border-transparent hover:border-slate-100"
+                                                                        )}
+                                                                    >
+                                                                        <div className={cn(
+                                                                            "absolute -left-10 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-4 border-white flex items-center justify-center text-[8px] font-black shadow-sm z-10 transition-colors",
+                                                                            isLatest ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-400 group-hover:bg-blue-600 group-hover:text-white"
+                                                                        )}>
+                                                                            {idx + 1}
                                                                         </div>
-                                                                        <div className="flex items-baseline gap-2">
-                                                                            <span className={cn("text-lg font-black", isLatest ? "text-white" : "text-slate-800")}>
-                                                                                {(event.amount || 0).toLocaleString()}
-                                                                            </span>
-                                                                            <span className={cn("text-[10px] font-bold", isLatest ? "text-white/60" : "text-slate-400")}>
-                                                                                Net Dh
-                                                                            </span>
+
+                                                                        <div className="flex flex-col">
+                                                                            <div className="flex items-center justify-between mb-2">
+                                                                                <span className={cn("text-[8px] font-black uppercase tracking-widest", isLatest ? "text-blue-200" : "text-slate-300")}>
+                                                                                    {event.type}
+                                                                                </span>
+                                                                                <span className={cn("text-[9px] font-bold", isLatest ? "text-blue-100" : "text-slate-400")}>
+                                                                                    {event.date}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="flex items-baseline gap-2">
+                                                                                <span className={cn("text-lg font-black", isLatest ? "text-white" : "text-slate-800")}>
+                                                                                    {(event.amount || 0).toLocaleString()}
+                                                                                </span>
+                                                                                <span className={cn("text-[10px] font-bold", isLatest ? "text-white/60" : "text-slate-400")}>
+                                                                                    Net Dh
+                                                                                </span>
+                                                                            </div>
                                                                         </div>
                                                                     </div>
-                                                                </div>
-                                                            );
-                                                        })}
+                                                                );
+                                                            })}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
