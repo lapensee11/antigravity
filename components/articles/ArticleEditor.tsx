@@ -1,5 +1,5 @@
 import { Article, Invoice, Family, SubFamily, Tier } from "@/lib/types";
-import { Save, Trash2, Pencil, Check, X, Plus } from "lucide-react";
+import { Save, Trash2, Pencil, Check, X, Plus, Tag, Layers, Hash, Shield } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 import { cn } from "@/lib/utils";
@@ -28,9 +28,15 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     const [accountingNatures, setAccountingNatures] = useState<{ id: string, name: string }[]>([]);
     const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([]);
     const [tiers, setTiers] = useState<Tier[]>([]);
+    const [availableVatRates, setAvailableVatRates] = usePersistedState<number[]>("article_vat_rates", [0, 7, 10, 14, 20]);
+    const [isAddingVat, setIsAddingVat] = useState(false);
+    const [newVatInput, setNewVatInput] = useState("");
 
     // Derived state for the "Compte Général" selector
     const selectedGeneralAccount = formData.accountingCode ? formData.accountingCode.substring(0, 4) : "";
+    const matchingAccount = useMemo(() =>
+        accountingAccounts.find(acc => acc.code === selectedGeneralAccount),
+        [accountingAccounts, selectedGeneralAccount]);
 
     // Focus Refs
     const nameRef = useRef<HTMLInputElement>(null);
@@ -178,6 +184,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     const toggleEdit = () => {
         if (isEditing) {
             setIsEditing(false);
+            setIsAddingVat(false);
             if (article) {
                 setFormData(article);
                 const sub = subFamilies.find(s => s.id === article.subFamilyId);
@@ -185,6 +192,26 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
             }
         } else {
             setIsEditing(true);
+        }
+    };
+
+    const handleAddVatRate = () => {
+        const value = parseFloat(newVatInput);
+        if (!isNaN(value) && !availableVatRates.includes(value)) {
+            const newRates = [...availableVatRates, value].sort((a, b) => a - b);
+            setAvailableVatRates(newRates);
+            handleChange("vatRate", value);
+        }
+        setNewVatInput("");
+        setIsAddingVat(false);
+    };
+
+    const handleDeleteVatRate = (rateToDelete: number) => {
+        if (availableVatRates.length <= 1) return;
+        const newRates = availableVatRates.filter(r => r !== rateToDelete);
+        setAvailableVatRates(newRates);
+        if ((formData.vatRate || 0) === rateToDelete) {
+            handleChange("vatRate", newRates[0]);
         }
     };
 
@@ -522,23 +549,69 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                             {/* VAT Rate - Radio Buttons */}
                             <div className="space-y-4">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Taux de TVA (%)</label>
-                                <div className="flex flex-wrap gap-2.5">
-                                    {[0, 7, 10, 14, 20].map((rate, idx) => (
-                                        <button
-                                            key={rate}
-                                            ref={el => { vatRefs.current[idx] = el; }}
-                                            onClick={() => handleChange("vatRate", rate)}
-                                            onKeyDown={(e) => handleKeyDown(e, "vat")}
-                                            className={cn(
-                                                "px-5 py-2.5 rounded-lg text-xs font-bold transition-all border shadow-sm",
-                                                (formData.vatRate || 0) === rate
-                                                    ? "bg-blue-600 text-white border-blue-600 shadow-blue-200"
-                                                    : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
+                                <div className="flex flex-wrap gap-2.5 w-full">
+                                    {availableVatRates.map((rate, idx) => (
+                                        <div key={rate} className="relative group/vat flex-1 min-w-[70px]">
+                                            <button
+                                                ref={el => { vatRefs.current[idx] = el; }}
+                                                onClick={() => handleChange("vatRate", rate)}
+                                                onKeyDown={(e) => handleKeyDown(e, "vat")}
+                                                className={cn(
+                                                    "w-full px-2 py-2.5 rounded-lg text-xs font-bold transition-all border shadow-sm",
+                                                    (formData.vatRate || 0) === rate
+                                                        ? "bg-blue-600 text-white border-blue-600 shadow-blue-200"
+                                                        : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
+                                                )}
+                                            >
+                                                {rate}%
+                                            </button>
+                                            {isEditing && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleDeleteVatRate(rate); }}
+                                                    className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover/vat:opacity-100 transition-opacity hover:bg-red-600 shadow-sm border border-white z-10"
+                                                    title="Supprimer ce taux"
+                                                >
+                                                    <X className="w-2.5 h-2.5" />
+                                                </button>
                                             )}
-                                        >
-                                            {rate}%
-                                        </button>
+                                        </div>
                                     ))}
+
+                                    {/* Discrete ADD VAT UI */}
+                                    {isEditing && (
+                                        <div className="flex items-center gap-1 shrink-0">
+                                            {isAddingVat ? (
+                                                <div className="flex items-center bg-white border border-blue-200 rounded-lg shadow-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                                                    <input
+                                                        autoFocus
+                                                        type="number"
+                                                        value={newVatInput}
+                                                        onChange={(e) => setNewVatInput(e.target.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Enter") handleAddVatRate();
+                                                            if (e.key === "Escape") setIsAddingVat(false);
+                                                        }}
+                                                        placeholder="%"
+                                                        className="w-12 px-2 py-2 text-xs font-bold text-blue-600 outline-none placeholder:text-blue-200 placeholder:font-normal"
+                                                    />
+                                                    <button
+                                                        onClick={handleAddVatRate}
+                                                        className="px-2 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors border-l border-blue-100"
+                                                    >
+                                                        <Check className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    onClick={() => setIsAddingVat(true)}
+                                                    className="w-10 h-10 rounded-lg border border-dashed border-slate-200 text-slate-300 hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50/30 transition-all flex items-center justify-center"
+                                                    title="Ajouter un taux"
+                                                >
+                                                    <Plus className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -571,19 +644,56 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                     </select>
                                 </div>
 
-                                {/* Compte Analytique (6 digits) */}
-                                <div className="space-y-2 pt-4 border-t border-blue-200">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-serif italic text-slate-500">Compte Analytique (6 chiffres)</label>
-                                    <input
-                                        type="text"
-                                        value={formData.accountingCode || ""}
-                                        onChange={(e) => {
-                                            const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
-                                            handleChange("accountingCode", val);
-                                        }}
-                                        placeholder="ex: 612100"
-                                        className="w-full bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm font-mono tracking-wider"
-                                    />
+                                {/* Accounting Grid: Type - Classe - Code - Analytique */}
+                                <div className="grid grid-cols-4 gap-4 pt-4 border-t border-blue-200">
+                                    {/* Type */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                                            <Tag className="w-3 h-3 text-blue-400" /> Type
+                                        </label>
+                                        <div className="bg-white border border-slate-100 rounded-xl px-3 py-2 text-xs font-black text-slate-700 shadow-sm min-h-[36px] flex items-center">
+                                            {matchingAccount?.type || "—"}
+                                        </div>
+                                    </div>
+
+                                    {/* Classe */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                                            <Layers className="w-3 h-3 text-blue-400" /> Classe
+                                        </label>
+                                        <div className="bg-white border border-slate-100 rounded-xl px-3 py-2 text-xs font-black text-slate-700 shadow-sm min-h-[36px] flex items-center">
+                                            {matchingAccount?.class ? `Classe ${matchingAccount.class}` : "—"}
+                                        </div>
+                                    </div>
+
+                                    {/* Code Comptable */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                                            <Hash className="w-3 h-3 text-blue-400" /> Code Comptable
+                                        </label>
+                                        <div className="bg-white border border-slate-100 rounded-xl px-3 py-2 text-xs font-mono font-black text-slate-700 shadow-sm min-h-[36px] flex items-center tracking-tighter">
+                                            {selectedGeneralAccount || "—"}
+                                        </div>
+                                    </div>
+
+                                    {/* Code Analytique */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                                            <Shield className="w-3 h-3 text-blue-600" /> Analytiques
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formData.accountingCode || ""}
+                                            onChange={(e) => {
+                                                const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
+                                                handleChange("accountingCode", val);
+                                            }}
+                                            ref={accountRef}
+                                            onKeyDown={(e) => handleKeyDown(e, "account")}
+                                            placeholder="ex: 612100"
+                                            className="w-full bg-white border border-slate-200 text-xs font-mono font-black text-blue-600 rounded-xl px-3 py-2 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all shadow-sm tracking-tighter"
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>

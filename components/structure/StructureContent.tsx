@@ -4,11 +4,11 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TypeColumn } from "@/components/structure/TypeColumn";
 import { StructureType, Family, SubFamily, AccountingAccount } from "@/lib/types";
 import { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
 import {
     getFamilies, saveFamily, deleteFamily,
     getSubFamilies, saveSubFamily, deleteSubFamily,
-    getAccountingNatures, saveAccountingNature, deleteAccountingNature,
-    getAccountingAccounts
+    getAccountingAccounts, saveAccountingAccount, deleteAccountingAccount
 } from "@/lib/data-service";
 
 import {
@@ -32,7 +32,12 @@ import {
     Palette,
     Settings2,
     Trash2,
-    Plus
+    Plus,
+    Search,
+    Pencil,
+    Check,
+    X,
+    FileText
 } from "lucide-react";
 
 const ICONS = [
@@ -68,17 +73,25 @@ export function StructureContent({
     const [types] = useState<StructureType[]>(initialTypes);
     const [families, setFamilies] = useState<Family[]>(initialFamilies);
     const [subFamilies, setSubFamilies] = useState<SubFamily[]>(initialSubFamilies);
-    const [accountingNatures, setAccountingNatures] = useState<{ id: string, name: string }[]>([]);
     const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([]);
+    const [accountingSearch, setAccountingSearch] = useState("");
+    const [activeTab, setActiveTab] = useState(1);
+    const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+    const [editingAccount, setEditingAccount] = useState<AccountingAccount | null>(null);
+    const [accountFormData, setAccountFormData] = useState<AccountingAccount>({
+        id: "",
+        code: "",
+        label: "",
+        class: "6",
+        type: "Charge"
+    });
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const load = async () => {
-            const [natures, accounts] = await Promise.all([
-                getAccountingNatures(),
+            const [accounts] = await Promise.all([
                 getAccountingAccounts()
             ]);
-            setAccountingNatures(natures);
             setAccountingAccounts(accounts);
             setLoading(false);
         };
@@ -123,7 +136,8 @@ export function StructureContent({
         setSelectedFamilyId(familyId);
         setModalMode("subFamily");
         setEditMode(false);
-        setFormData({ name: "", code: "", icon: "", accountingCode: "" });
+        const parentFamily = families.find(f => f.id === familyId);
+        setFormData({ name: "", code: "", icon: "", accountingCode: parentFamily?.accountingCode || "" });
         setIsModalOpen(true);
     };
 
@@ -131,7 +145,7 @@ export function StructureContent({
         setEditingItem(family);
         setModalMode("family");
         setEditMode(true);
-        setFormData({ name: family.name, code: family.code, icon: family.icon || "", accountingCode: "" });
+        setFormData({ name: family.name, code: family.code, icon: family.icon || "", accountingCode: family.accountingCode || "" });
         setIsModalOpen(true);
     };
 
@@ -152,15 +166,32 @@ export function StructureContent({
                 name: formData.name,
                 code: formData.code,
                 typeId: (editMode && editingItem) ? (editingItem as Family).typeId : selectedTypeId!,
-                icon: formData.icon
+                icon: formData.icon,
+                accountingCode: formData.accountingCode
             };
 
             const result = await saveFamily(familyToSave);
             if (result.success) {
+                // Update local families state
                 setFamilies(prev => {
                     if (editMode) return prev.map(f => f.id === familyToSave.id ? familyToSave : f);
                     return [...prev, familyToSave];
                 });
+
+                // Proactively propagate to sub-families if a code is set
+                if (familyToSave.accountingCode) {
+                    const affectedSubFamilies = subFamilies.filter(s => s.familyId === familyToSave.id);
+                    for (const sub of affectedSubFamilies) {
+                        const updatedSub = { ...sub, accountingCode: familyToSave.accountingCode };
+                        await saveSubFamily(updatedSub);
+                    }
+                    // Update local subFamilies state
+                    setSubFamilies(prev => prev.map(s =>
+                        s.familyId === familyToSave.id
+                            ? { ...s, accountingCode: familyToSave.accountingCode }
+                            : s
+                    ));
+                }
             } else {
                 alert("Erreur lors de la sauvegarde de la famille");
             }
@@ -187,6 +218,53 @@ export function StructureContent({
         setIsModalOpen(false);
     };
 
+
+    // --- ACCOUNTING ACCOUNT FUNCTIONS ---
+    const handleOpenAccountModal = (account?: AccountingAccount) => {
+        if (account) {
+            setEditingAccount(account);
+            setAccountFormData(account);
+        } else {
+            setEditingAccount(null);
+            setAccountFormData({
+                id: "",
+                code: "",
+                label: "",
+                class: "6",
+                type: "Charge"
+            });
+        }
+        setIsAccountModalOpen(true);
+    };
+
+    const handleSaveAccount = async () => {
+        if (!accountFormData.code || !accountFormData.label) return;
+        const accountToSave = {
+            ...accountFormData,
+            id: accountFormData.id || accountFormData.code
+        };
+        if (editingAccount && editingAccount.id !== accountToSave.id) {
+            await deleteAccountingAccount(editingAccount.id);
+        }
+        await saveAccountingAccount(accountToSave);
+        const data = await getAccountingAccounts();
+        setAccountingAccounts(data);
+        setIsAccountModalOpen(false);
+    };
+
+    const handleDeleteAccount = async (id: string) => {
+        if (confirm("Supprimer ce compte comptable ?")) {
+            await deleteAccountingAccount(id);
+            const data = await getAccountingAccounts();
+            setAccountingAccounts(data);
+        }
+    };
+
+    const filteredAccounts = accountingAccounts.filter(acc =>
+        acc.code.toLowerCase().includes(accountingSearch.toLowerCase()) ||
+        acc.label.toLowerCase().includes(accountingSearch.toLowerCase())
+    );
+
     const handleDeleteFamily = async (id: string) => {
         if (!window.confirm("Supprimer cette famille ?")) return;
         const result = await deleteFamily(id);
@@ -196,21 +274,8 @@ export function StructureContent({
             alert("Erreur lors de la suppression");
         }
     };
-    const handleDeleteNature = async (id: string) => {
-        if (confirm("Supprimer cette nature comptable ?")) {
-            await deleteAccountingNature(id);
-            setAccountingNatures(prev => prev.filter(n => n.id !== id));
-        }
-    };
 
-    const handleAddNature = async (name: string) => {
-        if (!name.trim()) return;
-        const newNature = { id: crypto.randomUUID(), name };
-        await saveAccountingNature(newNature);
-        setAccountingNatures(prev => [...prev, newNature]);
-    };
 
-    const [newNatureName, setNewNatureName] = useState("");
     const handleDeleteSubFamily = async (id: string) => {
         if (!window.confirm("Supprimer cette sous-famille ?")) return;
         const result = await deleteSubFamily(id);
@@ -361,94 +426,158 @@ export function StructureContent({
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 h-full pb-4">
-                    {types.map(type => (
-                        <TypeColumn
-                            key={type.id}
-                            structureType={type}
-                            customTitle={`${getTypePrefix(type.name)} - ${type.name}`}
-                            pastelTheme={getTypeTheme(type.name)}
-                            icon={getTypeIcon(type.name)}
-                            families={families}
-                            subFamilies={subFamilies}
-                            focusedFamilyId={focusedFamilyId}
-                            setFocusedFamilyId={setFocusedFamilyId}
-                            onAddFamily={handleAddFamily}
-                            onAddSubFamily={handleAddSubFamily}
-                            onEditFamily={handleEditFamily}
-                            onEditSubFamily={handleEditSubFamily}
-                            onDeleteFamily={handleDeleteFamily}
-                            onDeleteSubFamily={handleDeleteSubFamily}
-                        />
+                {/* Tab Selector */}
+                <div className="flex bg-slate-100/50 p-1.5 rounded-3xl border border-slate-200 mb-8 w-fit backdrop-blur-sm shadow-inner">
+                    {[
+                        { id: 1, label: "Structure", sub: "Familles - Sous-Familles" },
+                        { id: 2, label: "Plan Comptable", sub: "Natures de charges" },
+                        { id: 3, label: "Vide 1", sub: "Section libre" },
+                        { id: 4, label: "Vide 2", sub: "Section libre" }
+                    ].map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={cn(
+                                "flex flex-col items-center px-10 py-3 rounded-[1.25rem] transition-all duration-300",
+                                activeTab === tab.id
+                                    ? "bg-white text-blue-600 shadow-xl shadow-blue-100/50 scale-[1.02] border border-blue-50"
+                                    : "text-slate-400 hover:text-slate-600 hover:bg-white/50"
+                            )}
+                        >
+                            <span className="text-[13px] font-black uppercase tracking-widest leading-none mb-1">{tab.label}</span>
+                            <span className={cn("text-[9px] font-bold uppercase tracking-tighter opacity-60", activeTab === tab.id ? "text-blue-400" : "text-slate-400")}>{tab.sub}</span>
+                        </button>
                     ))}
                 </div>
 
-                {/* Section: Plan Comptable (Natures de Charges) */}
-                <div className="mt-8 mb-12">
-                    <div className="bg-white/70 backdrop-blur-xl rounded-[2rem] border border-white/60 shadow-xl overflow-hidden">
-                        <div className="px-10 py-8 bg-[#2D3748] flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-white backdrop-blur-md">
-                                    <Settings2 className="w-6 h-6" />
-                                </div>
-                                <div>
-                                    <h2 className="text-2xl font-bold text-white tracking-tight">Plan Comptable</h2>
-                                    <p className="text-blue-200/60 text-xs font-bold uppercase tracking-widest mt-0.5">Gestion des Natures de Charges</p>
-                                </div>
-                            </div>
-                            <div className="px-4 py-2 bg-white/10 rounded-xl text-white text-xs font-black uppercase tracking-widest backdrop-blur-md border border-white/10">
-                                {accountingNatures.length} Elements
-                            </div>
+                <div className="flex-1 overflow-auto">
+                    {activeTab === 1 && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 h-full pb-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            {types.map(type => (
+                                <TypeColumn
+                                    key={type.id}
+                                    structureType={type}
+                                    customTitle={`${getTypePrefix(type.name)} - ${type.name}`}
+                                    pastelTheme={getTypeTheme(type.name)}
+                                    icon={getTypeIcon(type.name)}
+                                    families={families}
+                                    subFamilies={subFamilies}
+                                    focusedFamilyId={focusedFamilyId}
+                                    setFocusedFamilyId={setFocusedFamilyId}
+                                    onAddFamily={handleAddFamily}
+                                    onAddSubFamily={handleAddSubFamily}
+                                    onEditFamily={handleEditFamily}
+                                    onEditSubFamily={handleEditSubFamily}
+                                    onDeleteFamily={handleDeleteFamily}
+                                    onDeleteSubFamily={handleDeleteSubFamily}
+                                />
+                            ))}
                         </div>
+                    )}
 
-                        <div className="p-10">
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                                {accountingNatures.map(nature => (
-                                    <div key={nature.id} className="group relative flex items-center justify-between p-5 bg-slate-50/50 hover:bg-white rounded-2xl border border-slate-100 hover:border-blue-400/30 hover:shadow-lg transition-all duration-300">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-2 h-2 rounded-full bg-blue-500/40" />
-                                            <span className="text-sm font-bold text-slate-700">{nature.name}</span>
+                    {activeTab === 2 && (
+                        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <div className="bg-white/70 backdrop-blur-xl rounded-[2rem] border border-white/60 shadow-xl overflow-hidden pb-8">
+                                <div className="px-10 py-8 bg-[#2D3748] flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-white backdrop-blur-md">
+                                            <FileText className="w-6 h-6" />
                                         </div>
-                                        <button
-                                            onClick={() => handleDeleteNature(nature.id)}
-                                            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        <div>
+                                            <h2 className="text-2xl font-bold text-white tracking-tight">Plan Comptable Marocain</h2>
+                                            <p className="text-blue-200/60 text-xs font-bold uppercase tracking-widest mt-0.5">Gestion des comptes et natures</p>
+                                        </div>
                                     </div>
-                                ))}
-
-                                {/* Add New Nature Card */}
-                                <div className="p-2 bg-blue-50/30 border-2 border-dashed border-blue-200 rounded-2xl flex items-center gap-3">
-                                    <input
-                                        type="text"
-                                        value={newNatureName}
-                                        onChange={(e) => setNewNatureName(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter") {
-                                                handleAddNature(newNatureName);
-                                                setNewNatureName("");
-                                            }
-                                        }}
-                                        placeholder="Nouvelle nature..."
-                                        className="flex-1 bg-transparent border-none px-4 py-2 text-sm font-bold text-slate-700 placeholder:text-blue-300 outline-none"
-                                    />
                                     <button
-                                        onClick={() => {
-                                            if (newNatureName.trim()) {
-                                                handleAddNature(newNatureName);
-                                                setNewNatureName("");
-                                            }
-                                        }}
-                                        className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center hover:bg-blue-700 active:scale-95 transition-all shadow-lg shadow-blue-200 shrink-0"
+                                        onClick={() => handleOpenAccountModal()}
+                                        className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-900/20 hover:bg-blue-500 transition-all active:scale-95 border border-blue-400/30"
                                     >
-                                        <Plus className="w-5 h-5" />
+                                        <Plus className="w-4 h-4" />
+                                        Nouveau Compte
                                     </button>
                                 </div>
+
+                                <div className="p-10 space-y-6">
+                                    <div className="relative max-w-md">
+                                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                        <input
+                                            value={accountingSearch}
+                                            onChange={(e) => setAccountingSearch(e.target.value)}
+                                            placeholder="Rechercher un code ou libellé..."
+                                            className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold text-slate-600 outline-none focus:ring-4 focus:ring-blue-100 placeholder:font-medium shadow-sm transition-all"
+                                        />
+                                    </div>
+
+                                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                        <table className="w-full text-left border-collapse">
+                                            <thead>
+                                                <tr className="bg-slate-50/50 border-b border-slate-100">
+                                                    <th className="py-4 px-6 text-[10px] font-black text-slate-400 uppercase tracking-widest w-24">Code</th>
+                                                    <th className="py-4 px-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Libellé</th>
+                                                    <th className="py-4 px-6 text-[10px] font-black text-slate-400 uppercase tracking-widest w-32">Type</th>
+                                                    <th className="py-4 px-6 text-[10px] font-black text-slate-400 uppercase tracking-widest w-20 text-right">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-50">
+                                                {filteredAccounts.map((acc) => (
+                                                    <tr key={acc.id} className="group hover:bg-slate-50/80 transition-colors">
+                                                        <td className="py-4 px-6">
+                                                            <span className="font-mono font-black text-slate-800 bg-slate-100 px-2 py-1 rounded text-[11px]">
+                                                                {acc.code}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-4 px-6 text-sm font-black text-slate-700">
+                                                            {acc.label}
+                                                        </td>
+                                                        <td className="py-4 px-6">
+                                                            <span className={cn(
+                                                                "px-3 py-1 rounded-full text-[9px] uppercase font-black tracking-widest",
+                                                                acc.type === "Charge" ? "bg-amber-100 text-amber-700" :
+                                                                    acc.type === "Trésorerie" ? "bg-emerald-100 text-emerald-700" :
+                                                                        "bg-blue-100 text-blue-700"
+                                                            )}>
+                                                                {acc.type}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-4 px-6 text-right">
+                                                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                <button onClick={() => handleOpenAccountModal(acc)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all">
+                                                                    <Pencil className="w-4 h-4" />
+                                                                </button>
+                                                                <button onClick={() => handleDeleteAccount(acc.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                                                                    <Trash2 className="w-4 h-4" />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                                {filteredAccounts.length === 0 && (
+                                                    <tr>
+                                                        <td colSpan={4} className="py-12 text-center text-slate-400 italic font-medium">
+                                                            Aucun compte trouvé.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
+
                         </div>
-                    </div>
+                    )}
+
+                    {(activeTab === 3 || activeTab === 4) && (
+                        <div className="h-96 flex flex-col items-center justify-center bg-white/40 rounded-[2.5rem] border-2 border-dashed border-slate-200 animate-in fade-in duration-700">
+                            <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mb-6">
+                                <Palette className="w-10 h-10 text-slate-200" />
+                            </div>
+                            <h3 className="text-2xl font-black text-slate-400 italic">Vide {activeTab - 2}</h3>
+                            <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mt-2">Section en attente de configuration</p>
+                        </div>
+                    )}
                 </div>
+
 
                 {/* Custom Styled Modal */}
                 {isModalOpen && (
@@ -490,27 +619,27 @@ export function StructureContent({
                                     </div>
                                 </div>
 
-                                {modalMode === 'subFamily' && (
-                                    <div className="mt-4 pt-4 border-t border-slate-100">
-                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Code Comptable par défaut</label>
-                                        <select
-                                            value={formData.accountingCode || ""}
-                                            onChange={e => setFormData({ ...formData, accountingCode: e.target.value })}
-                                            className="w-full bg-white border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-700 focus:outline-none focus:border-[#D69E2E] transition-colors cursor-pointer appearance-none"
-                                        >
-                                            <option value="">-- Aucun --</option>
-                                            {accountingAccounts.map(acc => (
-                                                <option key={acc.id} value={acc.code}>
-                                                    {acc.code} - {acc.label}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <p className="text-[10px] text-slate-400 mt-2 italic flex items-center gap-2">
-                                            <span className="w-1 h-4 bg-orange-200 rounded-full"></span>
-                                            Sera appliqué aux nouveaux articles de cette sous-famille
-                                        </p>
-                                    </div>
-                                )}
+                                <div className="mt-4 pt-4 border-t border-slate-100">
+                                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Code Comptable par défaut</label>
+                                    <select
+                                        value={formData.accountingCode || ""}
+                                        onChange={e => setFormData({ ...formData, accountingCode: e.target.value })}
+                                        className="w-full bg-white border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-700 focus:outline-none focus:border-[#D69E2E] transition-colors cursor-pointer appearance-none"
+                                    >
+                                        <option value="">-- Aucun --</option>
+                                        {accountingAccounts.map(acc => (
+                                            <option key={acc.id} value={acc.code}>
+                                                {acc.code} - {acc.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className="text-[10px] text-slate-400 mt-2 italic flex items-center gap-2">
+                                        <span className="w-1 h-4 bg-orange-200 rounded-full"></span>
+                                        {modalMode === 'family'
+                                            ? "Sera appliqué aux nouvelles sous-familles de cette famille"
+                                            : "Sera appliqué aux nouveaux articles de cette sous-famille"}
+                                    </p>
+                                </div>
 
                                 {/* Icon Picker */}
                                 <div>
@@ -537,6 +666,95 @@ export function StructureContent({
                                 >
                                     ENREGISTRER
                                 </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Account Modal */}
+                {isAccountModalOpen && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in" onClick={() => setIsAccountModalOpen(false)}>
+                        <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                            <div className="bg-[#2D3748] px-10 py-8 flex justify-between items-center">
+                                <h3 className="text-2xl font-black text-white flex items-center gap-3 italic">
+                                    <FileText className="w-7 h-7 text-blue-400" />
+                                    {editingAccount ? "Modifier Compte" : "Nouveau Compte"}
+                                </h3>
+                                <button onClick={() => setIsAccountModalOpen(false)} className="text-white/40 hover:text-white transition-colors">
+                                    <X className="w-8 h-8" />
+                                </button>
+                            </div>
+
+                            <div className="p-10 space-y-6">
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Code Comptable</label>
+                                    <input
+                                        value={accountFormData.code}
+                                        onChange={e => setAccountFormData({ ...accountFormData, code: e.target.value })}
+                                        className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 font-black text-slate-800 outline-none focus:ring-4 focus:ring-blue-100 font-mono text-lg transition-all"
+                                        placeholder="Ex: 6121"
+                                        autoFocus
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Libellé</label>
+                                    <input
+                                        value={accountFormData.label}
+                                        onChange={e => setAccountFormData({ ...accountFormData, label: e.target.value })}
+                                        className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 font-black text-slate-800 outline-none focus:ring-4 focus:ring-blue-100 text-lg transition-all"
+                                        placeholder="Ex: Achats de matières premières"
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Classe</label>
+                                        <select
+                                            value={accountFormData.class}
+                                            onChange={e => setAccountFormData({ ...accountFormData, class: e.target.value })}
+                                            className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 font-black text-slate-800 outline-none focus:ring-4 focus:ring-blue-100 appearance-none cursor-pointer transition-all"
+                                        >
+                                            <option value="1">1 - Financement</option>
+                                            <option value="2">2 - Actif Immob.</option>
+                                            <option value="3">3 - Actif Circ.</option>
+                                            <option value="4">4 - Passif Circ.</option>
+                                            <option value="5">5 - Trésorerie</option>
+                                            <option value="6">6 - Charges</option>
+                                            <option value="7">7 - Produits</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Type</label>
+                                        <select
+                                            value={accountFormData.type}
+                                            onChange={e => setAccountFormData({ ...accountFormData, type: e.target.value as any })}
+                                            className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-5 py-4 font-black text-slate-800 outline-none focus:ring-4 focus:ring-blue-100 appearance-none cursor-pointer transition-all"
+                                        >
+                                            <option value="Charge">Charge</option>
+                                            <option value="Produit">Produit</option>
+                                            <option value="Trésorerie">Trésorerie</option>
+                                            <option value="Tiers">Tiers</option>
+                                            <option value="Autre">Autre</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-4 pt-4">
+                                    <button
+                                        onClick={() => setIsAccountModalOpen(false)}
+                                        className="flex-1 py-4 bg-slate-50 text-slate-400 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-slate-100 transition-all active:scale-95"
+                                    >
+                                        Annuler
+                                    </button>
+                                    <button
+                                        onClick={handleSaveAccount}
+                                        className="flex-3 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95 flex items-center justify-center gap-3 px-8"
+                                    >
+                                        <Check className="w-5 h-5" />
+                                        Enregistrer
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

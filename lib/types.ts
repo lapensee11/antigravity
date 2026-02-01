@@ -12,6 +12,7 @@ export interface Family {
     code: string;
     typeId: string;
     icon?: string | null;
+    accountingCode?: string;
 }
 
 export interface SubFamily {

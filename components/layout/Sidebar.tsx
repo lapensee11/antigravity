@@ -22,11 +22,10 @@ const menuItems = [
     { icon: LayoutDashboard, label: "Tableau de Bord", href: "/" },
     { icon: Layers, label: "Structure", href: "/structure" },
     { icon: Package, label: "Articles", href: "/articles" },
-    { icon: FileText, label: "Factures Achat", href: "/achats" },
     { icon: Users, label: "Tiers", href: "/tiers" },
+    { icon: FileText, label: "Factures Achat", href: "/achats" },
     { icon: ChefHat, label: "Production", href: "/production" },
-    { icon: Landmark, label: "Finance", href: "/finance" },
-    { icon: Book, label: "Compta", href: "/comptabilite/plan" }, // Provisoire
+    { icon: Landmark, label: "Banque", href: "/finance" },
     { icon: ShoppingCart, label: "Ventes", href: "/ventes" },
     { icon: CreditCard, label: "Paye", href: "/paye" },
     { icon: Users, label: "Personnel", href: "/personnel" },

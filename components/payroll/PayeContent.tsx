@@ -2,11 +2,10 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
-    Search, Plus, User, FileText, DollarSign, Calendar,
-    ChevronRight, Mail, Phone, MapPin, Briefcase,
-    CreditCard, Building2, UserCircle, Trash2, Save,
-    Calculator, Users, Edit3, Table, ChevronLeft, Minus, ArrowRight, Check, X,
-    Cake, Heart, Baby, LogOut, Clock, Banknote, Gift, Pencil
+    Search, Plus, X, Pencil, Trash2, Calendar, FileText, Download, Filter,
+    MoreHorizontal, ChevronLeft, ChevronRight, Check, AlertCircle, TrendingUp, TrendingDown,
+    Save, UserPlus, CreditCard, Clock, Activity, Briefcase, Hash, Phone, MapPin,
+    Calendar as CalendarIcon, Heart, Baby, LogOut, Users, Minus, User, DollarSign, Mail, Building2, UserCircle, Calculator, Edit3, Table, ArrowRight, Cake, Banknote, Gift, RefreshCw, Lock
 } from "lucide-react";
 import { cn, formatPhoneNumber } from "@/lib/utils";
 import {
@@ -33,12 +32,109 @@ interface PayeContentProps {
     defaultViewMode?: "JOURNAL" | "BASE";
 }
 
+const PayrollInput = ({ value, onChange, className, isCurrency = false }: {
+    value: number;
+    onChange: (val: number) => void;
+    className?: string;
+    isCurrency?: boolean;
+}) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [localValue, setLocalValue] = useState("");
+
+    useEffect(() => {
+        if (!isEditing) {
+            const formattedValue = isCurrency
+                ? value.toFixed(2).replace('.', ',')
+                : value.toString().replace('.', ',');
+            setLocalValue(value === 0 ? "" : formattedValue);
+        }
+    }, [value, isEditing, isCurrency]);
+
+    const handleBlur = () => {
+        setIsEditing(false);
+        const parsed = parseFloat(localValue.replace(',', '.'));
+        onChange(isNaN(parsed) ? 0 : parsed);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        if (e.key === 'Escape') {
+            setLocalValue(value.toFixed(2).replace('.', ','));
+            setIsEditing(false);
+            (e.target as HTMLInputElement).blur();
+        }
+    };
+
+    const displayValue = isEditing
+        ? localValue
+        : (isCurrency
+            ? value.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (isCurrency ? ' Dh' : '')
+            : value.toString().replace('.', ',')
+        );
+
+    return (
+        <input
+            type="text"
+            value={displayValue}
+            className={cn("w-full text-center bg-transparent border-none p-0 text-[12px] font-black focus:ring-0", className)}
+            onFocus={() => {
+                setIsEditing(true);
+                setLocalValue(value === 0 ? "" : value.toString().replace('.', ','));
+            }}
+            onBlur={handleBlur}
+            onChange={(e) => setLocalValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+        />
+    );
+};
+
 export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL" }: PayeContentProps) {
     // --- ÉTATS ---
     const [employees, setEmployees] = useState<StaffMember[]>(initialEmployees);
     const [viewMode, setViewMode] = useState<"JOURNAL" | "BASE">(defaultViewMode);
     const [journalSubView, setJournalSubView] = useState<"SAISIE" | "COMPTABLE">("SAISIE");
-    const [currentMonth] = useState("JANVIER");
+    const [currentMonth, setCurrentMonth] = useState("FÉVRIER");
+    const [currentYear, setCurrentYear] = useState(2026);
+    const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+    const datePickerRef = useRef<HTMLDivElement>(null);
+
+    const MONTHS = [
+        "JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN",
+        "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE"
+    ];
+
+    const handlePrevMonth = () => {
+        const idx = MONTHS.indexOf(currentMonth);
+        if (idx === 0) {
+            setCurrentMonth(MONTHS[11]);
+            setCurrentYear(prev => prev - 1);
+        } else {
+            setCurrentMonth(MONTHS[idx - 1]);
+        }
+    };
+
+    const handleNextMonth = () => {
+        const idx = MONTHS.indexOf(currentMonth);
+        if (idx === 11) {
+            setCurrentMonth(MONTHS[0]);
+            setCurrentYear(prev => prev + 1);
+        } else {
+            setCurrentMonth(MONTHS[idx + 1]);
+        }
+    };
+
+    // Close on click outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
+                setIsDatePickerOpen(false);
+            }
+        };
+        if (isDatePickerOpen) {
+            document.addEventListener("mousedown", handleClickOutside);
+        }
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [isDatePickerOpen]);
 
     // Pour Base Personnel
     const [searchQuery, setSearchQuery] = useState("");
@@ -267,9 +363,70 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         const base = emp.contract?.baseSalary || 0;
         const dailyRate = base / 26;
         const proratedBase = dailyRate * data.jours;
-        // Formula: Prorated Base + H.Sup + Regul + Occas - Avances - Deduction
-        return proratedBase + (data.hSup * 50) + data.pRegul + data.pOccas - data.avances - data.monthlyDeduction;
+        // Formula: Prorated Base + H.Sup + Regul + Occas - Avances - Deduction - Virement
+        return proratedBase + (data.hSup * 50) + data.pRegul + data.pOccas - data.avances - data.monthlyDeduction - data.virement;
     };
+
+    const calculateCompta = (emp: StaffMember) => {
+        const data = getMonthlyData(emp);
+        const base = emp.contract?.baseSalary || 0;
+        const dailyRate = base / 26;
+        const proratedBase = dailyRate * data.jours;
+        // Brut Global = Base Proratisé + HSup + Regul + Occas
+        const brut = proratedBase + (data.hSup * 50) + (data.pRegul || 0) + (data.pOccas || 0);
+
+        // Standard Social Charges (Maroc)
+        const cnssBase = Math.min(brut, 6000);
+        const cnss = cnssBase * 0.0448; // 4.48%
+        const amo = brut * 0.0226;      // 2.26%
+
+        // Fiscal Base Calculation (Simplified)
+        // Frais Pro: 20% capped at 2500
+        const fraisPro = Math.min(brut * 0.20, 2500);
+        const netImposable = Math.max(0, brut - cnss - amo - fraisPro);
+
+        // IR Placeholder (Requires specific scale)
+        const ir = 0;
+
+        // Salaire Net (Net Social)
+        const salaireNet = brut - cnss - amo - ir;
+
+        return {
+            brut,
+            baseImposable: brut,
+            netImposable,
+            cnss,
+            amo,
+            ir,
+            salaireNet
+        };
+    };
+
+    const totals = useMemo(() => {
+        return employees.reduce((acc, emp) => {
+            const mData = getMonthlyData(emp);
+            const net = calculateNet(emp);
+            const compta = calculateCompta(emp);
+            return {
+                netCible: acc.netCible + (emp.contract?.baseSalary || 0),
+                virement: acc.virement + (mData.virement || 0),
+                avances: acc.avances + (mData.avances || 0),
+                retenuePret: acc.retenuePret + (mData.monthlyDeduction || 0),
+                netPayer: acc.netPayer + net,
+                // Compta Totals
+                brut: acc.brut + compta.brut,
+                brutImposable: acc.brutImposable + compta.baseImposable,
+                netImposable: acc.netImposable + compta.netImposable,
+                cnss: acc.cnss + compta.cnss,
+                amo: acc.amo + compta.amo,
+                ir: acc.ir + compta.ir,
+                salaireNet: acc.salaireNet + compta.salaireNet
+            };
+        }, {
+            netCible: 0, virement: 0, avances: 0, retenuePret: 0, netPayer: 0,
+            brut: 0, brutImposable: 0, netImposable: 0, cnss: 0, amo: 0, ir: 0, salaireNet: 0
+        });
+    }, [employees, currentMonth, currentYear]);
 
     const getYearSuffix = (dateStr?: string) => {
         if (!dateStr) return "00";
@@ -395,13 +552,22 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                         <div className="text-2xl font-black text-slate-800 tracking-tight">Paye</div>
                         <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100">
                             <button
-                                onClick={() => setViewMode("JOURNAL")}
+                                onClick={() => { setViewMode("JOURNAL"); setJournalSubView("SAISIE"); }}
                                 className={cn(
                                     "px-6 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                                    viewMode === "JOURNAL" ? "bg-white text-blue-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                                    (viewMode === "JOURNAL" && journalSubView === "SAISIE") ? "bg-white text-blue-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
                                 )}
                             >
-                                JOURNAL
+                                SAISIE
+                            </button>
+                            <button
+                                onClick={() => { setViewMode("JOURNAL"); setJournalSubView("COMPTABLE"); }}
+                                className={cn(
+                                    "px-6 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                                    (viewMode === "JOURNAL" && journalSubView === "COMPTABLE") ? "bg-white text-blue-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                                )}
+                            >
+                                COMPTA
                             </button>
                             <button
                                 onClick={() => setViewMode("BASE")}
@@ -415,19 +581,69 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-4 bg-slate-50 border border-slate-100 px-6 py-2.5 rounded-2xl shadow-sm">
-                        <ChevronLeft className="w-4 h-4 text-slate-400 cursor-pointer hover:text-blue-600 transition-colors" />
-                        <div className="flex flex-col items-center min-w-[120px]">
-                            <span className="text-[12px] font-black text-slate-800 uppercase tracking-widest leading-none mb-1">{currentMonth} 2026</span>
-                            <div className="h-0.5 w-8 bg-blue-600 rounded-full" />
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-slate-400 cursor-pointer hover:text-blue-600 transition-colors" />
+                    <div className="relative" ref={datePickerRef}>
+                        <button
+                            onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
+                            className={cn(
+                                "flex items-center gap-4 bg-white border border-slate-200 px-6 py-2.5 rounded-2xl shadow-sm hover:shadow-md transition-all group",
+                                isDatePickerOpen && "ring-4 ring-blue-50 border-blue-200"
+                            )}
+                        >
+                            <Calendar className={cn("w-4 h-4 transition-colors", isDatePickerOpen ? "text-blue-600" : "text-slate-400")} />
+                            <div className="flex flex-col items-center min-w-[120px] select-none">
+                                <span className="text-[13px] font-black text-slate-800 uppercase tracking-widest leading-none mb-1">
+                                    {currentMonth} <span className="text-blue-600/50">{currentYear}</span>
+                                </span>
+                                <div className={cn("h-0.5 w-10 bg-blue-600 rounded-full transition-all", isDatePickerOpen ? "w-16" : "w-10")} />
+                            </div>
+                            <ChevronRight className={cn("w-4 h-4 text-slate-400 transition-transform", isDatePickerOpen ? "rotate-90 text-blue-600" : "rotate-0")} />
+                        </button>
+
+                        {/* Smart Popover */}
+                        {isDatePickerOpen && (
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-80 bg-white rounded-[2rem] shadow-2xl border border-slate-100 p-6 z-50 animate-in fade-in zoom-in-95 duration-200">
+                                <div className="flex items-center justify-between mb-6 border-b border-slate-50 pb-4">
+                                    <button onClick={() => setCurrentYear(prev => prev - 1)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors">
+                                        <ChevronLeft className="w-5 h-5 text-slate-400" />
+                                    </button>
+                                    <span className="text-xl font-black text-slate-800 tracking-tighter">{currentYear}</span>
+                                    <button onClick={() => setCurrentYear(prev => prev + 1)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors">
+                                        <ChevronRight className="w-5 h-5 text-slate-400" />
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-2">
+                                    {MONTHS.map(m => (
+                                        <button
+                                            key={m}
+                                            onClick={() => {
+                                                setCurrentMonth(m);
+                                                setIsDatePickerOpen(false);
+                                            }}
+                                            className={cn(
+                                                "py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                                currentMonth === m
+                                                    ? "bg-blue-600 text-white shadow-lg shadow-blue-100"
+                                                    : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                                            )}
+                                        >
+                                            {m.substring(0, 3)}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
-                    <div className="w-40 flex justify-end">
-                        <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400">
-                            <Users className="w-5 h-5" />
-                        </div>
+                    <div className="flex items-center gap-3">
+                        <button className="flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-slate-50 border border-slate-100 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:bg-white hover:text-orange-500 hover:border-orange-100 transition-all shadow-sm">
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            Reset Futurs
+                        </button>
+                        <button className="flex items-center gap-2 px-8 py-2.5 rounded-2xl bg-[#2D3748] text-white font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-200/50">
+                            <Lock className="w-3.5 h-3.5" />
+                            Clôturer Mois
+                        </button>
                     </div>
                 </div>
 
@@ -439,154 +655,388 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                         <div className="h-full p-6 animate-in fade-in duration-500">
                             <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl shadow-slate-200/50 overflow-hidden h-full flex flex-col">
                                 {/* Table Header */}
-                                <div className="bg-[#2C3E50] text-[#7F8C8D] h-14 flex items-center px-4 shrink-0 font-black text-[9px] uppercase tracking-widest">
-                                    <div className="w-[18%]">Salarié</div>
+                                <div className="bg-[#2C3E50] text-[#7F8C8D] h-14 flex items-center px-4 shrink-0 font-black text-[10px] uppercase tracking-widest border-b border-slate-700">
                                     {journalSubView === "SAISIE" ? (
                                         <>
-                                            <div className="w-[10%] text-center text-[#2ECC71]">Net Cible</div>
-                                            <div className="w-[10%] text-center">Jours</div>
-                                            <div className="w-[10%] text-center">H. Sup</div>
-                                            <div className="w-[10%] text-center text-[#9B59B6]">P. Régul</div>
-                                            <div className="w-[10%] text-center text-[#3498DB]">P. Occas</div>
-                                            <div className="w-[10%] text-center text-[#F39C12]">Avances</div>
-                                            <div className="w-[10%] text-center text-[#E74C3C]">Crédit</div>
+                                            <div className="w-[5%] text-white">Matr</div>
+                                            <div className="w-[15%] text-white">Salarié</div>
+                                            <div className="w-[8%] text-center text-[#2ECC71]">Net Cible</div>
+                                            <div className="w-px self-stretch bg-slate-800 mx-1" />
+                                            <div className="w-[10%] text-center text-white">Mois / Année</div>
+                                            <div className="w-px self-stretch bg-slate-800 mx-1" />
+                                            <div className="w-[7%] text-center text-white">Jours</div>
+                                            <div className="w-[7%] text-center text-white">H. Sup</div>
+                                            <div className="w-[8%] text-center text-white">P. Régul</div>
+                                            <div className="w-[8%] text-center text-white">P. Occas</div>
+                                            <div className="w-px self-stretch bg-slate-800 mx-1" />
+                                            <div className="w-[8%] text-center text-[#F39C12]">Virement</div>
+                                            <div className="w-[8%] text-center text-[#F39C12]">Avances</div>
+                                            <div className="w-[8%] text-center text-[#F39C12]">Retenue Prêt</div>
+                                            <div className="w-px self-stretch bg-slate-800 mx-1" />
+                                            <div className="w-[10%] text-right pr-4 text-white">Net à Payer</div>
                                         </>
                                     ) : (
-                                        <>
-                                            <div className="w-[10%] text-center">Salaire Base</div>
-                                            <div className="w-[10%] text-center">CNSS P.P</div>
-                                            <div className="w-[10%] text-center">AMO</div>
-                                            <div className="w-[10%] text-center">IGR</div>
-                                            <div className="w-[10%] text-center">CIMR</div>
-                                            <div className="w-[10%] text-center">Frais Prof.</div>
-                                            <div className="w-[10%] text-center">Divers.</div>
-                                        </>
+                                        <div className="bg-[#A67C00] text-white h-14 flex items-center px-4 shrink-0 font-black text-[9px] uppercase tracking-widest border-b border-[#8C6900]">
+                                            <div className="w-[4%]">Matr.</div>
+                                            <div className="w-[16%]">Salarié</div>
+                                            <div className="w-[9%] text-center">Net Cible</div>
+                                            <div className="w-px self-stretch bg-white/20 mx-1" />
+                                            <div className="w-[5%] text-center">Jours</div>
+                                            <div className="w-[9%] text-center">Brut</div>
+                                            <div className="w-[9%] text-center">Bru Imp.</div>
+                                            <div className="w-[9%] text-center">Net Imp</div>
+                                            <div className="w-px self-stretch bg-white/20 mx-1" />
+                                            <div className="w-[7%] text-center">CNSS</div>
+                                            <div className="w-[7%] text-center">AMO</div>
+                                            <div className="w-[7%] text-center">IR</div>
+                                            <div className="w-px self-stretch bg-white/20 mx-1" />
+                                            <div className="w-[11%] text-right pr-4">Salaire Net</div>
+                                        </div>
                                     )}
-                                    <div className="w-[12%] text-right pr-4 text-white">Net à Payer</div>
                                 </div>
 
                                 {/* Table Body */}
-                                <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-50">
+                                <div className="flex-1 overflow-y-auto custom-scrollbar divide-y-2 divide-slate-300">
                                     {employees.map(emp => {
                                         const mData = getMonthlyData(emp);
                                         const netPayer = calculateNet(emp);
 
                                         return (
                                             <div key={emp.id} className="flex items-center h-16 px-4 hover:bg-slate-50 transition-colors group">
-                                                {/* Salarié */}
-                                                <div className="w-[18%] flex items-center gap-3">
-                                                    <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 border border-slate-200 flex items-center justify-center font-black text-[10px] ring-2 ring-white shadow-sm">
-                                                        {emp.firstName[0]}{emp.lastName[0]}
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <div className="text-[11px] font-black text-slate-800 uppercase leading-none mb-1 truncate">{emp.lastName} {emp.firstName}</div>
-                                                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">M00{emp.id}</div>
-                                                    </div>
-                                                </div>
-
                                                 {journalSubView === "SAISIE" ? (
                                                     <>
-                                                        {/* Net Cible */}
-                                                        <div className="w-[10%] text-center">
-                                                            <div className="text-[13px] font-black text-[#27AE60]">
-                                                                {emp.contract?.baseSalary.toLocaleString('fr-FR')} <span className="text-[9px] opacity-70">Dh</span>
+                                                        {/* Matr */}
+                                                        <div className="w-[5%] text-[10px] font-bold text-slate-400 uppercase tracking-tighter border-r border-slate-300 h-full flex items-center">M00{emp.id}</div>
+
+                                                        {/* Salarié */}
+                                                        <div className="w-[15%] flex items-center gap-3 pr-2 border-r border-slate-300 h-full">
+                                                            <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 border border-slate-200 flex items-center justify-center font-black text-[11px] shrink-0">
+                                                                {emp.firstName[0]}{emp.lastName[0]}
                                                             </div>
+                                                            <div className="text-[12px] font-black text-slate-800 uppercase leading-none truncate">{emp.lastName} {emp.firstName}</div>
                                                         </div>
 
+                                                        <div className="w-[8%] text-center text-[13px] font-black text-slate-700">
+                                                            {(emp.contract?.baseSalary || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[11px] font-black opacity-70">Dh</span>
+                                                        </div>
+
+                                                        <div className="w-px self-stretch bg-slate-300 mx-1" />
+
+                                                        {/* Mois / Année */}
+                                                        <div className="w-[10%] text-center text-[12px] font-black text-black uppercase tracking-tight">
+                                                            {currentMonth.substring(0, 3)} {currentYear}
+                                                        </div>
+
+                                                        <div className="w-px self-stretch bg-slate-400 mx-1" />
+
                                                         {/* Jours */}
-                                                        <div className="w-[10%] flex justify-center">
-                                                            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-1 transition-all group-hover:bg-white">
+                                                        <div className="w-[7%] flex justify-center">
+                                                            <div className="flex items-center gap-1.5 transition-all w-full max-w-[70px]">
                                                                 <button
-                                                                    onClick={() => updateMonthlyValue(emp.id, 'jours', Math.max(0, mData.jours - 1))}
-                                                                    className="w-5 h-5 rounded flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                                                                    onClick={() => updateMonthlyValue(emp.id, 'jours', Math.max(0, mData.jours - 0.5))}
+                                                                    className="text-slate-400 hover:text-blue-600 transition-colors"
                                                                 >
-                                                                    <Minus className="w-2.5 h-2.5" />
+                                                                    <ChevronLeft className="w-4 h-4" />
                                                                 </button>
-                                                                <span className="text-xs font-black text-slate-800 w-5 text-center">{mData.jours}</span>
+                                                                <PayrollInput
+                                                                    value={mData.jours}
+                                                                    onChange={(v) => updateMonthlyValue(emp.id, 'jours', v)}
+                                                                    className="w-12 text-black"
+                                                                />
                                                                 <button
-                                                                    onClick={() => updateMonthlyValue(emp.id, 'jours', Math.min(31, mData.jours + 1))}
-                                                                    className="w-5 h-5 rounded flex items-center justify-center text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                                                                    onClick={() => updateMonthlyValue(emp.id, 'jours', Math.min(31, mData.jours + 0.5))}
+                                                                    className="text-slate-400 hover:text-blue-600 transition-colors"
                                                                 >
-                                                                    <Plus className="w-2.5 h-2.5" />
+                                                                    <ChevronRight className="w-4 h-4" />
                                                                 </button>
                                                             </div>
                                                         </div>
 
                                                         {/* H. Sup */}
-                                                        <div className="w-[10%] text-center font-bold text-slate-300 text-xs">
-                                                            {mData.hSup || "—"}
+                                                        <div className="w-[7%] flex justify-center">
+                                                            <div className="flex items-center gap-1.5 transition-all w-full max-w-[70px]">
+                                                                <button
+                                                                    onClick={() => updateMonthlyValue(emp.id, 'hSup', Math.max(0, mData.hSup - 4))}
+                                                                    className="text-slate-400 hover:text-blue-600 transition-colors"
+                                                                >
+                                                                    <ChevronLeft className="w-4 h-4" />
+                                                                </button>
+                                                                <PayrollInput
+                                                                    value={mData.hSup}
+                                                                    onChange={(v) => updateMonthlyValue(emp.id, 'hSup', v)}
+                                                                    className="w-10 text-black"
+                                                                />
+                                                                <button
+                                                                    onClick={() => updateMonthlyValue(emp.id, 'hSup', mData.hSup + 4)}
+                                                                    className="text-slate-400 hover:text-blue-600 transition-colors"
+                                                                >
+                                                                    <ChevronRight className="w-4 h-4" />
+                                                                </button>
+                                                            </div>
                                                         </div>
 
                                                         {/* P. Régul */}
-                                                        <div className="w-[10%] text-center">
-                                                            <div className="text-[12px] font-black text-[#8E44AD]">
-                                                                {mData.pRegul > 0 ? `${mData.pRegul.toLocaleString('fr-FR')} Dh` : "—"}
+                                                        <div className="w-[8%] flex justify-center border-x border-slate-100 h-full items-center">
+                                                            <div className="w-full max-w-[70px]">
+                                                                <PayrollInput
+                                                                    value={mData.pRegul || 0}
+                                                                    onChange={(v) => updateMonthlyValue(emp.id, 'pRegul', v)}
+                                                                    isCurrency={true}
+                                                                    className="text-black"
+                                                                />
                                                             </div>
                                                         </div>
 
                                                         {/* P. Occas */}
-                                                        <div className="w-[10%] text-center">
-                                                            <div className="text-[12px] font-black text-[#2980B9]">
-                                                                {mData.pOccas > 0 ? `${mData.pOccas.toLocaleString('fr-FR')} Dh` : "—"}
+                                                        <div className="w-[8%] flex justify-center">
+                                                            <div className="w-full max-w-[70px]">
+                                                                <PayrollInput
+                                                                    value={mData.pOccas || 0}
+                                                                    onChange={(v) => updateMonthlyValue(emp.id, 'pOccas', v)}
+                                                                    isCurrency={true}
+                                                                    className="text-black"
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="w-px self-stretch bg-slate-400 mx-1" />
+
+                                                        {/* Virement */}
+                                                        <div className="w-[8%] flex justify-center border-x border-slate-100 h-full items-center">
+                                                            <div className="w-full max-w-[70px]">
+                                                                <PayrollInput
+                                                                    value={mData.virement || 0}
+                                                                    onChange={(v) => updateMonthlyValue(emp.id, 'virement', v)}
+                                                                    isCurrency={true}
+                                                                    className="text-[#F39C12]"
+                                                                />
                                                             </div>
                                                         </div>
 
                                                         {/* Avances */}
-                                                        <div className="w-[10%] text-center">
-                                                            <div className="text-[12px] font-black text-[#D35400]">
-                                                                {mData.avances > 0 ? `${mData.avances.toLocaleString('fr-FR')} Dh` : "—"}
+                                                        <div className="w-[8%] flex justify-center">
+                                                            <div className="w-full max-w-[70px]">
+                                                                <PayrollInput
+                                                                    value={mData.avances || 0}
+                                                                    onChange={(v) => updateMonthlyValue(emp.id, 'avances', v)}
+                                                                    isCurrency={true}
+                                                                    className="text-[#F39C12]"
+                                                                />
                                                             </div>
                                                         </div>
 
-                                                        {/* Crédit */}
-                                                        <div className="w-[10%] text-center bg-[#FDEDEC]/50 h-full flex flex-col justify-center border-x border-[#FADBD8]/20">
-                                                            <div className="text-[12px] font-black text-[#C0392B]">
-                                                                {mData.monthlyDeduction > 0 ? `${mData.monthlyDeduction.toLocaleString('fr-FR')} Dh` : "—"}
+                                                        {/* Retenue Prêt */}
+                                                        <div className="w-[8%] flex flex-col items-center justify-center">
+                                                            <div className="w-full max-w-[70px]">
+                                                                <PayrollInput
+                                                                    value={mData.monthlyDeduction || 0}
+                                                                    onChange={(v) => updateMonthlyValue(emp.id, 'monthlyDeduction', v)}
+                                                                    isCurrency={true}
+                                                                    className="text-[#F39C12]"
+                                                                />
                                                             </div>
-                                                            <div className="text-[8px] font-black text-[#E74C3C] uppercase tracking-tighter mt-1 opacity-70">
-                                                                Reste: {(emp.creditInfo?.remaining || 0).toLocaleString('fr-FR')} Dh
+                                                            <div className="text-[9px] font-bold text-red-500 mt-0.5">
+                                                                {((emp.creditInfo?.remaining || 0) - (mData.monthlyDeduction || 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="opacity-70">Dh</span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="w-px self-stretch bg-slate-400 mx-1" />
+
+                                                        {/* Net à Payer */}
+                                                        <div className="w-[10%] text-right pr-4">
+                                                            <div className="text-[15px] font-black text-black">
+                                                                {netPayer.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-70">Dh</span>
                                                             </div>
                                                         </div>
                                                     </>
                                                 ) : (
-                                                    <>
-                                                        {/* Vue Comptable */}
-                                                        <div className="w-[10%] text-center font-black text-slate-600 text-[11px]">{emp.contract?.baseSalary.toLocaleString('fr-FR')}</div>
-                                                        <div className="w-[10%] text-center font-black text-[#3498DB] text-[11px]">{(emp.contract?.baseSalary! * 0.0448).toFixed(2)}</div>
-                                                        <div className="w-[10%] text-center font-black text-slate-400 text-[11px]">{(emp.contract?.baseSalary! * 0.0226).toFixed(2)}</div>
-                                                        <div className="w-[10%] text-center font-black text-[#E74C3C] text-[11px]">{(emp.contract?.baseSalary! * 0.12).toFixed(0)}</div>
-                                                        <div className="w-[10%] text-center font-black text-slate-500 text-[11px]">{(emp.contract?.baseSalary! * 0.03).toFixed(2)}</div>
-                                                        <div className="w-[10%] text-center font-black text-slate-400 text-[11px]">{(emp.contract?.baseSalary! * 0.2).toFixed(0)}</div>
-                                                        <div className="w-[10%] text-center font-black text-slate-300 text-[11px]">0.00</div>
-                                                    </>
-                                                )}
+                                                    <div className="flex items-center h-16 w-full px-4 hover:bg-[#FFFBF0] transition-colors">
+                                                        {/* Matr */}
+                                                        <div className="w-[4%] text-[10px] font-bold text-slate-400 uppercase tracking-tighter">M00{emp.id}</div>
 
-                                                {/* Net à Payer */}
-                                                <div className="w-[12%] text-right pr-4">
-                                                    <div className="text-base font-black text-[#D35400] leading-none mb-0.5">
-                                                        {netPayer.toLocaleString('fr-FR')}
+                                                        {/* Salarié */}
+                                                        <div className="w-[16%] flex items-center gap-3 pr-2 border-r border-slate-200 h-full">
+                                                            <div className="w-8 h-8 rounded-full bg-[#FDF6E3] text-[#A67C00] border border-[#F0E6D2] flex items-center justify-center font-black text-[11px] shrink-0">
+                                                                {emp.firstName[0]}{emp.lastName[0]}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <div className="text-[12px] font-black text-slate-800 uppercase leading-none mb-1 truncate">{emp.lastName} {emp.firstName}</div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Net Cible */}
+                                                        <div className="w-[9%] text-center text-[12px] font-bold text-slate-600">
+                                                            {(emp.contract?.baseSalary || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+
+                                                        <div className="w-px self-stretch bg-slate-200 mx-1" />
+
+                                                        {/* Jours */}
+                                                        <div className="w-[5%] text-center text-[12px] font-bold text-slate-800">
+                                                            {mData.jours}
+                                                        </div>
+
+                                                        {/* Brut */}
+                                                        <div className="w-[9%] text-center text-[11px] font-bold text-slate-500">
+                                                            {calculateCompta(emp).brut.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+
+                                                        {/* Bru Imp */}
+                                                        <div className="w-[9%] text-center text-[11px] font-bold text-slate-400">
+                                                            {calculateCompta(emp).baseImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+
+                                                        {/* Net Imp */}
+                                                        <div className="w-[9%] text-center text-[11px] font-bold text-slate-400">
+                                                            {calculateCompta(emp).netImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+
+                                                        <div className="w-px self-stretch bg-slate-200 mx-1" />
+
+                                                        {/* CNSS */}
+                                                        <div className="w-[7%] text-center text-[11px] font-bold text-slate-400">
+                                                            {calculateCompta(emp).cnss.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+
+                                                        {/* AMO */}
+                                                        <div className="w-[7%] text-center text-[11px] font-bold text-slate-400">
+                                                            {calculateCompta(emp).amo.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+
+                                                        {/* IR */}
+                                                        <div className="w-[7%] text-center text-[11px] font-bold text-slate-400">
+                                                            {calculateCompta(emp).ir.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+
+                                                        <div className="w-px self-stretch bg-slate-200 mx-1" />
+
+                                                        {/* Salaire Net */}
+                                                        <div className="w-[11%] text-right pr-4 text-[13px] font-black text-[#A67C00]">
+                                                            {calculateCompta(emp).salaireNet.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[9px] opacity-70">Dh</span>
+                                                        </div>
                                                     </div>
-                                                    <span className="text-[8px] font-black text-[#E67E22] uppercase tracking-[.15em] opacity-60">Dh Net à Payer</span>
-                                                </div>
+                                                )}
                                             </div>
                                         );
                                     })}
                                 </div>
 
                                 {/* Table Footer / Summary */}
-                                <div className="h-12 bg-slate-50 border-t border-slate-100 flex items-center px-8 gap-10 shrink-0">
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Masse Salariale</span>
-                                        <span className="text-lg font-black text-slate-800">
-                                            {employees.reduce((acc, emp) => acc + calculateNet(emp), 0).toLocaleString('fr-FR')}
-                                            <span className="text-[10px] ml-1">Dh</span>
-                                        </span>
-                                    </div>
-                                    <div className="h-3 w-px bg-slate-200" />
-                                    <div className="flex items-center gap-2 text-slate-400">
-                                        <Users className="w-3.5 h-3.5" />
-                                        <span className="text-[10px] font-black uppercase tracking-widest">{employees.length} Salaries</span>
-                                    </div>
+                                <div className="h-14 bg-[#2C3E50] border-t border-slate-700 flex items-center px-4 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.1)] z-10">
+                                    {journalSubView === "SAISIE" ? (
+                                        <>
+                                            <div className="w-[5%]" />
+                                            <div className="w-[15%] flex items-center gap-2 pl-4">
+                                                <Users className="w-4 h-4 text-slate-400" />
+                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{employees.length} Salaries</span>
+                                            </div>
+
+                                            {/* Net Cible Total */}
+                                            <div className="w-[8%] text-center">
+                                                <div className="text-[11px] font-black text-[#2ECC71]">
+                                                    {totals.netCible.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Masse Salariale Centrale */}
+                                            <div className="flex-1 flex justify-center items-center gap-3">
+                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">La Masse salariale est de</span>
+                                                <div className="bg-slate-700/30 px-4 py-1.5 rounded-xl border border-slate-700/50 flex items-center gap-1.5 shadow-inner">
+                                                    <span className="text-[13px] font-black text-white">
+                                                        {(totals.netPayer + totals.retenuePret + totals.avances + totals.virement).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </span>
+                                                    <span className="text-[10px] font-bold text-slate-400 italic">Dh</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="w-px self-stretch bg-slate-700/50 mx-1" />
+
+                                            {/* Virement Total */}
+                                            <div className="w-[8%] text-center">
+                                                <div className="text-[11px] font-black text-[#F39C12]">
+                                                    {totals.virement.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Avances Total */}
+                                            <div className="w-[8%] text-center">
+                                                <div className="text-[11px] font-black text-[#F39C12]">
+                                                    {totals.avances.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Retenue Prêt Total */}
+                                            <div className="w-[8%] text-center">
+                                                <div className="text-[11px] font-black text-[#F39C12]">
+                                                    {totals.retenuePret.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="w-px self-stretch bg-slate-700/50 mx-1" />
+
+                                            {/* Net à Payer Total */}
+                                            <div className="w-[10%] text-right pr-4">
+                                                <div className="text-[13px] font-black text-white">
+                                                    {totals.netPayer.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    <span className="text-[10px] ml-0.5 opacity-70 italic font-medium">Dh</span>
+                                                </div>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="flex items-center w-full px-4 h-full bg-[#A67C00] text-white/90">
+                                            <div className="w-[4%]" />
+                                            <div className="w-[16%] flex items-center gap-2">
+                                                <Users className="w-4 h-4 text-white/70" />
+                                                <span className="text-[9px] font-black uppercase tracking-widest">{employees.length} Salaries</span>
+                                            </div>
+
+                                            {/* Net Cible Total */}
+                                            <div className="w-[9%] text-center text-[11px] font-black">
+                                                {totals.netCible.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+
+                                            <div className="w-[5%] text-center text-[11px] font-black opacity-60">-</div>
+
+                                            {/* Brut Total */}
+                                            <div className="w-[9%] text-center text-[10px] font-bold opacity-80">
+                                                {totals.brut.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+
+                                            {/* Bru Imp */}
+                                            <div className="w-[9%] text-center text-[10px] font-bold opacity-80">
+                                                {totals.brutImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+
+                                            {/* Net Imp */}
+                                            <div className="w-[9%] text-center text-[10px] font-bold opacity-80">
+                                                {totals.netImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+
+                                            {/* CNSS */}
+                                            <div className="w-[7%] text-center text-[10px] font-bold opacity-80">
+                                                {totals.cnss.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+
+                                            {/* AMO */}
+                                            <div className="w-[7%] text-center text-[10px] font-bold opacity-80">
+                                                {totals.amo.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+
+                                            {/* IR */}
+                                            <div className="w-[7%] text-center text-[10px] font-bold opacity-80">
+                                                {totals.ir.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+
+                                            {/* Salaire Net */}
+                                            <div className="w-[11%] text-right pr-4 text-[13px] font-black text-white">
+                                                {totals.salaireNet.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[9px] opacity-70">Dh</span>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1113,7 +1563,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     <YAxis
                                                                         domain={['auto', 'auto']}
                                                                         tick={{ fontSize: 10, fill: '#94a3b8' }}
-                                                                        tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+                                                                        tickFormatter={(v) => (v / 1000).toFixed(0) + " k"}
                                                                         width={25}
                                                                         axisLine={false}
                                                                         tickLine={false}

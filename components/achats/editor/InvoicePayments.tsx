@@ -118,20 +118,24 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
 
     // Handlers
     const handlePaymentChange = (index: number, field: string, value: any) => {
-        const newPayments = [...payments];
+        const safePayments = Array.isArray(payments) ? payments : [];
+        if (index < 0 || index >= safePayments.length) return;
+
+        const newPayments = [...safePayments];
         newPayments[index] = { ...newPayments[index], [field]: value };
         onPaymentsChange(newPayments);
     };
 
     const handleAddPayment = () => {
+        const safePayments = Array.isArray(payments) ? payments : [];
         const newPayment = {
-            id: crypto.randomUUID(),
+            id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             amount: 0,
             mode: "Espèces",
             date: new Date().toISOString().split('T')[0],
             account: "Caisse"
         };
-        const newPayments = [...payments, newPayment];
+        const newPayments = [...safePayments, newPayment];
 
         onPaymentsChange(newPayments);
 
@@ -139,7 +143,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
         setTimeout(() => {
             const lastIndex = newPayments.length - 1;
             amountRefs.current[lastIndex]?.focus();
-        }, 50);
+        }, 100);
     };
 
     const handleDateArrow = (index: number, part: 'day' | 'month' | 'year', direction: 'up' | 'down') => {
