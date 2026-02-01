@@ -1,9 +1,14 @@
-import { Article, Invoice } from "@/lib/types";
-import { initialFamilies, initialSubFamilies, initialUnits } from "@/lib/data";
-import { Save, Trash2, Pencil, Check, X } from "lucide-react";
+import { Article, Invoice, Family, SubFamily, Tier } from "@/lib/types";
+import { Save, Trash2, Pencil, Check, X, Plus } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 import { cn } from "@/lib/utils";
+import { getFamilies, getSubFamilies, getAccountingNatures, getTiers } from "@/lib/data-service";
+import { useRef } from "react";
+import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
+import { UnitSelector } from "@/components/ui/UnitSelector";
+import { AccountingAccount } from "@/lib/types";
+import { getAccountingAccounts } from "@/lib/data-service";
 
 interface ArticleEditorProps {
     article?: Article | null;
@@ -18,6 +23,48 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     const [formData, setFormData] = useState<Partial<Article>>({});
     const [isEditing, setIsEditing] = useState(false);
 
+    const [families, setFamilies] = useState<Family[]>([]);
+    const [subFamilies, setSubFamilies] = useState<SubFamily[]>([]);
+    const [accountingNatures, setAccountingNatures] = useState<{ id: string, name: string }[]>([]);
+    const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([]);
+    const [tiers, setTiers] = useState<Tier[]>([]);
+
+    // Derived state for the "Compte Général" selector
+    const selectedGeneralAccount = formData.accountingCode ? formData.accountingCode.substring(0, 4) : "";
+
+    // Focus Refs
+    const nameRef = useRef<HTMLInputElement>(null);
+    const codeRef = useRef<HTMLInputElement>(null);
+    const familyRef = useRef<HTMLSelectElement>(null);
+    const subFamilyRef = useRef<HTMLSelectElement>(null);
+    const unitAchatRef = useRef<HTMLSelectElement>(null);
+    const contenanceRef = useRef<HTMLInputElement>(null);
+    const unitPivotRef = useRef<HTMLSelectElement>(null);
+    const coeffRef = useRef<HTMLInputElement>(null);
+    const unitProdRef = useRef<HTMLSelectElement>(null);
+    const vatRefs = useRef<(HTMLButtonElement | null)[]>([]);
+    const natureRef = useRef<HTMLSelectElement>(null);
+    const accountRef = useRef<HTMLInputElement>(null);
+    const saveRef = useRef<HTMLButtonElement>(null);
+
+    useEffect(() => {
+        const load = async () => {
+            const [f, s, n, a, t] = await Promise.all([
+                getFamilies(),
+                getSubFamilies(),
+                getAccountingNatures(),
+                getAccountingAccounts(),
+                getTiers()
+            ]);
+            setFamilies(f);
+            setSubFamilies(s);
+            setAccountingNatures(n);
+            setAccountingAccounts(a);
+            setTiers(t);
+        };
+        load();
+    }, []);
+
     // Watch for external edit trigger
     useEffect(() => {
         if (forceEditTrigger) {
@@ -28,20 +75,15 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     // Local state for Family selection (allows changing family before sub-family)
     const [selectedFamilyId, setSelectedFamilyId] = useState<string>("");
 
-    // Units
-    const [units] = usePersistedState<string[]>("bakery_units", initialUnits);
-
     // Helper to generate code
     const generateNextCode = (subId: string) => {
-        const sub = initialSubFamilies.find(s => s.id === subId);
+        const sub = subFamilies.find(s => s.id === subId);
         if (!sub) return "NEW-00";
 
         // Base Prefix: Replace 'F' with 'P' in FA011 -> PA011
-        // If sub.code is "FA011", we want "PA011-##"
-        const baseCode = sub.code.replace('F', 'P'); // Simple replacement policy
+        const baseCode = sub.code.replace('F', 'P');
 
         // Count existing articles in this SubFamily
-        // We filter using the passed existingArticles
         const count = existingArticles.filter(a => a.subFamilyId === subId).length;
         const nextNum = count + 1;
 
@@ -64,12 +106,13 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
             });
 
             // Check if it's a temporary "new" article
-            const isNew = article.id.startsWith("temp_");
+            // Start in edit mode only for brand new temporary articles
+            const isNew = article.id.startsWith("temp_") || article.id.startsWith("new_");
             setIsEditing(isNew);
 
             // Sync family selector
             if (article.subFamilyId) {
-                const sub = initialSubFamilies.find(s => s.id === article.subFamilyId);
+                const sub = subFamilies.find(s => s.id === article.subFamilyId);
                 if (sub) setSelectedFamilyId(sub.familyId);
             } else {
                 setSelectedFamilyId("");
@@ -82,17 +125,43 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
         }
     }, [article, existingArticles]); // Add existingArticles dependency if needed, but mainly on article change
 
+    // Auto-fill accounting code from SubFamily default if missing
+    // This handles initial load (when subFamilies are fetched) and when opening an article without a code.
+    useEffect(() => {
+        if (formData.subFamilyId && !formData.accountingCode && subFamilies.length > 0) {
+            const sub = subFamilies.find(s => s.id === formData.subFamilyId);
+            if (sub?.accountingCode) {
+                setFormData(prev => ({ ...prev, accountingCode: sub.accountingCode }));
+            }
+        }
+    }, [formData.subFamilyId, formData.accountingCode, subFamilies]);
+
     const handleChange = (field: keyof Article, value: any) => {
         setFormData(prev => {
             const newData = { ...prev, [field]: value };
 
-            // If SubFamily changes AND it's a new article, re-generate code
-            if (field === "subFamilyId" && (prev.id?.startsWith("temp_") || prev.id === undefined)) {
-                newData.code = generateNextCode(value as string);
+            if (field === "subFamilyId") {
+                // If SubFamily changes AND it's a new article, re-generate code
+                if (prev.id?.startsWith("temp_") || prev.id === undefined) {
+                    newData.code = generateNextCode(value as string);
+                }
+
+                // Auto-fill accounting code
+                const sub = subFamilies.find(s => s.id === value);
+                if (sub?.accountingCode) {
+                    newData.accountingCode = sub.accountingCode;
+                }
             }
 
             return newData;
         });
+    };
+
+    const handleDelete = () => {
+        if (!article?.id) return;
+        if (window.confirm(`Êtes-vous sûr de vouloir supprimer l'article "${article.name}" ? Cette action est irréversible.`)) {
+            onDelete(article.id);
+        }
     };
 
     const handleSave = () => {
@@ -111,7 +180,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
             setIsEditing(false);
             if (article) {
                 setFormData(article);
-                const sub = initialSubFamilies.find(s => s.id === article.subFamilyId);
+                const sub = subFamilies.find(s => s.id === article.subFamilyId);
                 if (sub) setSelectedFamilyId(sub.familyId);
             }
         } else {
@@ -120,8 +189,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     };
 
     // Derived display values
-    const family = initialFamilies.find(f => f.id === (selectedFamilyId || (formData.subFamilyId ? initialSubFamilies.find(s => s.id === formData.subFamilyId)?.familyId : "")));
-    const subFamily = initialSubFamilies.find(s => s.id === formData.subFamilyId);
+    const family = families.find(f => f.id === (selectedFamilyId || (formData.subFamilyId ? subFamilies.find(s => s.id === formData.subFamilyId)?.familyId : "")));
+    const subFamily = subFamilies.find(s => s.id === formData.subFamilyId);
 
     const displayCode = formData.code || "NO-CODE";
     const displayName = formData.name || "Nouvel Article";
@@ -136,13 +205,13 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     }, [formData.priceHistory, formData.lastPivotPrice]);
 
     // Icon (Placeholder logic based on family?)
-    const typeName = family ? initialFamilies.find(f => f.id === family.id)?.typeId === "1" ? "ACHAT" : "FONCT." : "";
+    const typeName = family ? families.find(f => f.id === family.id)?.typeId === "1" ? "ACHAT" : "FONCT." : "";
 
     // Filtered SubFamilies based on selected Family
     const filteredSubFamilies = useMemo(() => {
         if (!selectedFamilyId) return [];
-        return initialSubFamilies.filter(s => s.familyId === selectedFamilyId);
-    }, [selectedFamilyId]);
+        return subFamilies.filter(s => s.familyId === selectedFamilyId);
+    }, [selectedFamilyId, subFamilies]);
 
     // Computed History from Invoices
     const historyList = useMemo(() => {
@@ -151,26 +220,63 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
         invoices.forEach(inv => {
             inv.lines.forEach(line => {
                 if (line.articleId === article.id || (line.articleName === article.name && !line.articleId)) {
+                    const supplier = tiers.find(t => t.id === inv.supplierId || t.code === inv.supplierId);
+
+                    // Prix Pivot Calculation
+                    let prixPivot = line.priceHT;
+                    if (line.unit === article.unitAchat && article.contenace > 0) {
+                        prixPivot = line.priceHT / article.contenace;
+                    }
+
                     lines.push({
                         date: inv.date,
-                        supplier: inv.supplierId,
+                        supplier: supplier ? supplier.name : (inv.supplierId || "Inconnu"),
                         quantity: line.quantity,
                         unit: line.unit,
                         price: line.priceHT,
-                        total: line.totalTTC, // Or approximation if not stored perfectly on line
+                        prixPivot: prixPivot,
+                        total: line.totalTTC,
                         status: inv.status
                     });
                 }
             });
         });
         return lines.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [article, invoices]);
+    }, [article, invoices, tiers]);
 
-    // Helper to check if new
     const isNewArticle = formData.id?.startsWith("temp_") || formData.id?.startsWith("new_");
 
+    const handleKeyDown = (e: React.KeyboardEvent, field: string) => {
+        // Stop global navigation (Sidebar) when typing/selecting in fields
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+            e.stopPropagation();
+            e.nativeEvent.stopImmediatePropagation();
+        }
+
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            switch (field) {
+                case "code": nameRef.current?.focus(); break;
+                case "name": familyRef.current?.focus(); break;
+                case "family": subFamilyRef.current?.focus(); break;
+                case "subFamily": unitAchatRef.current?.focus(); break;
+                case "unitAchat": contenanceRef.current?.focus(); break;
+                case "contenance": unitPivotRef.current?.focus(); break;
+                case "unitPivot": coeffRef.current?.focus(); break;
+                case "coeffProd": unitProdRef.current?.focus(); break;
+                case "unitProduction":
+                    // Focus first VAT button
+                    vatRefs.current[0]?.focus();
+                    break;
+                case "vat": natureRef.current?.focus(); break;
+                case "nature": accountRef.current?.focus(); break;
+                case "account": saveRef.current?.focus(); break;
+            }
+        }
+    };
+
     return (
-        <div className="h-full flex flex-col bg-white">
+        <div className="h-full flex flex-col bg-white/30 backdrop-blur-md overflow-hidden">
 
             {/* CONTENT CONTAINER - Scrollable */}
             <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -183,10 +289,12 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                         {/* Tags Row */}
                         <div className="flex items-center gap-3 mb-4">
                             {isEditing ? (
-                                <input
+                                <GlassInput
+                                    ref={codeRef}
                                     value={formData.code || ""}
                                     onChange={(e) => handleChange("code", e.target.value)}
-                                    className="text-sm font-bold text-[#C19A6B] bg-slate-50 border border-slate-200 px-2 py-0.5 rounded focus:outline-none focus:border-blue-500 w-24 tracking-wide uppercase"
+                                    onKeyDown={(e) => handleKeyDown(e, "code")}
+                                    className="text-sm font-bold text-[#C19A6B] w-24 uppercase h-8"
                                     placeholder="CODE"
                                 />
                             ) : (
@@ -203,7 +311,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                         {/* Icon & Title Row */}
                         <div className="flex gap-5 items-start">
                             {/* Icon (Reduced Size) */}
-                            <div className="w-16 h-16 bg-[#FFF9F0] rounded-[1rem] flex items-center justify-center shrink-0 shadow-sm border border-slate-50 mt-1">
+                            <div className="w-16 h-16 bg-[#F8FAFC] rounded-[1.2rem] flex items-center justify-center shrink-0 shadow-sm border border-slate-200 mt-1 relative overflow-hidden group/icon">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#D69E2E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 22 16 8" /><path d="M3.47 12.53 5 11l1.53 1.53a3.5 3.5 0 0 1 0 4.94L5 19l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M7.47 8.53 9 7l1.53 1.53a3.5 3.5 0 0 1 0 4.94L9 15l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M11.47 4.53 13 3l1.53 1.53a3.5 3.5 0 0 1 0 4.94L13 11l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M20 2h2v2a4 4 0 0 1-4 4h-2V6a4 4 0 0 1 4-4Z" /><path d="M11.47 17.47 13 19l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L5 19l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M15.47 13.47 17 15l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L9 15l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M19.47 9.47 21 11l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L13 11l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /></svg>
                             </div>
 
@@ -211,23 +319,19 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                             <div className="flex-1 min-w-0 flex flex-col justify-center min-h-[4rem]">
                                 {/* Title */}
                                 {isEditing ? (
-                                    <input
+                                    <GlassInput
+                                        ref={nameRef}
                                         value={formData.name || ""}
                                         onChange={(e) => handleChange("name", e.target.value)}
-                                        className="text-3xl font-serif font-bold text-slate-900 leading-tight bg-slate-50 border-b-2 border-slate-200 focus:border-blue-500 focus:outline-none w-full placeholder:text-slate-300"
+                                        onKeyDown={(e) => handleKeyDown(e, "name")}
+                                        className="text-2xl font-bold text-slate-900 border-none bg-white/50"
                                         placeholder="Nom de l'article"
                                         autoFocus
                                         onFocus={(e) => e.target.select()}
                                     />
                                 ) : (
-                                    <h1 className="text-3xl font-serif font-bold text-slate-900 leading-tight truncate py-1 flex items-center gap-3 group">
+                                    <h1 className="text-3xl font-serif font-bold text-slate-900 leading-tight truncate py-1 flex items-center gap-3">
                                         {displayName}
-                                        <div
-                                            onClick={(e) => { e.stopPropagation(); toggleEdit(); }}
-                                            className="opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer p-1.5 bg-slate-100 rounded-lg hover:bg-blue-100 hover:text-blue-600"
-                                        >
-                                            <Pencil className="w-3.5 h-3.5" />
-                                        </div>
                                     </h1>
                                 )}
 
@@ -235,22 +339,26 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                 {isEditing ? (
                                     <div className="flex gap-2 mt-2">
                                         <select
+                                            ref={familyRef}
                                             value={selectedFamilyId}
                                             onChange={(e) => {
                                                 setSelectedFamilyId(e.target.value);
                                                 handleChange("subFamilyId", ""); // Reset sub on family change
                                             }}
+                                            onKeyDown={(e) => handleKeyDown(e, "family")}
                                             className="bg-slate-50 border border-slate-200 text-xs font-bold text-slate-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
                                         >
                                             <option value="">Sélectionner Famille</option>
-                                            {initialFamilies.map(f => (
+                                            {families.map(f => (
                                                 <option key={f.id} value={f.id}>{f.name}</option>
                                             ))}
                                         </select>
 
                                         <select
+                                            ref={subFamilyRef}
                                             value={formData.subFamilyId || ""}
                                             onChange={(e) => handleChange("subFamilyId", e.target.value)}
+                                            onKeyDown={(e) => handleKeyDown(e, "subFamily")}
                                             className="bg-slate-50 border border-slate-200 text-xs font-bold text-slate-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
                                             disabled={!selectedFamilyId}
                                         >
@@ -270,40 +378,43 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                     </div>
 
                     {/* Right Actions - Moved Top Level */}
-                    <div className="flex flex-col items-end gap-3 min-w-[200px] shrink-0">
-                        {/* Price Card - Blue Square (Matches selection bg-blue-100) */}
-                        <div className="bg-blue-100 text-blue-900 p-4 w-full text-center shadow-md">
-                            <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1">Dernier Cours</div>
-                            <div className="text-2xl font-bold">
-                                {displayPrice.toFixed(2).replace('.', ',')} <span className="text-sm font-normal text-blue-400">Dh / {formData.unitPivot}</span>
+                    <div className="flex flex-col items-end gap-3 min-w-[220px] shrink-0">
+                        {/* Price Card */}
+                        <div className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-xl rounded-2xl p-4 w-full text-center">
+                            <div className="text-[10px] font-bold text-blue-500/60 uppercase tracking-widest mb-1">Dernier Cours</div>
+                            <div className="text-2xl font-bold text-slate-800">
+                                {displayPrice.toFixed(2).replace('.', ',')} <span className="text-sm font-normal text-slate-400">Dh / {formData.unitPivot}</span>
                             </div>
                         </div>
 
                         {/* Buttons Control */}
-                        <div className="flex gap-2 w-full">
-                            {/* Always Show Save Button */}
-                            <button
-                                onClick={handleSave}
-                                className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-md border border-blue-100"
-                            >
-                                <Check className="w-4 h-4" /> Enregistrer
-                            </button>
-
+                        <div className="flex gap-2 w-full mt-2">
                             {isEditing ? (
-                                <button
-                                    onClick={toggleEdit}
-                                    className="w-10 h-10 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-xl flex items-center justify-center transition-colors shadow-md"
+                                <GlassButton
+                                    ref={saveRef}
+                                    variant="secondary"
+                                    onClick={handleSave}
+                                    className="flex-1 bg-white border border-green-200 text-green-600 hover:bg-green-50 shadow-sm font-bold uppercase tracking-wider text-[10px]"
                                 >
-                                    <X className="w-5 h-5" />
-                                </button>
+                                    <Save className="w-4 h-4 mr-2" /> Enregistrer
+                                </GlassButton>
                             ) : (
-                                <button
-                                    onClick={() => article?.id && onDelete(article.id)}
-                                    className="w-10 h-10 bg-pink-50 hover:bg-pink-100 text-pink-500 rounded-xl flex items-center justify-center transition-colors shadow-md"
+                                <GlassButton
+                                    variant="secondary"
+                                    onClick={() => setIsEditing(true)}
+                                    className="flex-1 bg-white border border-blue-200 text-blue-600 hover:bg-blue-50 shadow-sm font-bold uppercase tracking-wider text-[10px]"
                                 >
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
+                                    <Pencil className="w-4 h-4 mr-2" /> Modifier
+                                </GlassButton>
                             )}
+
+                            <button
+                                onClick={handleDelete}
+                                className="w-10 h-10 bg-white border border-red-200 text-red-500 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-red-500/5 hover:bg-red-50 hover:shadow-red-500/10 active:scale-95 transition-all"
+                                title="Supprimer"
+                            >
+                                <Trash2 className="w-5 h-5 text-red-600" />
+                            </button>
                         </div>
                     </div>
 
@@ -321,20 +432,16 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                         <div className="flex items-center gap-4">
 
                             {/* 1. Unité Achat */}
-                            <div className="flex-1 min-w-[140px] flex flex-col">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 text-center">Unité Achat</label>
-                                <select
-                                    value={formData.unitAchat || ""}
-                                    onChange={(e) => handleChange("unitAchat", e.target.value)}
-                                    style={{ textAlignLast: 'center' }}
-                                    className="w-full text-sm font-bold text-slate-800 outline-none bg-transparent border-none focus:ring-0 transition-all appearance-none cursor-pointer text-center p-1"
-                                >
-                                    <option value="">Sélectionner...</option>
-                                    {units.map(u => (
-                                        <option key={u} value={u}>{u}</option>
-                                    ))}
-                                </select>
-                            </div>
+                            <UnitSelector
+                                ref={unitAchatRef}
+                                label="Unité Achat"
+                                type="achat"
+                                variant="article"
+                                value={formData.unitAchat || ""}
+                                onChange={(val) => handleChange("unitAchat", val)}
+                                onKeyDown={(e) => handleKeyDown(e, "unitAchat")}
+                                className="flex-1 min-w-[140px]"
+                            />
 
                             {/* Separator */}
                             <div className="w-px h-8 bg-slate-100" />
@@ -343,9 +450,11 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                             <div className="w-32 flex flex-col">
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 text-center">Contenance</label>
                                 <input
+                                    ref={contenanceRef}
                                     type="number"
                                     value={formData.contenace || ""}
                                     onChange={(e) => handleChange("contenace", parseFloat(e.target.value))}
+                                    onKeyDown={(e) => handleKeyDown(e, "contenance")}
                                     className="w-full text-sm font-bold text-slate-800 text-center outline-none bg-transparent border-none focus:ring-0 transition-all p-1"
                                 />
                             </div>
@@ -354,20 +463,17 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                             <div className="w-px h-8 bg-slate-100" />
 
                             {/* 3. Unité Pivot */}
-                            <div className="flex-1 min-w-[120px] flex flex-col">
-                                <label className="block text-[10px] font-bold text-blue-500 uppercase mb-1 text-center">Unité Pivot (Stock)</label>
-                                <select
-                                    value={formData.unitPivot || ""}
-                                    onChange={(e) => handleChange("unitPivot", e.target.value)}
-                                    style={{ textAlignLast: 'center' }}
-                                    className="w-full text-sm font-bold text-blue-700 text-center outline-none bg-transparent border-none focus:ring-0 transition-all appearance-none cursor-pointer p-1"
-                                >
-                                    <option value="">Sélectionner...</option>
-                                    {["Kg", "Litre", "Unité"].map(u => (
-                                        <option key={u} value={u}>{u}</option>
-                                    ))}
-                                </select>
-                            </div>
+                            <UnitSelector
+                                ref={unitPivotRef}
+                                label="Unité Pivot (Stock)"
+                                type="pivot"
+                                variant="article"
+                                value={formData.unitPivot || ""}
+                                onChange={(val) => handleChange("unitPivot", val)}
+                                onKeyDown={(e) => handleKeyDown(e, "unitPivot")}
+                                className="flex-1 min-w-[120px]"
+                                isBlue
+                            />
 
                             {/* Separator */}
                             <div className="w-px h-8 bg-slate-100" />
@@ -376,9 +482,11 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                             <div className="w-32 flex flex-col">
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 text-center">Coeff</label>
                                 <input
+                                    ref={coeffRef}
                                     type="number"
                                     value={formData.coeffProd || ""}
                                     onChange={(e) => handleChange("coeffProd", parseFloat(e.target.value))}
+                                    onKeyDown={(e) => handleKeyDown(e, "coeffProd")}
                                     className="w-full text-sm font-bold text-green-600 text-center outline-none bg-transparent border-none focus:ring-0 transition-all p-1"
                                 />
                             </div>
@@ -387,20 +495,16 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                             <div className="w-px h-8 bg-slate-100" />
 
                             {/* 5. Unité Production */}
-                            <div className="flex-1 min-w-[120px] flex flex-col">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 text-center">Unité Production</label>
-                                <select
-                                    value={formData.unitProduction || ""}
-                                    onChange={(e) => handleChange("unitProduction", e.target.value)}
-                                    style={{ textAlignLast: 'center' }}
-                                    className="w-full text-sm font-bold text-slate-800 text-center outline-none bg-transparent border-none focus:ring-0 transition-all appearance-none cursor-pointer p-1"
-                                >
-                                    <option value="">Sélectionner...</option>
-                                    {["g", "cl", "unité"].map(u => (
-                                        <option key={u} value={u}>{u}</option>
-                                    ))}
-                                </select>
-                            </div>
+                            <UnitSelector
+                                ref={unitProdRef}
+                                label="Unité Production"
+                                type="production"
+                                variant="article"
+                                value={formData.unitProduction || ""}
+                                onChange={(val) => handleChange("unitProduction", val)}
+                                onKeyDown={(e) => handleKeyDown(e, "unitProduction")}
+                                className="flex-1 min-w-[120px]"
+                            />
 
                         </div>
                     </div>
@@ -419,10 +523,12 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                             <div className="space-y-4">
                                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Taux de TVA (%)</label>
                                 <div className="flex flex-wrap gap-2.5">
-                                    {[0, 7, 10, 14, 20].map((rate) => (
+                                    {[0, 7, 10, 14, 20].map((rate, idx) => (
                                         <button
                                             key={rate}
+                                            ref={el => { vatRefs.current[idx] = el; }}
                                             onClick={() => handleChange("vatRate", rate)}
+                                            onKeyDown={(e) => handleKeyDown(e, "vat")}
                                             className={cn(
                                                 "px-5 py-2.5 rounded-lg text-xs font-bold transition-all border shadow-sm",
                                                 (formData.vatRate || 0) === rate
@@ -440,47 +546,56 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
 
                             {/* Accounting Info Row */}
                             <div className="grid grid-cols-1 gap-5">
-                                {/* Nature Comptable */}
+                                {/* Compte Général (Selector) */}
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-serif italic text-slate-500">Nature Comptable</label>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-serif italic text-slate-500">Compte Général</label>
                                     <select
-                                        value={formData.accountingNature || ""}
-                                        onChange={(e) => handleChange("accountingNature", e.target.value)}
+                                        value={selectedGeneralAccount}
+                                        onChange={(e) => {
+                                            const code = e.target.value;
+                                            // Auto-fill 6-digit code: "6121" -> "612100"
+                                            if (code) {
+                                                handleChange("accountingCode", code + "00");
+                                            } else {
+                                                handleChange("accountingCode", "");
+                                            }
+                                        }}
                                         className="w-full bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
                                     >
                                         <option value="">Sélectionner...</option>
-                                        <option value="Achat de matières premières">Achat de matières premières</option>
-                                        <option value="Achat de marchandises">Achat de marchandises</option>
-                                        <option value="Achat d'emballages">Achat d'emballages</option>
-                                        <option value="Fournitures consommables">Fournitures consommables</option>
-                                        <option value="Petit outillage">Petit outillage</option>
-                                        <option value="Services extérieurs">Services extérieurs</option>
+                                        {accountingAccounts.map(acc => (
+                                            <option key={acc.id} value={acc.code}>
+                                                {acc.code} - {acc.label}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
 
-                                {/* Compte Comptable */}
+                                {/* Compte Analytique (6 digits) */}
                                 <div className="space-y-2 pt-4 border-t border-blue-200">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-serif italic text-slate-500">Compte Comptable</label>
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-serif italic text-slate-500">Compte Analytique (6 chiffres)</label>
                                     <input
                                         type="text"
-                                        value={formData.accountingAccount || ""}
-                                        onChange={(e) => handleChange("accountingAccount", e.target.value)}
-                                        placeholder="ex: 6111"
-                                        className="w-full bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
+                                        value={formData.accountingCode || ""}
+                                        onChange={(e) => {
+                                            const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 6);
+                                            handleChange("accountingCode", val);
+                                        }}
+                                        placeholder="ex: 612100"
+                                        className="w-full bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm font-mono tracking-wider"
                                     />
                                 </div>
                             </div>
                         </div>
                     </section>
 
-                    {/* Block 2: Logistique & Stockage (Conditional Nutrition) */}
                     <section className="flex flex-col h-full">
                         <h3 className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2">
                             <div className="w-1.5 h-6 rounded-full bg-[#1E293B] transition-colors" />
-                            {formData.accountingNature === "Achat de matières premières" ? "Valeurs Nutritionnelles pour 100g" : "Logistique & Stockage"}
+                            {formData.accountingCode?.startsWith("6121") ? "Valeurs Nutritionnelles pour 100g" : "Logistique & Stockage"}
                         </h3>
                         <div className="bg-[#F8FAFC] rounded-2xl px-6 py-4 border border-blue-500/20 shadow-2xl shadow-blue-500/5 transition-all duration-300 flex-1 flex flex-col min-h-[300px]">
-                            {formData.accountingNature === "Achat de matières premières" ? (
+                            {formData.accountingCode?.startsWith("6121") ? (
                                 <div className="space-y-3">
                                     {/* Row 1: Energy & Water */}
                                     <div className="flex items-center gap-4 p-3 bg-white rounded-lg border border-slate-100 shadow-sm">
@@ -625,7 +740,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                         <th className="px-8 py-5 text-center">Date</th>
                                         <th className="px-4 py-5 text-center">Fournisseur</th>
                                         <th className="px-4 py-5 text-center">Quantité</th>
-                                        <th className="px-4 py-5 text-center">PU HT (Pivot)</th>
+                                        <th className="px-4 py-5 text-center">PU HT</th>
+                                        <th className="px-4 py-5 text-center">Prix Pivot</th>
                                         <th className="px-8 py-5 text-center">Total TTC</th>
                                     </tr>
                                 </thead>
@@ -644,14 +760,17 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                     {item.status === "Draft" && <span className="ml-2 text-[9px] bg-slate-100 px-1 rounded">Brouillon</span>}
                                                 </td>
                                                 <td className="px-4 py-5 font-bold text-slate-800 text-center">
-                                                    {item.supplier || "Inconnu"}
+                                                    {item.supplier}
                                                 </td>
                                                 <td className="px-4 py-5 text-center">
                                                     <span className="font-black text-slate-700">{item.quantity}</span>
                                                     <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">{item.unit}</span>
                                                 </td>
-                                                <td className="px-4 py-5 font-black text-blue-600 text-center">
+                                                <td className="px-4 py-5 font-black text-slate-600 text-center">
                                                     {item.price.toFixed(2).replace('.', ',')} Dh
+                                                </td>
+                                                <td className="px-4 py-5 font-black text-blue-600 text-center">
+                                                    {item.prixPivot.toFixed(2).replace('.', ',')} <span className="text-[10px]">/{article?.unitPivot || ""}</span>
                                                 </td>
                                                 <td className="px-8 py-5 font-black text-[#D69E2E] text-center">
                                                     {(item.total || (item.price * item.quantity)).toFixed(2).replace('.', ',')} Dh

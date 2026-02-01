@@ -24,7 +24,7 @@ import {
 import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Recipe, Family, SubFamily, Ingredient, Article } from "@/lib/types";
-import { saveRecipe, deleteRecipe } from "@/lib/actions/production";
+import { saveRecipe, deleteRecipe } from "@/lib/data-service";
 
 export function ProductionContent({
     initialRecipes,
@@ -65,7 +65,7 @@ export function ProductionContent({
     };
 
     const calculateRecipeTotals = (recipe: Recipe) => {
-        const materialCost = recipe.ingredients.reduce((sum, ing) => {
+        const materialCost = (recipe.ingredients || []).reduce((sum, ing) => {
             const article = articles.find(a => a.id === ing.articleId);
             const prodPrice = article ? (article.lastPivotPrice || 0) / (article.coeffProd || 1) : 0;
             return sum + (ing.quantity * prodPrice);
@@ -76,6 +76,10 @@ export function ProductionContent({
         const costPerUnit = recipe.yield > 0 ? totalWithLoss / recipe.yield : 0;
 
         return { materialCost, totalCost: totalWithLoss, costPerUnit };
+    };
+
+    const updateEditData = (field: keyof Recipe, value: any) => {
+        setEditData(prev => prev ? { ...prev, [field]: value } : null);
     };
 
     const addNewIngredientRow = () => {
@@ -119,29 +123,6 @@ export function ProductionContent({
         }, 50);
     };
 
-    useEffect(() => {
-        setMultiplier(1);
-    }, [selectedRecipeId]);
-
-    useEffect(() => {
-        setSearchFocusIndex(0);
-    }, [activeRowSearch]);
-
-    const filteredRecipes = recipes.filter(recipe => {
-        const matchesSearch = recipe.name.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesFamily = filterFamily === "Tous" || recipe.familyId === filterFamily;
-        return matchesSearch && matchesFamily;
-    });
-
-    const selectedRecipe = recipes.find(r => r.id === selectedRecipeId) || recipes[0] || null;
-
-    const getAvailableSubFamilies = () => {
-        if (!editData) return [];
-        const selectedFam = productionFamilies.find(f => f.name === editData.familyId);
-        if (!selectedFam) return [];
-        return initialSubFamilies.filter(sf => sf.familyId === selectedFam.id);
-    };
-
     const handleSave = async () => {
         if (!editData) return;
         const result = await saveRecipe(editData);
@@ -159,7 +140,7 @@ export function ProductionContent({
             setIsEditing(false);
             setEditData(null);
         } else {
-            alert("Erreur lors de l'enregistrement : " + result.error);
+            alert("Erreur lors de l’enregistrement");
         }
     };
 
@@ -183,13 +164,93 @@ export function ProductionContent({
                     return newRecipes;
                 });
             } else {
-                alert("Erreur lors de la suppression : " + result.error);
+                alert("Erreur lors de la suppression");
             }
         }
     };
 
-    const updateEditData = (field: keyof Recipe, value: any) => {
-        setEditData(prev => prev ? { ...prev, [field]: value } : null);
+    useEffect(() => {
+        setMultiplier(1);
+    }, [selectedRecipeId]);
+
+    useEffect(() => {
+        setSearchFocusIndex(0);
+    }, [activeRowSearch]);
+
+    const filteredRecipes = recipes.filter(recipe => {
+        const matchesSearch = recipe.name.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesFamily = filterFamily === "Tous" || recipe.familyId === filterFamily;
+        return matchesSearch && matchesFamily;
+    });
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.defaultPrevented) return;
+
+            // Ignorer si focus dans un input, textarea, select ou bouton
+            const isInputActive = ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(document.activeElement?.tagName || "");
+            if (isInputActive) return;
+
+            if (filteredRecipes.length === 0) return;
+
+            if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                e.preventDefault();
+                const currentIndex = filteredRecipes.findIndex(r => r.id === selectedRecipeId);
+
+                if (currentIndex === -1) {
+                    if (filteredRecipes.length > 0) setSelectedRecipeId(filteredRecipes[0].id);
+                    return;
+                }
+
+                let newIndex = currentIndex;
+                if (e.key === "ArrowUp") {
+                    newIndex = Math.max(0, currentIndex - 1);
+                } else {
+                    newIndex = Math.min(filteredRecipes.length - 1, currentIndex + 1);
+                }
+
+                if (newIndex !== currentIndex) {
+                    setSelectedRecipeId(filteredRecipes[newIndex].id);
+                }
+            } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                const currentIndex = families.indexOf(filterFamily);
+                let newIndex = currentIndex;
+
+                if (e.key === "ArrowLeft") {
+                    newIndex = Math.max(0, currentIndex - 1);
+                } else {
+                    newIndex = Math.min(families.length - 1, currentIndex + 1);
+                }
+
+                if (newIndex !== currentIndex) {
+                    e.preventDefault();
+                    setFilterFamily(families[newIndex]);
+                }
+            }
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [filteredRecipes, selectedRecipeId]);
+
+    const sidebarListRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (selectedRecipeId && sidebarListRef.current) {
+            const index = filteredRecipes.findIndex(r => r.id === selectedRecipeId);
+            if (index >= 0) {
+                const el = sidebarListRef.current.children[index] as HTMLElement;
+                el?.scrollIntoView({ block: 'nearest' });
+            }
+        }
+    }, [selectedRecipeId, filteredRecipes]);
+
+    const selectedRecipe = recipes.find(r => r.id === selectedRecipeId) || recipes[0] || null;
+
+    const getAvailableSubFamilies = () => {
+        if (!editData) return [];
+        const selectedFam = productionFamilies.find(f => f.name === editData.familyId);
+        if (!selectedFam) return [];
+        return initialSubFamilies.filter(sf => sf.familyId === selectedFam.id);
     };
 
     return (
@@ -274,7 +335,10 @@ export function ProductionContent({
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto custom-scrollbar border-t border-slate-200">
+                        <div
+                            ref={sidebarListRef}
+                            className="flex-1 overflow-y-auto custom-scrollbar border-t border-slate-200"
+                        >
                             {filteredRecipes.map((recipe) => {
                                 const isSelected = selectedRecipeId === recipe.id;
                                 return (
@@ -517,7 +581,7 @@ export function ProductionContent({
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100">
                                                         {(() => {
-                                                            const currentIngs = isEditing && editData ? editData.ingredients : selectedRecipe.ingredients;
+                                                            const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
                                                             const ingsWithCalculations = currentIngs.map(ing => {
                                                                 const article = articles.find(a => a.id === ing.articleId);
                                                                 const prodPrice = article ? (article.lastPivotPrice || 0) / (article.coeffProd || 1) : 0;
@@ -804,7 +868,7 @@ export function ProductionContent({
                                                     </h3>
                                                     <div className="space-y-4">
                                                         {(() => {
-                                                            const totals = calculateRecipeTotals(selectedRecipe);
+                                                            const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe);
                                                             return (
                                                                 <>
                                                                     <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
@@ -870,80 +934,128 @@ export function ProductionContent({
                                                     </div>
                                                 </div>
 
-                                                {(() => {
-                                                    const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe);
-                                                    return (
-                                                        <div className="bg-emerald-900 rounded-2xl p-8 text-white relative overflow-hidden flex flex-col justify-center items-center text-center shadow-xl">
-                                                            <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/20 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none" />
-                                                            <div className="absolute bottom-0 left-0 w-64 h-64 bg-black/20 rounded-full blur-3xl -ml-16 -mb-16 pointer-events-none" />
-
-                                                            <h4 className="text-emerald-200 font-bold uppercase tracking-widest text-sm mb-4">Coût de Revient Total</h4>
-                                                            <div className="text-6xl font-black mb-2">{totals.totalCost.toFixed(2)}</div>
-                                                            <div className="text-emerald-200 text-xl font-medium mb-8">Dirhams</div>
-
-                                                            <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 w-full max-w-xs border border-white/10">
-                                                                <div className="flex justify-between items-center">
-                                                                    <span className="text-emerald-100 font-medium">Coût par {selectedRecipe.yieldUnit || "pièce"}</span>
-                                                                    <span className="text-2xl font-bold text-white">{totals.costPerUnit.toFixed(2)} Dh</span>
-                                                                </div>
-                                                            </div>
+                                                <div className="bg-emerald-900 rounded-2xl p-8 shadow-xl relative overflow-hidden flex flex-col justify-between">
+                                                    <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-800/20 rounded-full -translate-y-1/2 translate-x-1/2" />
+                                                    <div className="relative">
+                                                        <h3 className="text-emerald-300 font-bold text-xs uppercase tracking-[0.2em] mb-4">Prix de Revient Final</h3>
+                                                        <div className="flex items-baseline gap-3">
+                                                            <span className="text-6xl font-black text-white tracking-tighter">
+                                                                {calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe).costPerUnit.toFixed(2)}
+                                                            </span>
+                                                            <span className="text-xl font-bold text-emerald-400">Dh / {selectedRecipe.yieldUnit}</span>
                                                         </div>
-                                                    );
-                                                })()}
+                                                    </div>
+
+                                                    <div className="relative mt-12 grid grid-cols-2 gap-4">
+                                                        <div className="bg-emerald-800/40 rounded-xl p-4 border border-emerald-700/30">
+                                                            <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest block mb-1">Total Matériel</span>
+                                                            <span className="text-white font-bold text-lg">{calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe).materialCost.toFixed(2)} Dh</span>
+                                                        </div>
+                                                        <div className="bg-emerald-800/40 rounded-xl p-4 border border-emerald-700/30">
+                                                            <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest block mb-1">Coût Total</span>
+                                                            <span className="text-white font-bold text-lg">{calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe).totalCost.toFixed(2)} Dh</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         )}
 
                                         {activeTab === "nutrition" && (
-                                            <div className="grid grid-cols-4 gap-4">
-                                                {[
-                                                    { id: 'calories', label: "Calories", val: selectedRecipe.nutrition.calories, unit: "kcal", color: "text-orange-500", bg: "bg-orange-50", border: "border-orange-100" },
-                                                    { id: 'protein', label: "Protéines", val: selectedRecipe.nutrition.protein, unit: "g", color: "text-blue-500", bg: "bg-blue-50", border: "border-blue-100" },
-                                                    { id: 'carbs', label: "Glucides", val: selectedRecipe.nutrition.carbs, unit: "g", color: "text-amber-500", bg: "bg-amber-50", border: "border-amber-100" },
-                                                    { id: 'fat', label: "Lipides", val: selectedRecipe.nutrition.fat, unit: "g", color: "text-red-500", bg: "bg-red-50", border: "border-red-100" },
-                                                ].map((nut, i) => (
-                                                    <div key={i} className={cn("p-6 rounded-2xl border text-center", nut.bg, nut.border)}>
-                                                        <div className={cn("text-xs font-black uppercase tracking-widest mb-2", nut.color)}>{nut.label}</div>
-                                                        {isEditing && editData ? (
-                                                            <input
-                                                                type="number"
-                                                                value={(editData.nutrition as any)[nut.id]}
-                                                                onChange={(e) => {
-                                                                    const newNut = { ...editData.nutrition, [nut.id]: Number(e.target.value) };
-                                                                    updateEditData('nutrition', newNut);
-                                                                }}
-                                                                className="w-full text-center bg-white/50 border border-slate-200/50 rounded p-1 text-2xl font-black text-slate-800 mb-1 focus:outline-none focus:border-emerald-500"
-                                                            />
-                                                        ) : (
-                                                            <div className="text-3xl font-black text-slate-800 mb-1">{nut.val}</div>
-                                                        )}
-                                                        <div className="text-xs font-bold text-slate-400">{nut.unit}</div>
+                                            <div className="grid grid-cols-12 gap-8">
+                                                <div className="col-span-8 bg-white rounded-2xl border border-slate-100 p-8 shadow-sm">
+                                                    <h3 className="font-bold text-xl text-slate-800 mb-8 flex items-center gap-3">
+                                                        <Leaf className="w-5 h-5 text-emerald-500" />
+                                                        Valeurs Nutritionnelles (pour 100g)
+                                                    </h3>
+                                                    <div className="grid grid-cols-2 gap-12">
+                                                        <div className="space-y-6">
+                                                            {[
+                                                                { label: "Calories", value: selectedRecipe.nutrition.calories, unit: "kcal", color: "bg-orange-500", key: 'calories' },
+                                                                { label: "Protéines", value: selectedRecipe.nutrition.protein, unit: "g", color: "bg-red-500", key: 'protein' },
+                                                                { label: "Glucides", value: selectedRecipe.nutrition.carbs, unit: "g", color: "bg-amber-500", key: 'carbs' },
+                                                            ].map((nutri) => (
+                                                                <div key={nutri.label} className="space-y-2">
+                                                                    <div className="flex justify-between items-end">
+                                                                        <span className="text-sm font-bold text-slate-600">{nutri.label}</span>
+                                                                        <div className="flex items-baseline gap-1">
+                                                                            {isEditing && editData ? (
+                                                                                <input
+                                                                                    type="number"
+                                                                                    value={editData.nutrition[nutri.key as keyof typeof editData.nutrition]}
+                                                                                    onChange={(e) => updateEditData('nutrition', { ...editData.nutrition, [nutri.key]: Number(e.target.value) })}
+                                                                                    className="w-16 text-right bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-sm font-black text-slate-800"
+                                                                                />
+                                                                            ) : (
+                                                                                <span className="text-lg font-black text-slate-800">{nutri.value}</span>
+                                                                            )}
+                                                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{nutri.unit}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                                        <div className={cn("h-full rounded-full transition-all duration-1000", nutri.color)} style={{ width: `${Math.min(100, (nutri.value / 500) * 100)}%` }} />
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        <div className="space-y-6">
+                                                            {[
+                                                                { label: "Lipides", value: selectedRecipe.nutrition.fat, unit: "g", color: "bg-yellow-500", key: 'fat' },
+                                                                { label: "Index Glycémique", value: selectedRecipe.nutrition.glycemicIndex, unit: "", color: "bg-emerald-500", key: 'glycemicIndex' },
+                                                                { label: "Charge Glycémique", value: selectedRecipe.nutrition.glycemicLoad, unit: "", color: "bg-teal-500", key: 'glycemicLoad' },
+                                                            ].map((nutri) => (
+                                                                <div key={nutri.label} className="space-y-2">
+                                                                    <div className="flex justify-between items-end">
+                                                                        <span className="text-sm font-bold text-slate-600">{nutri.label}</span>
+                                                                        <div className="flex items-baseline gap-1">
+                                                                            {isEditing && editData ? (
+                                                                                <input
+                                                                                    type="number"
+                                                                                    value={editData.nutrition[nutri.key as keyof typeof editData.nutrition]}
+                                                                                    onChange={(e) => updateEditData('nutrition', { ...editData.nutrition, [nutri.key]: Number(e.target.value) })}
+                                                                                    className="w-16 text-right bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-sm font-black text-slate-800"
+                                                                                />
+                                                                            ) : (
+                                                                                <span className="text-lg font-black text-slate-800">{nutri.value}</span>
+                                                                            )}
+                                                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{nutri.unit}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                                        <div className={cn("h-full rounded-full transition-all duration-1000", nutri.color)} style={{ width: `${Math.min(100, (nutri.value / 100) * 100)}%` }} />
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
                                                     </div>
-                                                ))}
+                                                </div>
 
-                                                <div className="col-span-4 bg-white rounded-2xl border border-slate-100 p-8 flex items-center gap-8 mt-4">
-                                                    <div className="flex-1">
-                                                        <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
-                                                            <Activity className="w-5 h-5 text-emerald-500" />
-                                                            Indice Glycémique
-                                                        </h4>
-                                                        <p className="text-sm text-slate-500 leading-relaxed">
-                                                            Cet aliment a un index glycémique de <strong className="text-slate-800">{selectedRecipe.nutrition.glycemicIndex}</strong>, ce qui est considéré comme
-                                                            {selectedRecipe.nutrition.glycemicIndex > 70 ? " élevé" : selectedRecipe.nutrition.glycemicIndex > 55 ? " moyen" : " faible"}.
-                                                        </p>
+                                                <div className="col-span-4 space-y-8">
+                                                    <div className="bg-white rounded-2xl border border-slate-100 p-8 shadow-sm flex flex-col items-center">
+                                                        <h3 className="font-bold text-sm text-slate-400 uppercase tracking-widest mb-6 w-full">Indice Santé</h3>
+                                                        <div className="relative w-40 h-40">
+                                                            <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+                                                                <span className="text-4xl font-black text-slate-800">B+</span>
+                                                                <span className="text-xs font-bold text-emerald-500 tracking-widest">EXCELLENT</span>
+                                                            </div>
+                                                            <svg className="w-full h-full transform -rotate-90">
+                                                                <circle cx="80" cy="80" r="70" fill="none" stroke="#F1F5F9" strokeWidth="12" />
+                                                                <circle cx="80" cy="80" r="70" fill="none" stroke="#10B981" strokeWidth="12" strokeDasharray="440" strokeDashoffset="88" strokeLinecap="round" />
+                                                            </svg>
+                                                        </div>
                                                     </div>
-                                                    <div className="w-px h-16 bg-slate-100" />
-                                                    <div className="text-center min-w-[120px]">
-                                                        {isEditing && editData ? (
-                                                            <input
-                                                                type="number"
-                                                                value={editData.nutrition.glycemicLoad}
-                                                                onChange={(e) => updateEditData('nutrition', { ...editData.nutrition, glycemicLoad: Number(e.target.value) })}
-                                                                className="w-20 text-center bg-slate-50 border border-slate-200 rounded p-1 text-3xl font-black text-slate-800 mb-1"
-                                                            />
-                                                        ) : (
-                                                            <div className="text-3xl font-black text-slate-800">{selectedRecipe.nutrition.glycemicLoad}</div>
-                                                        )}
-                                                        <div className="text-xs font-bold text-slate-400 uppercase">Charge Glycémique</div>
+
+                                                    <div className="bg-slate-900 rounded-2xl p-6 shadow-xl relative overflow-hidden group">
+                                                        <div className="absolute inset-0 bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                        <div className="flex justify-between items-center relative">
+                                                            <div>
+                                                                <h4 className="text-white font-bold mb-1">Labels & Allergènes</h4>
+                                                                <div className="flex gap-2">
+                                                                    <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-black px-2 py-0.5 rounded border border-emerald-500/30 tracking-wider">VEGAN</span>
+                                                                    <span className="bg-amber-500/20 text-amber-400 text-[9px] font-black px-2 py-0.5 rounded border border-amber-500/30 tracking-wider">SANS GLUTEN</span>
+                                                                </div>
+                                                            </div>
+                                                            <Activity className="w-8 h-8 text-emerald-500/50" />
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -958,3 +1070,4 @@ export function ProductionContent({
         </div>
     );
 }
+

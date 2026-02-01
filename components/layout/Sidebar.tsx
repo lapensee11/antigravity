@@ -12,7 +12,8 @@ import {
     ShoppingCart,
     CreditCard,
     Settings,
-    LogOut
+    LogOut,
+    Book
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -25,8 +26,10 @@ const menuItems = [
     { icon: Users, label: "Tiers", href: "/tiers" },
     { icon: ChefHat, label: "Production", href: "/production" },
     { icon: Landmark, label: "Finance", href: "/finance" },
+    { icon: Book, label: "Compta", href: "/comptabilite/plan" }, // Provisoire
     { icon: ShoppingCart, label: "Ventes", href: "/ventes" },
     { icon: CreditCard, label: "Paye", href: "/paye" },
+    { icon: Users, label: "Personnel", href: "/personnel" },
 ];
 
 export function Sidebar() {

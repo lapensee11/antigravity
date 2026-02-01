@@ -6,7 +6,7 @@ import { Transaction } from "@/lib/types";
 import { useState, useMemo } from "react";
 import { Wallet, Landmark, Archive, Search, Calendar, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { saveTransaction, deleteTransaction } from "@/lib/actions/finance";
+import { saveTransaction, deleteTransaction } from "@/lib/data-service";
 
 export function FinanceContent({ initialTransactions }: { initialTransactions: Transaction[] }) {
     const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);

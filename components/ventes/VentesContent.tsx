@@ -8,8 +8,7 @@ import { useState, useEffect, Suspense, useRef, useMemo, useCallback } from "rea
 import { useSearchParams } from "next/navigation";
 import { Calendar, TrendingUp, ShieldCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { saveDayData, getSalesData } from "@/lib/actions/ventes";
-import { isTauri } from "@/lib/actions/db-desktop";
+import { saveSalesData, getSalesData } from "@/lib/data-service";
 
 // Define the shape of saved data for a day
 interface DayData {
@@ -208,19 +207,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
     const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
     const tableRef = useRef<HTMLTableElement>(null);
 
-    // RUNTIME LOAD (TAURI)
-    useEffect(() => {
-        const loadSales = async () => {
-            if (isTauri()) {
-                console.log("VentesContent: Loading live data from SQLite...");
-                const liveData = await getSalesData();
-                if (Object.keys(liveData).length > 0) {
-                    setSalesData(liveData as any);
-                }
-            }
-        };
-        loadSales();
-    }, []);
+    // No extra load needed, initialSalesData prop handles it
 
     const handleToday = () => {
         const today = new Date();
@@ -321,8 +308,8 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
             };
 
             // 3. Save to SQLite
-            if (modalType === "Real") saveDayData(dateKey, "real", updatedData);
-            saveDayData(dateKey, "declared", newDeclaredData);
+            if (modalType === "Real") saveSalesData(dateKey, updatedData, newDeclaredData);
+            else saveSalesData(dateKey, undefined, newDeclaredData);
 
             return newState;
         });
@@ -342,7 +329,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
             const updatedDeclared = calculateDeclaredFromReal(dayReal, updatedDeclaredBase);
 
             // Save to SQLite
-            saveDayData(dateKey, "declared", updatedDeclared);
+            saveSalesData(dateKey, undefined, updatedDeclared);
 
             return {
                 ...prev,
@@ -382,8 +369,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
             const updatedDeclared = calculateDeclaredFromReal(updatedReal, currentDeclared);
 
             // Save to SQLite
-            saveDayData(dateKey, "real", updatedReal);
-            saveDayData(dateKey, "declared", updatedDeclared);
+            saveSalesData(dateKey, updatedReal, updatedDeclared);
 
             return {
                 ...prev,
@@ -511,6 +497,16 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (modalType) return;
+
+            // Ignorer si focus dans un input, textarea, select ou bouton
+            const isInputActive = ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(document.activeElement?.tagName || "");
+            if (isInputActive) return;
+
+            if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                e.preventDefault();
+                setViewMode(prev => prev === "Saisie" ? "Compta" : "Saisie");
+                return;
+            }
 
             if (e.key === "ArrowDown") {
                 e.preventDefault();

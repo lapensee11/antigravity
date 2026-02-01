@@ -1,15 +1,17 @@
 import { useRef, forwardRef } from "react";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { GlassInput } from "@/components/ui/GlassInput";
+import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
 import { Invoice, InvoiceLine } from "@/lib/types";
 import { InvoiceDocuments } from "./editor/InvoiceDocuments";
 import { InvoiceFinancials } from "./editor/InvoiceFinancials";
 import { InvoicePayments } from "./editor/InvoicePayments";
-import { initialFamilies, initialSubFamilies, initialUnits } from "@/lib/data";
+import { initialFamilies, initialSubFamilies } from "@/lib/data";
 import { Trash2, Plus, Check } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { usePersistedState } from "@/lib/hooks/use-persisted-state";
+import { deleteUnitGlobal } from "@/lib/data-service";
+import { UnitSelector } from "@/components/ui/UnitSelector";
+import { AccountingAccount } from "@/lib/types";
+import { getAccountingAccounts } from "@/lib/data-service";
 
 interface InvoiceEditorProps {
     invoice?: Invoice | null;
@@ -63,7 +65,10 @@ const DecimalInput = forwardRef<HTMLInputElement, any>(({ value, onChange, class
             onFocus={handleFocus}
             onBlur={handleBlur}
             onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
+                if (e.key === 'Enter') {
+                    // Prevent default and let higher-level handlers manage focus
+                    // or just blur if it's a standalone field
+                }
                 if (props.onKeyDown) props.onKeyDown(e);
             }}
             className={className}
@@ -86,18 +91,20 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
     const [filteredArticles, setFilteredArticles] = useState<any[]>([]);
     const [articleFocusIndex, setArticleFocusIndex] = useState(-1);
 
-    // Units State
-    const [units, setUnits] = usePersistedState<string[]>("bakery_units", initialUnits);
-    const [activeUnitRow, setActiveUnitRow] = useState<number | null>(null);
-    const [unitFocusIndex, setUnitFocusIndex] = useState(-1);
+    // Accounting State
+    const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([]);
+
+    useEffect(() => {
+        getAccountingAccounts().then(setAccountingAccounts);
+    }, []);
 
 
 
     // Refs for Focus Management
     const designationRefs = useRef<(HTMLInputElement | null)[]>([]);
     const quantityRefs = useRef<(HTMLInputElement | null)[]>([]);
-    const unitRefs = useRef<(HTMLButtonElement | null)[]>([]);
     const priceRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const unitRefs = useRef<(HTMLSelectElement | null)[]>([]);
     const vatRefs = useRef<(HTMLInputElement | null)[]>([]);
     const discountRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -105,13 +112,12 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
 
     const supplierListRef = useRef<HTMLDivElement>(null);
     const articleListRef = useRef<HTMLDivElement>(null);
-    const unitListRef = useRef<HTMLDivElement>(null);
 
 
     useEffect(() => {
         if (formData.lines && formData.lines.length > prevLinesLength.current) {
             const lastIndex = formData.lines.length - 1;
-            setTimeout(() => designationRefs.current[lastIndex]?.focus(), 50);
+            setTimeout(() => designationRefs.current[lastIndex]?.focus(), 150);
         }
         prevLinesLength.current = formData.lines?.length || 0;
     }, [formData.lines]);
@@ -148,10 +154,8 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
 
             prevLinesLength.current = invoice.lines?.length || 0;
             // Auto focus if new draft
-            if (invoice.status === "Draft" && (!invoice.supplierId || invoice.supplierId === "") && inputRef.current) {
-                // Small timeout to ensure render
-                setTimeout(() => inputRef.current?.focus(), 50);
-                setShowSuggestions(true);
+            if (invoice.status === "Draft" && (!invoice.supplierId || invoice.supplierId === "")) {
+                // Focus not needed for select as much, but could be useful
             }
         } else {
             const initialPayment = {
@@ -174,9 +178,6 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [invoice]);
 
-    useEffect(() => {
-        setUnitFocusIndex(-1);
-    }, [activeUnitRow]);
 
     // List navigation reset
     useEffect(() => {
@@ -185,75 +186,13 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
 
 
 
-    useEffect(() => {
-        setFocusIndex(-1);
-    }, [showSuggestions]);
-
-    // Auto-scroll logic for suggestions
-    useEffect(() => {
-        if (focusIndex >= 0 && supplierListRef.current) {
-            const el = supplierListRef.current.children[focusIndex] as HTMLElement;
-            el?.scrollIntoView({ block: 'nearest' });
-        }
-    }, [focusIndex]);
-
-    useEffect(() => {
-        if (articleFocusIndex >= 0 && articleListRef.current) {
-            const el = articleListRef.current.children[articleFocusIndex] as HTMLElement;
-            el?.scrollIntoView({ block: 'nearest' });
-        }
-    }, [articleFocusIndex]);
-
-    useEffect(() => {
-        if (unitFocusIndex >= 0 && unitListRef.current) {
-            const el = unitListRef.current.children[unitFocusIndex] as HTMLElement;
-            el?.scrollIntoView({ block: 'nearest' });
-        }
-    }, [unitFocusIndex]);
-
-
-
-    // Filter Logic
-    useEffect(() => {
-        if (!showSuggestions) return;
-        if (formData.supplierId) {
-            const search = formData.supplierId.toLowerCase();
-            setFilteredSuppliers(suppliers.filter(s => s.name.toLowerCase().includes(search)));
-        } else {
-            setFilteredSuppliers(suppliers);
-        }
-    }, [formData.supplierId, suppliers, showSuggestions]);
-
-    const selectSupplier = (name: string) => {
+    const handleSupplierChange = (id: string) => {
+        const supplier = suppliers.find(s => s.id === id);
+        const name = supplier ? supplier.name : "";
         const newNumber = onGenerateNumber ? onGenerateNumber(name) : formData.number;
-        const newData = { ...formData, supplierId: name, number: newNumber };
+        const newData = { ...formData, supplierId: id, number: newNumber };
         setFormData(newData);
         if (onUpdate && invoice) onUpdate({ ...invoice, ...newData } as Invoice);
-        setShowSuggestions(false);
-        setFocusIndex(-1);
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (!showSuggestions) return;
-
-        if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setFocusIndex(prev => Math.min(prev + 1, filteredSuppliers.length - 1));
-        } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setFocusIndex(prev => Math.max(prev - 1, 0));
-        } else if (e.key === "Enter") {
-            if (focusIndex >= 0 && filteredSuppliers[focusIndex]) {
-                e.preventDefault();
-                selectSupplier(filteredSuppliers[focusIndex].name);
-                inputRef.current?.blur();
-            } else if (filteredSuppliers.length > 0 && formData.supplierId) {
-                // Select top match if typing and hitting enter?
-                // Or just do nothing.
-            }
-        } else if (e.key === "Escape") {
-            setShowSuggestions(false);
-        }
     };
 
     // Pass focusIndex to scrollIntoView logic if needed (skip for now)
@@ -379,6 +318,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
             articleName: article.name,
             unit: article.unitAchat || "Unité",
             vatRate: vat,
+            accountingCode: article.accountingCode || "",
         };
 
         // Recalc
@@ -474,47 +414,28 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
         }
     };
 
-    const handleUnitKeyDown = (e: React.KeyboardEvent, index: number) => {
-        if (activeUnitRow !== index) return;
-
-        const allOptions = [...units, "Ajouter..."];
-
-        if (e.key === "ArrowDown") {
+    // Global line-to-line navigation
+    const handleLineKeyDown = (e: React.KeyboardEvent, index: number, field: string) => {
+        if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            setUnitFocusIndex(prev => Math.min(prev + 1, allOptions.length - 1));
-        } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setUnitFocusIndex(prev => Math.max(prev - 1, 0));
-        } else if (e.key === "Enter" || e.key === "Tab") {
-            if (unitFocusIndex >= 0) {
-                e.preventDefault();
-                const selected = allOptions[unitFocusIndex];
-                if (selected === "Ajouter...") {
-                    handleAddNewUnit(index);
+            if (field === "quantity") {
+                unitRefs.current[index]?.focus();
+            } else if (field === "unit") {
+                priceRefs.current[index]?.focus();
+            } else if (field === "priceHT") {
+                vatRefs.current[index]?.focus();
+            } else if (field === "vatRate") {
+                discountRefs.current[index]?.focus();
+            } else if (field === "discount") {
+                if (index < (formData.lines?.length || 0) - 1) {
+                    designationRefs.current[index + 1]?.focus();
                 } else {
-                    handleLineChange(index, "unit", selected);
-                    setActiveUnitRow(null);
-                    setTimeout(() => priceRefs.current[index]?.focus(), 50);
+                    handleAddLine();
                 }
             }
-        } else if (e.key === "Escape") {
-            setActiveUnitRow(null);
         }
     };
 
-    const handleAddNewUnit = (index: number) => {
-        const newUnit = prompt("Nouvelle unité :");
-        if (newUnit && !units.includes(newUnit)) {
-            setUnits(prev => [...prev, newUnit]);
-            handleLineChange(index, "unit", newUnit);
-            setActiveUnitRow(null);
-            setTimeout(() => priceRefs.current[index]?.focus(), 50);
-        } else if (newUnit && units.includes(newUnit)) {
-            handleLineChange(index, "unit", newUnit);
-            setActiveUnitRow(null);
-            setTimeout(() => priceRefs.current[index]?.focus(), 50);
-        }
-    };
 
 
 
@@ -523,12 +444,6 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
     // Click Outside Logic
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (activeUnitRow !== null && !unitListRef.current?.contains(event.target as Node)) {
-                const btn = unitRefs.current[activeUnitRow];
-                if (btn && btn.contains(event.target as Node)) return;
-                setActiveUnitRow(null);
-            }
-
             if (activeRow !== null && !articleListRef.current?.contains(event.target as Node)) {
                 // allow click on input
                 if (designationRefs.current[activeRow] && designationRefs.current[activeRow]?.contains(event.target as Node)) return;
@@ -545,7 +460,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
         return () => {
             document.removeEventListener("mousedown", handleClickOutside);
         };
-    }, [activeUnitRow, activeRow, showSuggestions]);
+    }, [activeRow, showSuggestions]);
 
 
 
@@ -577,39 +492,19 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
 
                         {/* Info Block */}
                         <div className="flex flex-col gap-1 relative">
-                            <input
-                                ref={inputRef}
+                            <select
                                 value={formData.supplierId || ""}
-                                onChange={e => {
-                                    const newData = { ...formData, supplierId: e.target.value };
-                                    setFormData(newData);
-                                    if (onUpdate && invoice) onUpdate({ ...invoice, ...newData } as Invoice);
-                                    setShowSuggestions(true);
-                                }}
-                                onFocus={() => setShowSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                                onKeyDown={handleKeyDown}
-                                className="text-3xl font-serif font-black text-slate-800 bg-transparent outline-none placeholder:text-slate-200 min-w-[250px] leading-none"
-                                placeholder="Nom du Fournisseur"
-                            />
-
-                            {/* Autocomplete Dropdown */}
-                            {showSuggestions && filteredSuppliers.length > 0 && (
-                                <div ref={supplierListRef} className="absolute top-full left-0 w-[400px] bg-white shadow-2xl rounded-xl border border-slate-200 z-50 max-h-[200px] overflow-y-auto mt-2 animate-in fade-in slide-in-from-top-2 custom-scrollbar">
-                                    {filteredSuppliers.map((s, i) => (
-                                        <div
-                                            key={s.id}
-                                            className={cn(
-                                                "px-4 py-3 text-sm font-bold text-slate-600 cursor-pointer transition-colors border-b border-slate-50 last:border-0",
-                                                i === focusIndex ? "bg-[#E5D1BD] text-[#5D4037]" : "hover:bg-slate-50"
-                                            )}
-                                            onClick={() => selectSupplier(s.name)}
-                                        >
-                                            {s.name}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                                onChange={e => handleSupplierChange(e.target.value)}
+                                className="text-2xl font-serif font-black text-slate-800 bg-transparent outline-none cursor-pointer hover:text-blue-600 transition-colors appearance-none pr-8 min-w-[250px]"
+                            >
+                                <option value="">Choisir un Fournisseur...</option>
+                                {suppliers.map(s => (
+                                    <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                            </select>
+                            <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none opacity-20">
+                                <Plus className="w-4 h-4 rotate-45" />
+                            </div>
 
                             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono opacity-80 pl-0.5 mt-1">
                                 N° {formData.number || "---"}
@@ -679,7 +574,8 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                             <table className="w-full text-sm border-separate border-spacing-0">
                                 <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-200 tracking-wider">
                                     <tr>
-                                        <th className="px-4 py-3 text-left w-[20%] rounded-tl-xl">Désignation</th>
+                                        <th className="px-2 py-3 text-left w-[8%] rounded-tl-xl">Cpt.</th>
+                                        <th className="px-4 py-3 text-left w-[20%]">Désignation</th>
                                         <th className="px-2 py-3 text-right w-[8%]">Qté</th>
                                         <th className="px-2 py-3 text-center w-[12%]">Unité</th>
                                         <th className="px-2 py-3 text-right w-[12%]">PU HT</th>
@@ -695,6 +591,16 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                         const ht = line.quantity * line.priceHT * (1 - (line.discount || 0) / 100);
                                         return (
                                             <tr key={line.id} className="group hover:bg-slate-50/50">
+                                                {/* Accounting Code */}
+                                                <td className="px-2 py-2">
+                                                    <input
+                                                        value={line.accountingCode || ""}
+                                                        onChange={e => handleLineChange(index, "accountingCode", e.target.value)}
+                                                        className="w-full bg-slate-50 font-mono text-xs font-bold text-slate-500 rounded px-1 py-1 outline-none text-center focus:bg-white focus:ring-1 focus:ring-blue-300"
+                                                        placeholder="----"
+                                                    />
+                                                </td>
+
                                                 {/* Designation (Autocomplete) */}
                                                 <td className="px-4 py-2 relative">
                                                     <input
@@ -739,6 +645,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                                         onChange={e => handleLineChange(index, "quantity", e.target.value)}
                                                         onFocus={(e) => e.target.select()}
                                                         onClick={(e) => (e.target as HTMLInputElement).select()}
+                                                        onKeyDown={(e) => handleLineKeyDown(e, index, "quantity")}
                                                         className="w-full text-right bg-transparent outline-none font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                     />
                                                 </td>
@@ -746,62 +653,16 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                                 {/* Unit (Custom Select) */}
                                                 <td className="px-2 py-2">
                                                     <div className="relative">
-                                                        <button
-                                                            ref={el => { unitRefs.current[index] = el; }}
-                                                            disabled={isValidated}
-                                                            onClick={() => {
-                                                                setActiveUnitRow(index);
-                                                                setUnitFocusIndex(units.indexOf(line.unit));
-                                                            }}
-                                                            onKeyDown={(e) => handleUnitKeyDown(e, index)}
-                                                            className={cn(
-                                                                "w-full text-center bg-transparent outline-none text-xs font-medium cursor-pointer py-1 border border-transparent rounded transition-all",
-                                                                !isValidated ? "hover:border-slate-200" : "cursor-default"
-                                                            )}
-                                                        >
-                                                            {line.unit || "Unit"}
-                                                        </button>
-
-                                                        {activeUnitRow === index && !isValidated && (
-                                                            <div ref={unitListRef} className="absolute top-full left-1/2 -translate-x-1/2 w-32 bg-white shadow-xl rounded-lg border border-slate-200 z-50 mt-1 py-1 max-h-[200px] overflow-y-auto custom-scrollbar">
-                                                                {units.concat("Ajouter...").map((u, i) => (
-                                                                    <div
-                                                                        key={u}
-                                                                        className={cn(
-                                                                            "group flex items-center justify-between px-3 py-2 text-[10px] font-bold cursor-pointer transition-colors border-b border-slate-50 last:border-0",
-                                                                            i === unitFocusIndex ? "bg-[#E5D1BD] text-[#5D4037]" : "hover:bg-slate-50 text-slate-700",
-                                                                            u === "Ajouter..." && "text-blue-600 border-t border-slate-100"
-                                                                        )}
-                                                                        onClick={() => {
-                                                                            if (u === "Ajouter...") {
-                                                                                handleAddNewUnit(index);
-                                                                            } else {
-                                                                                handleLineChange(index, "unit", u);
-                                                                                setActiveUnitRow(null);
-                                                                                setTimeout(() => priceRefs.current[index]?.focus(), 50);
-                                                                            }
-                                                                        }}
-                                                                    >
-                                                                        <span>{u}</span>
-                                                                        {u !== "Ajouter..." && (
-                                                                            <button
-                                                                                onClick={(e) => {
-                                                                                    e.stopPropagation();
-                                                                                    const confirmDelete = window.confirm(`Supprimer l'unité "${u}" ?`);
-                                                                                    if (confirmDelete) {
-                                                                                        setUnits(prev => prev.filter(unit => unit !== u));
-                                                                                    }
-                                                                                }}
-                                                                                className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-all"
-                                                                                title="Supprimer l'unité"
-                                                                            >
-                                                                                <Trash2 className="w-3 h-3" />
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
+                                                        <UnitSelector
+                                                            ref={(el) => { unitRefs.current[index] = el; }}
+                                                            value={line.unit || ""}
+                                                            onChange={(val) => handleLineChange(index, "unit", val)}
+                                                            onKeyDown={(e) => handleLineKeyDown(e, index, "unit")}
+                                                            type="achat"
+                                                            variant="invoice"
+                                                            className="w-full"
+                                                            textClassName={isValidated ? "cursor-default" : "hover:border-slate-200 border border-transparent"}
+                                                        />
                                                     </div>
                                                 </td>
 
@@ -811,6 +672,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                                         ref={el => { priceRefs.current[index] = el; }}
                                                         value={line.priceHT}
                                                         onChange={(val: number) => handleLineChange(index, "priceHT", val)}
+                                                        onKeyDown={(e: any) => handleLineKeyDown(e, index, "priceHT")}
                                                         className="w-full text-right bg-transparent outline-none font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                     />
                                                 </td>
@@ -824,6 +686,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                                             value={line.vatRate !== undefined ? line.vatRate : 0}
                                                             onChange={e => handleLineChange(index, "vatRate", e.target.value)}
                                                             onFocus={(e) => e.target.select()}
+                                                            onKeyDown={(e) => handleLineKeyDown(e, index, "vatRate")}
                                                             className="w-full text-right bg-transparent outline-none font-medium text-slate-500 pr-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                         />
                                                         <span className="absolute right-0 text-[10px] text-slate-400 font-bold pointer-events-none">%</span>
@@ -839,12 +702,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                                             value={line.discount}
                                                             onChange={e => handleLineChange(index, "discount", e.target.value)}
                                                             onFocus={(e) => e.target.select()}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "Tab" && !e.shiftKey && index === (formData.lines?.length || 0) - 1) {
-                                                                    e.preventDefault();
-                                                                    handleAddLine();
-                                                                }
-                                                            }}
+                                                            onKeyDown={(e) => handleLineKeyDown(e, index, "discount")}
                                                             className="w-full text-right bg-transparent outline-none font-medium text-slate-500 pr-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                         />
                                                         <span className="absolute right-0 text-[10px] text-slate-400 font-bold pointer-events-none">%</span>

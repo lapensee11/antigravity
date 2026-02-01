@@ -21,6 +21,7 @@ export interface SubFamily {
     familyId: string;
     fiscalNature?: string | null;
     icon?: string | null;
+    accountingCode?: string; // Default for new articles
 }
 
 export interface Article {
@@ -40,7 +41,8 @@ export interface Article {
     priceHistory?: { date: string; price: number }[]; // History
     vatRate: number; // %
     accountingNature?: string;
-    accountingAccount?: string;
+    accountingAccount?: string; // Legacy/String field
+    accountingCode?: string; // New Link to AccountingAccount
     nutritionalInfo?: {
         calories?: number; // Energie
         water?: number; // Eau
@@ -73,6 +75,7 @@ export interface InvoiceLine {
     discount: number; // %
     vatRate: number; // %
     totalTTC: number; // Calculated
+    accountingCode?: string; // Per-line override
 }
 
 export type PaymentMode = "Virement" | "Espèces" | "Chèque" | "Prélèvement" | "Carte Bancaire";
@@ -201,7 +204,16 @@ export interface Recipe {
 export type AccountType = "Banque" | "Caisse" | "Coffre";
 export type TransactionType = "Depense" | "Recette";
 
+export interface AccountingAccount {
+    id: string; // e.g. "6111" (acts as code)
+    code: string; // "6111"
+    label: string;
+    class: string; // "6" (Charges), "7" (Produits), "5" (Tréso)
+    type: "Charge" | "Produit" | "Tiers" | "Trésorerie" | "Autre";
+}
+
 export interface Transaction {
+    // ... existing Transaction fields
     id: string;
     date: string;
     label: string;
@@ -246,6 +258,7 @@ export interface StaffMember {
         hireDate: string;
         exitDate: string;
         seniority: string;
+        seniorityPercentage?: number;
         leaveBalance: string;
         baseSalary: number;
         fixedBonus: number;
@@ -263,6 +276,11 @@ export interface StaffMember {
         bonus: number;
         date: string;
     }[];
+    notes?: {
+        photo?: string;
+        note1?: string;
+        note2?: string;
+    };
     monthlyData: Record<string, {
         jours: number;
         hSup: number;

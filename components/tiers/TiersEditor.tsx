@@ -1,8 +1,8 @@
-import { GlassInput } from "@/components/ui/GlassInput";
+import { GlassInput, GlassButton } from "@/components/ui/GlassComponents";
 import { Tier, TierType } from "@/lib/types";
-import { Save, User, Building, CreditCard, Phone, Mail, Globe, MapPin, Pencil, Trash2, FileText, Plus } from "lucide-react";
+import { Save, User, Building, CreditCard, Phone, Mail, Globe, MapPin, Pencil, Trash2, FileText, Plus, Briefcase } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 interface TiersEditorProps {
@@ -91,71 +91,84 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
     return (
         <div className="h-full flex flex-col overflow-hidden bg-white">
             {/* HEADER SECTION */}
-            <div className="px-10 pt-10 pb-4 mb-4">
-                <div className="flex justify-between items-start">
+            <div className="px-10 pt-10 pb-6 mb-2">
+                <div className="flex justify-between items-start mb-6">
                     {/* Left: Identity */}
-                    <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-4">
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-3 mb-5">
                             {isEditing ? (
                                 <select
                                     value={formData.type}
                                     onChange={(e) => handleChange("type", e.target.value)}
-                                    className="px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wide bg-slate-100 border-none focus:ring-2 focus:ring-indigo-500"
+                                    className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest bg-slate-100 border-none focus:ring-2 focus:ring-blue-500"
                                 >
                                     <option value="Fournisseur">Fournisseur</option>
                                     <option value="Client">Client</option>
                                 </select>
                             ) : (
                                 <span className={cn(
-                                    "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide",
-                                    formData.type === "Fournisseur" ? "bg-blue-600 text-white" : "bg-purple-600 text-white"
+                                    "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest",
+                                    formData.type === "Fournisseur" ? "bg-blue-600 text-white" : "bg-slate-600 text-white"
                                 )}>
                                     {formData.type}
                                 </span>
                             )}
+                            <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-widest">{formData.code}</span>
                         </div>
 
-                        <div className="flex items-center gap-5">
-                            <div className="w-16 h-16 rounded-[1rem] bg-[#FFF8E1] border border-[#FFE082] flex items-center justify-center text-3xl shadow-sm shrink-0">
+                        <div className="flex items-center gap-6">
+                            <div className="w-16 h-16 rounded-[1.2rem] bg-[#F8FAFC] border border-slate-100 flex items-center justify-center text-3xl shadow-sm shrink-0 overflow-hidden relative">
                                 {formData.logo ? (
                                     // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={formData.logo} alt="Logo" className="w-full h-full object-cover rounded-[1rem]" />
+                                    <img src={formData.logo} alt="Logo" className="w-full h-full object-cover" />
                                 ) : (
-                                    <span>🏭</span>
+                                    <span className="opacity-80 grayscale">🏭</span>
                                 )}
                             </div>
-                            <div className="flex-1">
+                            <div className="flex-1 min-w-0">
                                 {isEditing ? (
                                     <input
+                                        autoFocus
+                                        onFocus={(e) => e.target.select()}
                                         type="text"
                                         value={formData.name || ""}
                                         onChange={(e) => handleChange("name", e.target.value)}
                                         placeholder="Nom du Tiers"
-                                        className="text-3xl font-serif font-bold text-slate-900 border-b-2 border-slate-200 focus:border-indigo-500 focus:outline-none bg-transparent w-full placeholder:text-slate-300"
+                                        className="text-4xl font-serif font-black text-slate-800 border-b-2 border-slate-100 focus:border-blue-500 focus:outline-none bg-transparent w-full placeholder:text-slate-200 py-1"
                                     />
                                 ) : (
-                                    <h1 className="text-3xl font-serif font-bold text-slate-900 leading-tight">
+                                    <h1 className="text-4xl font-serif font-black text-slate-800 leading-tight truncate">
                                         {formData.name || "Nouveau Tiers"}
                                     </h1>
                                 )}
-                                <p className="text-slate-400 font-medium text-sm mt-1">
-                                    {formData.code}
-                                </p>
                             </div>
                         </div>
                     </div>
 
-                    {/* Right: Stats & Actions */}
-                    <div className="flex items-center gap-4">
+                    {/* Right: Actions & Stats */}
+                    <div className="flex flex-col items-end gap-4 min-w-[220px] shrink-0">
+                        {/* Stats Card (Harmonized with Price Card) */}
+                        <div className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-xl rounded-2xl p-4 w-full text-center group transition-all hover:bg-white/90">
+                            <div className="text-[10px] font-bold text-blue-500/60 uppercase tracking-widest mb-1.5 flex items-center justify-center gap-1.5">
+                                Chiffre d'Affaires <Briefcase className="w-2.5 h-2.5" />
+                            </div>
+                            <div className="text-2xl font-black text-slate-800">
+                                0,00 <span className="text-sm font-normal text-slate-400">DH</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter mt-1 opacity-60">
+                                0 Opérations
+                            </div>
+                        </div>
+
                         {/* Action Buttons */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 w-full">
                             <button
                                 onClick={() => isEditing ? handleSave() : setIsEditing(true)}
                                 className={cn(
-                                    "flex items-center gap-2 px-4 py-2 rounded-lg transition-colors font-semibold text-sm shadow-sm group border border-transparent",
+                                    "flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all font-bold text-[10px] uppercase tracking-widest shadow-sm border",
                                     isEditing
-                                        ? "bg-green-100 text-green-700 hover:bg-green-200"
-                                        : "bg-[#F3E5F5] hover:bg-[#E1BEE7] text-[#6A1B9A]"
+                                        ? "bg-white border-green-200 text-green-600 hover:bg-green-50 shadow-green-500/5"
+                                        : "bg-white border-blue-200 text-blue-600 hover:bg-blue-50 shadow-blue-500/5"
                                 )}
                             >
                                 {isEditing ? <Save className="w-3.5 h-3.5" /> : <Pencil className="w-3.5 h-3.5" />}
@@ -163,49 +176,43 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
                             </button>
                             <button
                                 onClick={handleDelete}
-                                className="w-9 h-9 flex items-center justify-center bg-red-50 text-red-500 rounded-lg hover:bg-red-100 transition-colors border border-red-100"
+                                className="w-11 h-11 flex items-center justify-center bg-white border border-red-100 text-red-500 rounded-xl hover:bg-red-50 transition-all shadow-sm shadow-red-500/5 group"
+                                title="Supprimer"
                             >
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="w-4 h-4 text-red-500 group-hover:scale-110 transition-transform" />
                             </button>
-                        </div>
-
-                        {/* Stats Card */}
-                        <div className="bg-[#F3E5F5] border border-[#E1BEE7] rounded-xl px-4 py-2 min-w-[140px] text-center">
-                            <p className="text-[9px] font-bold text-[#8E24AA] uppercase tracking-widest mb-0.5">
-                                CA
-                            </p>
-                            <div className="text-xl font-black text-[#6A1B9A]">
-                                0 <span className="text-[10px] font-bold text-[#8E24AA]/80">DH</span>
-                            </div>
-                            <div className="text-[10px] text-[#8E24AA] font-medium leading-none pb-1">
-                                0 Factures
-                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
             {/* SCROLLABLE CONTENT AREA */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar px-8 pb-12">
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-10 pb-12">
+
+                {/* Informations Tiers Title (Matching Articles style) */}
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-6 mt-4 flex items-center gap-2">
+                    <div className="w-1.5 h-6 rounded-full bg-[#1E293B] transition-colors" />
+                    Informations Tiers
+                </h3>
 
                 {/* DATA ENTRY FRAME (Inset) with Tabs - Compacted */}
-                <div className="mt-2 border border-[#E1BEE7] bg-[#F3E5F5]/30 rounded-2xl p-3 mx-2">
+                <div className="border border-slate-200 bg-[#F8FAFC]/50 rounded-2xl p-4 shadow-sm">
                     {/* Tabs Header */}
-                    <div className="flex items-center gap-1 mb-3 border-b border-[#E1BEE7]/50 pb-1">
+                    <div className="flex items-center gap-2 mb-5 border-b border-slate-100 pb-1">
                         {["Contact", "Infos / Banque", "Notes"].map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
                                 className={cn(
-                                    "px-3 py-1.5 text-xs font-bold transition-all relative",
+                                    "px-4 py-2 text-[10px] font-bold uppercase tracking-widest transition-all relative",
                                     activeTab === tab
-                                        ? "text-[#6A1B9A]"
-                                        : "text-slate-400 hover:text-[#6A1B9A]"
+                                        ? "text-blue-600"
+                                        : "text-slate-400 hover:text-slate-600"
                                 )}
                             >
                                 {tab}
                                 {activeTab === tab && (
-                                    <div className="absolute bottom-[-5px] left-0 right-0 h-[3px] bg-[#6A1B9A] rounded-t-full" />
+                                    <div className="absolute bottom-[-5px] left-0 right-0 h-[3px] bg-blue-600 rounded-t-full shadow-[0_-2px_8px_rgba(37,99,235,0.3)]" />
                                 )}
                             </button>
                         ))}
@@ -213,37 +220,37 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
 
                     {/* Tab 1: Contact */}
                     {activeTab === "Contact" && (
-                        <div className="grid grid-cols-2 gap-x-6 gap-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                        <div className="grid grid-cols-2 gap-x-8 gap-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                             {/* LEFT COLUMN: Phones, Website, Address */}
-                            <div className="space-y-3">
+                            <div className="space-y-4">
                                 {/* Row 1: Nom & Prénom */}
-                                <div className="flex gap-2">
-                                    <div className="flex-1 space-y-0.5">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Nom</label>
+                                <div className="flex gap-4">
+                                    <div className="flex-1 space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Nom</label>
                                         {isEditing ? (
                                             <GlassInput
-                                                icon={<User className="w-3.5 h-3.5" />}
+                                                icon={<User className="w-3.5 h-3.5 opacity-50" />}
                                                 value={formData.lastName || ""}
                                                 onChange={e => handleChange("lastName", e.target.value)}
-                                                className="bg-white h-9 py-1 text-sm"
+                                                className="bg-white h-10 text-sm border-slate-100"
                                             />
                                         ) : (
-                                            <div className="h-9 flex items-center px-1 text-sm font-bold text-slate-700">
+                                            <div className="h-10 flex items-center px-3 text-sm font-bold text-slate-700 bg-white/50 rounded-xl border border-transparent">
                                                 {formData.lastName || "-"}
                                             </div>
                                         )}
                                     </div>
-                                    <div className="flex-1 space-y-0.5">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Prénom</label>
+                                    <div className="flex-1 space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Prénom</label>
                                         {isEditing ? (
                                             <GlassInput
-                                                icon={<User className="w-3.5 h-3.5" />}
+                                                icon={<User className="w-3.5 h-3.5 opacity-50" />}
                                                 value={formData.firstName || ""}
                                                 onChange={e => handleChange("firstName", e.target.value)}
-                                                className="bg-white h-9 py-1 text-sm"
+                                                className="bg-white h-10 text-sm border-slate-100"
                                             />
                                         ) : (
-                                            <div className="h-9 flex items-center px-1 text-sm font-bold text-slate-700">
+                                            <div className="h-10 flex items-center px-3 text-sm font-bold text-slate-700 bg-white/50 rounded-xl border border-transparent">
                                                 {formData.firstName || "-"}
                                             </div>
                                         )}
@@ -251,53 +258,53 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
                                 </div>
 
                                 {/* Row 2: Tel 1 & Tel 2 */}
-                                <div className="flex gap-2">
-                                    <div className="flex-1 space-y-0.5">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Tel 1</label>
+                                <div className="flex gap-4">
+                                    <div className="flex-1 space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Tel 1</label>
                                         {isEditing ? (
                                             <GlassInput
-                                                icon={<Phone className="w-3.5 h-3.5" />}
+                                                icon={<Phone className="w-3.5 h-3.5 opacity-50" />}
                                                 value={formData.phone || ""}
                                                 onChange={e => handleChange("phone", e.target.value)}
-                                                className="bg-white h-9 py-1 text-sm"
+                                                className="bg-white h-10 text-sm border-slate-100"
                                             />
                                         ) : (
-                                            <div className="h-9 flex items-center px-1 text-sm font-bold text-slate-700">
+                                            <div className="h-10 flex items-center px-3 text-sm font-bold text-slate-700 bg-white/50 rounded-xl border border-transparent">
                                                 {formData.phone || "-"}
                                             </div>
                                         )}
                                     </div>
-                                    <div className="flex-1 space-y-0.5">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Tel 2</label>
+                                    <div className="flex-1 space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Tel 2</label>
                                         {isEditing ? (
                                             <GlassInput
-                                                icon={<Phone className="w-3.5 h-3.5" />}
+                                                icon={<Phone className="w-3.5 h-3.5 opacity-50" />}
                                                 value={formData.phone2 || ""}
                                                 onChange={e => handleChange("phone2", e.target.value)}
-                                                className="bg-white h-9 py-1 text-sm"
+                                                className="bg-white h-10 text-sm border-slate-100"
                                             />
                                         ) : (
-                                            <div className="h-9 flex items-center px-1 text-sm font-bold text-slate-700">
+                                            <div className="h-10 flex items-center px-3 text-sm font-bold text-slate-700 bg-white/50 rounded-xl border border-transparent">
                                                 {formData.phone2 || "-"}
                                             </div>
                                         )}
                                     </div>
                                 </div>
 
-                                <div className="space-y-0.5">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Adresse</label>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Adresse</label>
                                     <div className="relative">
                                         {isEditing ? (
                                             <>
-                                                <MapPin className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+                                                <MapPin className="absolute left-3 top-3 w-3.5 h-3.5 text-slate-400 opacity-50" />
                                                 <textarea
-                                                    className="w-full bg-white border border-slate-200 rounded-xl py-2 px-4 pl-10 text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#9C27B0]/20 text-sm min-h-[60px]"
+                                                    className="w-full bg-white border border-slate-100 rounded-xl py-3 px-4 pl-10 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/10 text-sm min-h-[80px] transition-all"
                                                     value={formData.address || ""}
                                                     onChange={e => handleChange("address", e.target.value)}
                                                 />
                                             </>
                                         ) : (
-                                            <div className="min-h-[60px] py-1 px-1 text-sm font-medium text-slate-700 whitespace-pre-line">
+                                            <div className="min-h-[80px] py-2 px-3 text-sm font-medium text-slate-600 bg-white/50 rounded-xl border border-transparent whitespace-pre-line leading-relaxed">
                                                 {formData.address || "-"}
                                             </div>
                                         )}
@@ -306,71 +313,71 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
                             </div>
 
                             {/* RIGHT COLUMN: Email, Photos */}
-                            <div className="flex flex-col gap-3">
-                                <div className="space-y-0.5">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Email</label>
+                            <div className="flex flex-col gap-4">
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Email</label>
                                     {isEditing ? (
                                         <GlassInput
-                                            icon={<Mail className="w-3.5 h-3.5" />}
+                                            icon={<Mail className="w-3.5 h-3.5 opacity-50" />}
                                             value={formData.email || ""}
                                             onChange={e => handleChange("email", e.target.value)}
-                                            className="bg-white h-9 py-1 text-sm"
+                                            className="bg-white h-10 text-sm border-slate-100"
                                         />
                                     ) : (
-                                        <div className="h-9 flex items-center px-1 text-sm font-medium text-slate-700">
+                                        <div className="h-10 flex items-center px-3 text-sm font-medium text-slate-600 bg-white/50 rounded-xl border border-transparent">
                                             {formData.email || "-"}
                                         </div>
                                     )}
                                 </div>
 
                                 {/* Photos Row - Flex Grow to match Address height */}
-                                <div className="flex-1 flex gap-2">
-                                    <div className="flex-1 flex flex-col space-y-0.5">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Logo Société</label>
+                                <div className="flex-1 flex gap-4">
+                                    <div className="flex-1 flex flex-col space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Logo Société</label>
                                         {isEditing ? (
                                             <div className="flex-1 relative group">
-                                                <div className="absolute left-4 top-4 text-slate-400 group-focus-within:text-[#6A1B9A] transition-colors">
+                                                <div className="absolute left-4 top-4 text-slate-400 group-focus-within:text-blue-600 opacity-50 transition-colors">
                                                     <Building className="w-3.5 h-3.5" />
                                                 </div>
                                                 <textarea
-                                                    className="w-full h-full bg-white border-transparent text-slate-900 placeholder:text-slate-500 font-medium rounded-2xl py-3 px-4 pl-11 focus:outline-none focus:bg-white focus:shadow-[0_0_0_2px_#6A1B9A] hover:bg-[#D1D1D6] resize-none text-sm leading-tight transition-all duration-200"
-                                                    placeholder="URL..."
+                                                    className="w-full h-full bg-white border border-slate-100 text-slate-700 placeholder:text-slate-300 font-medium rounded-2xl py-3 px-4 pl-11 focus:outline-none focus:ring-2 focus:ring-blue-500/10 resize-none text-xs leading-tight transition-all"
+                                                    placeholder="URL du logo..."
                                                     value={formData.logo || ""}
                                                     onChange={e => handleChange("logo", e.target.value)}
                                                 />
                                             </div>
                                         ) : (
-                                            <div className="flex-1 rounded-2xl bg-slate-100 flex items-center justify-center border border-slate-200 overflow-hidden">
+                                            <div className="flex-1 rounded-2xl bg-slate-50 flex items-center justify-center border border-slate-100 overflow-hidden relative group">
                                                 {formData.logo ? (
                                                     // eslint-disable-next-line @next/next/no-img-element
-                                                    <img src={formData.logo} alt="Logo" className="w-full h-full object-cover" />
+                                                    <img src={formData.logo} alt="Logo" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
                                                 ) : (
-                                                    <Building className="w-8 h-8 text-slate-300" />
+                                                    <Building className="w-8 h-8 text-slate-200" />
                                                 )}
                                             </div>
                                         )}
                                     </div>
-                                    <div className="flex-1 flex flex-col space-y-0.5">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Photo Gérant</label>
+                                    <div className="flex-1 flex flex-col space-y-1">
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Photo Gérant</label>
                                         {isEditing ? (
                                             <div className="flex-1 relative group">
-                                                <div className="absolute left-4 top-4 text-slate-400 group-focus-within:text-[#6A1B9A] transition-colors">
+                                                <div className="absolute left-4 top-4 text-slate-400 group-focus-within:text-blue-600 opacity-50 transition-colors">
                                                     <User className="w-3.5 h-3.5" />
                                                 </div>
                                                 <textarea
-                                                    className="w-full h-full bg-white border-transparent text-slate-900 placeholder:text-slate-500 font-medium rounded-2xl py-3 px-4 pl-11 focus:outline-none focus:bg-white focus:shadow-[0_0_0_2px_#6A1B9A] hover:bg-[#D1D1D6] resize-none text-sm leading-tight transition-all duration-200"
-                                                    placeholder="URL..."
+                                                    className="w-full h-full bg-white border border-slate-100 text-slate-700 placeholder:text-slate-300 font-medium rounded-2xl py-3 px-4 pl-11 focus:outline-none focus:ring-2 focus:ring-blue-500/10 resize-none text-xs leading-tight transition-all"
+                                                    placeholder="URL de la photo..."
                                                     value={formData.photoManager || ""}
                                                     onChange={e => handleChange("photoManager", e.target.value)}
                                                 />
                                             </div>
                                         ) : (
-                                            <div className="flex-1 rounded-2xl bg-slate-100 flex items-center justify-center border border-slate-200 overflow-hidden">
+                                            <div className="flex-1 rounded-2xl bg-slate-50 flex items-center justify-center border border-slate-100 overflow-hidden relative group">
                                                 {formData.photoManager ? (
                                                     // eslint-disable-next-line @next/next/no-img-element
-                                                    <img src={formData.photoManager} alt="Gerant" className="w-full h-full object-cover" />
+                                                    <img src={formData.photoManager} alt="Gerant" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
                                                 ) : (
-                                                    <User className="w-8 h-8 text-slate-300" />
+                                                    <User className="w-8 h-8 text-slate-200" />
                                                 )}
                                             </div>
                                         )}
@@ -382,53 +389,53 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
 
                     {/* Tab 2: Infos / Banque */}
                     {activeTab === "Infos / Banque" && (
-                        <div className="grid grid-cols-2 gap-x-8 gap-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                            <div className="col-span-2 mb-1">
-                                <h4 className="text-[10px] font-bold text-[#8E24AA] uppercase tracking-widest border-b border-[#E1BEE7]/50 pb-1 mb-2">Juridique</h4>
-                                <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-                                    <div className="flex items-center gap-3">
-                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right shrink-0">ICE</label>
+                        <div className="grid grid-cols-2 gap-x-12 gap-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <div className="col-span-2">
+                                <h4 className="text-[10px] font-bold text-blue-600/60 uppercase tracking-widest border-b border-slate-100 pb-2 mb-4">Informations Juridiques</h4>
+                                <div className="grid grid-cols-2 gap-x-12 gap-y-4">
+                                    <div className="flex items-center gap-4">
+                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right shrink-0 opacity-70">ICE</label>
                                         <div className="flex-1">
                                             {isEditing ? (
-                                                <GlassInput value={formData.ice || ""} onChange={e => handleChange("ice", e.target.value)} className="bg-white h-8 py-0.5 text-sm" />
+                                                <GlassInput value={formData.ice || ""} onChange={e => handleChange("ice", e.target.value)} className="bg-white h-9 text-sm border-slate-100 font-mono" />
                                             ) : (
-                                                <div className="h-8 flex items-center px-2 text-sm font-bold text-slate-700 font-mono bg-white/50 rounded-lg border border-transparent">
+                                                <div className="h-9 flex items-center px-3 text-sm font-bold text-slate-700 font-mono bg-white/50 rounded-xl border border-transparent">
                                                     {formData.ice || "-"}
                                                 </div>
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right shrink-0">RC</label>
+                                    <div className="flex items-center gap-4">
+                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right shrink-0 opacity-70">RC</label>
                                         <div className="flex-1">
                                             {isEditing ? (
-                                                <GlassInput value={formData.rc || ""} onChange={e => handleChange("rc", e.target.value)} className="bg-white h-8 py-0.5 text-sm" />
+                                                <GlassInput value={formData.rc || ""} onChange={e => handleChange("rc", e.target.value)} className="bg-white h-9 text-sm border-slate-100" />
                                             ) : (
-                                                <div className="h-8 flex items-center px-2 text-sm font-bold text-slate-700 bg-white/50 rounded-lg border border-transparent">
+                                                <div className="h-9 flex items-center px-3 text-sm font-bold text-slate-700 bg-white/50 rounded-xl border border-transparent">
                                                     {formData.rc || "-"}
                                                 </div>
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right shrink-0">IF</label>
+                                    <div className="flex items-center gap-4">
+                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right shrink-0 opacity-70">IF</label>
                                         <div className="flex-1">
                                             {isEditing ? (
-                                                <GlassInput value={formData.if || ""} onChange={e => handleChange("if", e.target.value)} className="bg-white h-8 py-0.5 text-sm" />
+                                                <GlassInput value={formData.if || ""} onChange={e => handleChange("if", e.target.value)} className="bg-white h-9 text-sm border-slate-100" />
                                             ) : (
-                                                <div className="h-8 flex items-center px-2 text-sm font-bold text-slate-700 bg-white/50 rounded-lg border border-transparent">
+                                                <div className="h-9 flex items-center px-3 text-sm font-bold text-slate-700 bg-white/50 rounded-xl border border-transparent">
                                                     {formData.if || "-"}
                                                 </div>
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right shrink-0">CNSS</label>
+                                    <div className="flex items-center gap-4">
+                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right shrink-0 opacity-70">CNSS</label>
                                         <div className="flex-1">
                                             {isEditing ? (
-                                                <GlassInput value={formData.cnss || ""} onChange={e => handleChange("cnss", e.target.value)} className="bg-white h-8 py-0.5 text-sm" />
+                                                <GlassInput value={formData.cnss || ""} onChange={e => handleChange("cnss", e.target.value)} className="bg-white h-9 text-sm border-slate-100" />
                                             ) : (
-                                                <div className="h-8 flex items-center px-2 text-sm font-bold text-slate-700 bg-white/50 rounded-lg border border-transparent">
+                                                <div className="h-9 flex items-center px-3 text-sm font-bold text-slate-700 bg-white/50 rounded-xl border border-transparent">
                                                     {formData.cnss || "-"}
                                                 </div>
                                             )}
@@ -437,28 +444,28 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
                                 </div>
                             </div>
 
-                            <div className="col-span-2 mt-1">
-                                <h4 className="text-[10px] font-bold text-[#8E24AA] uppercase tracking-widest border-b border-[#E1BEE7]/50 pb-1 mb-2">Bancaire</h4>
-                                <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-                                    <div className="flex items-center gap-3">
-                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right shrink-0">Banque</label>
+                            <div className="col-span-2">
+                                <h4 className="text-[10px] font-bold text-blue-600/60 uppercase tracking-widest border-b border-slate-100 pb-2 mb-4">Coordonnées Bancaires</h4>
+                                <div className="grid grid-cols-2 gap-x-12 gap-y-4">
+                                    <div className="flex items-center gap-4">
+                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right shrink-0 opacity-70">Banque</label>
                                         <div className="flex-1">
                                             {isEditing ? (
-                                                <GlassInput icon={<Building className="w-3.5 h-3.5" />} value={formData.bankName || ""} onChange={e => handleChange("bankName", e.target.value)} className="bg-white h-8 py-0.5 text-sm" />
+                                                <GlassInput icon={<Building className="w-3.5 h-3.5 opacity-50" />} value={formData.bankName || ""} onChange={e => handleChange("bankName", e.target.value)} className="bg-white h-9 text-sm border-slate-100" />
                                             ) : (
-                                                <div className="h-8 flex items-center px-2 text-sm font-bold text-slate-700 bg-white/50 rounded-lg border border-transparent">
+                                                <div className="h-9 flex items-center px-3 text-sm font-bold text-slate-700 bg-white/50 rounded-xl border border-transparent">
                                                     {formData.bankName || "-"}
                                                 </div>
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-wider text-right shrink-0">RIB</label>
+                                    <div className="flex items-center gap-4">
+                                        <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right shrink-0 opacity-70">RIB</label>
                                         <div className="flex-1">
                                             {isEditing ? (
-                                                <GlassInput icon={<CreditCard className="w-3.5 h-3.5" />} value={formData.rib || ""} onChange={e => handleChange("rib", e.target.value)} className="bg-white font-mono h-8 py-0.5 text-sm" />
+                                                <GlassInput icon={<CreditCard className="w-3.5 h-3.5 opacity-50" />} value={formData.rib || ""} onChange={e => handleChange("rib", e.target.value)} className="bg-white font-mono h-9 text-sm border-slate-100" />
                                             ) : (
-                                                <div className="h-8 flex items-center px-2 text-sm font-bold text-slate-700 font-mono tracking-wide bg-white/50 rounded-lg border border-transparent">
+                                                <div className="h-9 flex items-center px-3 text-sm font-bold text-slate-700 font-mono tracking-wide bg-white/50 rounded-xl border border-transparent">
                                                     {formData.rib || "-"}
                                                 </div>
                                             )}
@@ -471,53 +478,53 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
 
                     {/* Tab 3: Notes */}
                     {activeTab === "Notes" && (
-                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 grid grid-cols-3 gap-4 h-[225px]">
+                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 grid grid-cols-3 gap-6 h-[250px]">
                             {/* Note 1 */}
-                            <div className="space-y-1 h-full flex flex-col">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Général</label>
+                            <div className="space-y-2 h-full flex flex-col">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Général</label>
                                 {isEditing ? (
                                     <textarea
-                                        className="w-full flex-1 bg-white border border-slate-200 rounded-xl p-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#9C27B0]/20 text-sm resize-none"
+                                        className="w-full flex-1 bg-white border border-slate-100 rounded-xl p-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/10 text-sm resize-none transition-all"
                                         placeholder="Notes générales..."
                                         value={formData.note || ""}
                                         onChange={e => handleChange("note", e.target.value)}
                                     />
                                 ) : (
-                                    <div className="flex-1 w-full bg-slate-50 border border-transparent rounded-xl p-3 text-sm text-slate-600 whitespace-pre-wrap overflow-y-auto">
+                                    <div className="flex-1 w-full bg-slate-50 border border-transparent rounded-xl p-4 text-sm text-slate-500 whitespace-pre-wrap overflow-y-auto leading-relaxed">
                                         {formData.note || "Aucune note."}
                                     </div>
                                 )}
                             </div>
 
                             {/* Note 2 */}
-                            <div className="space-y-1 h-full flex flex-col">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Logistique</label>
+                            <div className="space-y-2 h-full flex flex-col">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Logistique</label>
                                 {isEditing ? (
                                     <textarea
-                                        className="w-full flex-1 bg-white border border-slate-200 rounded-xl p-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#9C27B0]/20 text-sm resize-none"
+                                        className="w-full flex-1 bg-white border border-slate-100 rounded-xl p-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/10 text-sm resize-none transition-all"
                                         placeholder="Notes logistique..."
                                         value={formData.note2 || ""}
                                         onChange={e => handleChange("note2", e.target.value)}
                                     />
                                 ) : (
-                                    <div className="flex-1 w-full bg-slate-50 border border-transparent rounded-xl p-3 text-sm text-slate-600 whitespace-pre-wrap overflow-y-auto">
+                                    <div className="flex-1 w-full bg-slate-50 border border-transparent rounded-xl p-4 text-sm text-slate-500 whitespace-pre-wrap overflow-y-auto leading-relaxed">
                                         {formData.note2 || "Aucune note."}
                                     </div>
                                 )}
                             </div>
 
                             {/* Note 3 */}
-                            <div className="space-y-1 h-full flex flex-col">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">Paiement / Autre</label>
+                            <div className="space-y-2 h-full flex flex-col">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 opacity-70">Paiement / Autre</label>
                                 {isEditing ? (
                                     <textarea
-                                        className="w-full flex-1 bg-white border border-slate-200 rounded-xl p-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#9C27B0]/20 text-sm resize-none"
+                                        className="w-full flex-1 bg-white border border-slate-100 rounded-xl p-4 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/10 text-sm resize-none transition-all"
                                         placeholder="Notes paiement..."
                                         value={formData.note3 || ""}
                                         onChange={e => handleChange("note3", e.target.value)}
                                     />
                                 ) : (
-                                    <div className="flex-1 w-full bg-slate-50 border border-transparent rounded-xl p-3 text-sm text-slate-600 whitespace-pre-wrap overflow-y-auto">
+                                    <div className="flex-1 w-full bg-slate-50 border border-transparent rounded-xl p-4 text-sm text-slate-500 whitespace-pre-wrap overflow-y-auto leading-relaxed">
                                         {formData.note3 || "Aucune note."}
                                     </div>
                                 )}
@@ -527,11 +534,14 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
                 </div>
 
                 {/* HISTORY SECTION */}
-                <div className="mt-10">
-                    <div className="flex items-center justify-between mb-6">
+                <div className="mt-12">
+                    <div className="flex items-center justify-between mb-8">
                         <div>
-                            <h2 className="text-xl font-black text-[#3E2723] font-outfit">Historique</h2>
-                            <p className="text-xs text-slate-400 font-medium uppercase tracking-wide mt-1">Dernières opérations</p>
+                            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                <div className="w-1.5 h-6 rounded-full bg-[#1E293B] transition-colors" />
+                                Historique des Opérations
+                            </h3>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 opacity-70 ml-[14px]">Dernières factures et règlements</p>
                         </div>
                         <button
                             onClick={() => {
@@ -542,27 +552,27 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
                                     router.push(`/ventes?action=new&clientId=${formData.id}&clientName=${encodeURIComponent(formData.name || "")}`);
                                 }
                             }}
-                            className="flex items-center gap-2 px-4 py-2 bg-[#5E35B1] hover:bg-[#4527A0] text-white rounded-xl shadow-lg shadow-indigo-200 transition-all font-bold text-sm"
+                            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg shadow-blue-500/20 transition-all font-bold text-[10px] uppercase tracking-widest"
                         >
                             <Plus className="w-4 h-4 stroke-[3px]" />
-                            Créer Facture
+                            Nouvelle Facture
                         </button>
                     </div>
 
-                    <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
+                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                         <table className="w-full text-sm">
                             <thead className="bg-slate-50/50 border-b border-slate-100">
                                 <tr>
-                                    <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Date</th>
-                                    <th className="px-6 py-4 text-left text-[10px] font-bold text-slate-400 uppercase tracking-widest">Référence</th>
-                                    <th className="px-6 py-4 text-right text-[10px] font-bold text-slate-400 uppercase tracking-widest">Montant TTC</th>
-                                    <th className="px-6 py-4 text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">Statut</th>
+                                    <th className="px-8 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
+                                    <th className="px-8 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Référence</th>
+                                    <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Montant TTC</th>
+                                    <th className="px-8 py-5 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Statut</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
                                 {/* Empty History Message */}
                                 <tr>
-                                    <td colSpan={4} className="px-6 py-12 text-center text-slate-400 font-medium">
+                                    <td colSpan={4} className="px-8 py-16 text-center text-slate-300 font-bold italic opacity-60">
                                         Aucune opération enregistrée pour ce tiers.
                                     </td>
                                 </tr>

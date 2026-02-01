@@ -5,7 +5,7 @@ import { PayeContent } from "@/components/payroll/PayeContent";
 import { getEmployees } from "@/lib/data-service";
 import { StaffMember } from "@/lib/types";
 
-export default function PayePage() {
+export default function PersonnelPage() {
     const [employees, setEmployees] = useState<StaffMember[] | null>(null);
 
     useEffect(() => {
@@ -16,11 +16,11 @@ export default function PayePage() {
         fetchData();
     }, []);
 
-    if (!employees) return <div className="h-screen flex items-center justify-center font-bold text-slate-400">Chargement de la Paye...</div>;
+    if (!employees) return <div className="h-screen flex items-center justify-center font-bold text-slate-400">Initialisation de l'annuaire RH...</div>;
 
     return (
         <Suspense fallback={<div className="h-screen flex items-center justify-center font-bold text-slate-400">Chargement...</div>}>
-            <PayeContent initialEmployees={employees} />
+            <PayeContent initialEmployees={employees} defaultViewMode="BASE" />
         </Suspense>
     );
 }

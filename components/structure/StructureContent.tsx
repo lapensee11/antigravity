@@ -2,9 +2,14 @@
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TypeColumn } from "@/components/structure/TypeColumn";
-import { StructureType, Family, SubFamily } from "@/lib/types";
+import { StructureType, Family, SubFamily, AccountingAccount } from "@/lib/types";
 import { useState, useEffect } from "react";
-import { saveFamily, saveSubFamily, deleteFamily, deleteSubFamily } from "@/lib/actions/articles";
+import {
+    getFamilies, saveFamily, deleteFamily,
+    getSubFamilies, saveSubFamily, deleteSubFamily,
+    getAccountingNatures, saveAccountingNature, deleteAccountingNature,
+    getAccountingAccounts
+} from "@/lib/data-service";
 
 import {
     Wheat,
@@ -24,7 +29,10 @@ import {
     Hammer,
     Plug,
     Thermometer,
-    Palette
+    Palette,
+    Settings2,
+    Trash2,
+    Plus
 } from "lucide-react";
 
 const ICONS = [
@@ -60,6 +68,22 @@ export function StructureContent({
     const [types] = useState<StructureType[]>(initialTypes);
     const [families, setFamilies] = useState<Family[]>(initialFamilies);
     const [subFamilies, setSubFamilies] = useState<SubFamily[]>(initialSubFamilies);
+    const [accountingNatures, setAccountingNatures] = useState<{ id: string, name: string }[]>([]);
+    const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const load = async () => {
+            const [natures, accounts] = await Promise.all([
+                getAccountingNatures(),
+                getAccountingAccounts()
+            ]);
+            setAccountingNatures(natures);
+            setAccountingAccounts(accounts);
+            setLoading(false);
+        };
+        load();
+    }, []);
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -72,7 +96,7 @@ export function StructureContent({
     const [editingItem, setEditingItem] = useState<Family | SubFamily | null>(null);
 
     // Form State
-    const [formData, setFormData] = useState({ name: "", code: "", icon: "" });
+    const [formData, setFormData] = useState({ name: "", code: "", icon: "", accountingCode: "" });
 
     // Focus State for Keyboard Navigation
     const [focusedFamilyId, setFocusedFamilyId] = useState<string | null>(null);
@@ -91,7 +115,7 @@ export function StructureContent({
         setSelectedTypeId(typeId);
         setModalMode("family");
         setEditMode(false);
-        setFormData({ name: "", code: "", icon: "" });
+        setFormData({ name: "", code: "", icon: "", accountingCode: "" });
         setIsModalOpen(true);
     };
 
@@ -99,7 +123,7 @@ export function StructureContent({
         setSelectedFamilyId(familyId);
         setModalMode("subFamily");
         setEditMode(false);
-        setFormData({ name: "", code: "", icon: "" });
+        setFormData({ name: "", code: "", icon: "", accountingCode: "" });
         setIsModalOpen(true);
     };
 
@@ -107,7 +131,7 @@ export function StructureContent({
         setEditingItem(family);
         setModalMode("family");
         setEditMode(true);
-        setFormData({ name: family.name, code: family.code, icon: family.icon || "" });
+        setFormData({ name: family.name, code: family.code, icon: family.icon || "", accountingCode: "" });
         setIsModalOpen(true);
     };
 
@@ -115,7 +139,7 @@ export function StructureContent({
         setEditingItem(subFamily);
         setModalMode("subFamily");
         setEditMode(true);
-        setFormData({ name: subFamily.name, code: subFamily.code, icon: subFamily.icon || "" });
+        setFormData({ name: subFamily.name, code: subFamily.code, icon: subFamily.icon || "", accountingCode: subFamily.accountingCode || "" });
         setIsModalOpen(true);
     };
 
@@ -146,7 +170,8 @@ export function StructureContent({
                 name: formData.name,
                 code: formData.code,
                 familyId: (editMode && editingItem) ? (editingItem as SubFamily).familyId : selectedFamilyId!,
-                icon: formData.icon
+                icon: formData.icon,
+                accountingCode: formData.accountingCode
             };
 
             const result = await saveSubFamily(subToSave);
@@ -171,7 +196,21 @@ export function StructureContent({
             alert("Erreur lors de la suppression");
         }
     };
+    const handleDeleteNature = async (id: string) => {
+        if (confirm("Supprimer cette nature comptable ?")) {
+            await deleteAccountingNature(id);
+            setAccountingNatures(prev => prev.filter(n => n.id !== id));
+        }
+    };
 
+    const handleAddNature = async (name: string) => {
+        if (!name.trim()) return;
+        const newNature = { id: crypto.randomUUID(), name };
+        await saveAccountingNature(newNature);
+        setAccountingNatures(prev => [...prev, newNature]);
+    };
+
+    const [newNatureName, setNewNatureName] = useState("");
     const handleDeleteSubFamily = async (id: string) => {
         if (!window.confirm("Supprimer cette sous-famille ?")) return;
         const result = await deleteSubFamily(id);
@@ -249,6 +288,10 @@ export function StructureContent({
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+
+            // Ignorer si focus dans un input, textarea, select ou bouton
+            const isInputActive = ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(document.activeElement?.tagName || "");
+            if (isInputActive) return;
 
             e.preventDefault();
 
@@ -340,6 +383,73 @@ export function StructureContent({
                     ))}
                 </div>
 
+                {/* Section: Plan Comptable (Natures de Charges) */}
+                <div className="mt-8 mb-12">
+                    <div className="bg-white/70 backdrop-blur-xl rounded-[2rem] border border-white/60 shadow-xl overflow-hidden">
+                        <div className="px-10 py-8 bg-[#2D3748] flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-white backdrop-blur-md">
+                                    <Settings2 className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white tracking-tight">Plan Comptable</h2>
+                                    <p className="text-blue-200/60 text-xs font-bold uppercase tracking-widest mt-0.5">Gestion des Natures de Charges</p>
+                                </div>
+                            </div>
+                            <div className="px-4 py-2 bg-white/10 rounded-xl text-white text-xs font-black uppercase tracking-widest backdrop-blur-md border border-white/10">
+                                {accountingNatures.length} Elements
+                            </div>
+                        </div>
+
+                        <div className="p-10">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                                {accountingNatures.map(nature => (
+                                    <div key={nature.id} className="group relative flex items-center justify-between p-5 bg-slate-50/50 hover:bg-white rounded-2xl border border-slate-100 hover:border-blue-400/30 hover:shadow-lg transition-all duration-300">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-2 h-2 rounded-full bg-blue-500/40" />
+                                            <span className="text-sm font-bold text-slate-700">{nature.name}</span>
+                                        </div>
+                                        <button
+                                            onClick={() => handleDeleteNature(nature.id)}
+                                            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                ))}
+
+                                {/* Add New Nature Card */}
+                                <div className="p-2 bg-blue-50/30 border-2 border-dashed border-blue-200 rounded-2xl flex items-center gap-3">
+                                    <input
+                                        type="text"
+                                        value={newNatureName}
+                                        onChange={(e) => setNewNatureName(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                                handleAddNature(newNatureName);
+                                                setNewNatureName("");
+                                            }
+                                        }}
+                                        placeholder="Nouvelle nature..."
+                                        className="flex-1 bg-transparent border-none px-4 py-2 text-sm font-bold text-slate-700 placeholder:text-blue-300 outline-none"
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            if (newNatureName.trim()) {
+                                                handleAddNature(newNatureName);
+                                                setNewNatureName("");
+                                            }
+                                        }}
+                                        className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center hover:bg-blue-700 active:scale-95 transition-all shadow-lg shadow-blue-200 shrink-0"
+                                    >
+                                        <Plus className="w-5 h-5" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 {/* Custom Styled Modal */}
                 {isModalOpen && (
                     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -379,6 +489,28 @@ export function StructureContent({
                                         />
                                     </div>
                                 </div>
+
+                                {modalMode === 'subFamily' && (
+                                    <div className="mt-4 pt-4 border-t border-slate-100">
+                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Code Comptable par défaut</label>
+                                        <select
+                                            value={formData.accountingCode || ""}
+                                            onChange={e => setFormData({ ...formData, accountingCode: e.target.value })}
+                                            className="w-full bg-white border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-700 focus:outline-none focus:border-[#D69E2E] transition-colors cursor-pointer appearance-none"
+                                        >
+                                            <option value="">-- Aucun --</option>
+                                            {accountingAccounts.map(acc => (
+                                                <option key={acc.id} value={acc.code}>
+                                                    {acc.code} - {acc.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <p className="text-[10px] text-slate-400 mt-2 italic flex items-center gap-2">
+                                            <span className="w-1 h-4 bg-orange-200 rounded-full"></span>
+                                            Sera appliqué aux nouveaux articles de cette sous-famille
+                                        </p>
+                                    </div>
+                                )}
 
                                 {/* Icon Picker */}
                                 <div>

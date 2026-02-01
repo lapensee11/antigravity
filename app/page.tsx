@@ -1,10 +1,39 @@
+"use client";
+
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { useEffect, useState } from "react";
+import { getDashboardStats } from "@/lib/data-service";
+import Link from "next/link";
+import {
+  TrendingUp,
+  Clock,
+  ChefHat,
+  AlertTriangle,
+  Plus,
+  FileText,
+  Settings,
+  ArrowUpRight
+} from "lucide-react";
 
 export default function Home() {
+  const [stats, setStats] = useState<any>(null);
+
+  useEffect(() => {
+    async function fetchStats() {
+      const data = await getDashboardStats();
+      setStats(data);
+    }
+    fetchStats();
+  }, []);
+
+  const formatCurrency = (val: number) => {
+    return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'MAD' }).format(val);
+  };
+
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[#F8FAFC]">
       <Sidebar />
 
       <main className="flex-1 ml-64 min-h-screen flex flex-col p-4 pl-0 transition-all duration-300">
@@ -14,59 +43,69 @@ export default function Home() {
           <section>
             <h2 className="text-3xl font-bold text-slate-800 mb-6 font-outfit tracking-tight">Vue d&apos;ensemble</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* KPI Cards Placeholder */}
-              <GlassCard className="h-44 flex flex-col justify-between group hover:scale-[1.02] transition-transform duration-300 cursor-pointer">
+
+              <GlassCard className="h-44 flex flex-col justify-between group hover:scale-[1.02] transition-all duration-300 cursor-pointer border-l-4 border-l-green-500">
                 <div className="flex justify-between items-start">
-                  <p className="text-slate-500 font-medium text-sm uppercase tracking-wider">Ventes Totales</p>
-                  <span className="p-2 bg-green-100 rounded-lg text-green-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  </span>
+                  <p className="text-slate-500 font-medium text-xs uppercase tracking-widest">Ventes (Mois)</p>
+                  <div className="p-2 bg-green-50 rounded-xl text-green-600">
+                    <TrendingUp className="h-5 w-5" />
+                  </div>
                 </div>
                 <div>
-                  <h3 className="text-4xl font-bold text-slate-800 mt-2">12,450 Dh</h3>
-                  <div className="text-sm text-green-500 font-medium mt-1 flex items-center gap-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-                    +15% vs mois dernier
+                  <h3 className="text-3xl font-bold text-slate-800 mt-2">
+                    {stats ? formatCurrency(stats.totalSales) : "---"}
+                  </h3>
+                  <div className="text-[10px] text-green-500 font-medium mt-1 flex items-center gap-1">
+                    <ArrowUpRight className="h-3 w-3" />
+                    Mise à jour en temps réel
                   </div>
                 </div>
               </GlassCard>
 
-              <GlassCard className="h-44 flex flex-col justify-between group hover:scale-[1.02] transition-transform duration-300 cursor-pointer">
+              <GlassCard className="h-44 flex flex-col justify-between group hover:scale-[1.02] transition-all duration-300 cursor-pointer border-l-4 border-l-orange-500">
                 <div className="flex justify-between items-start">
-                  <p className="text-slate-500 font-medium text-sm uppercase tracking-wider">Commandes en Cours</p>
-                  <span className="p-2 bg-orange-100 rounded-lg text-orange-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  </span>
+                  <p className="text-slate-500 font-medium text-xs uppercase tracking-widest">Achats à Régler</p>
+                  <div className="p-2 bg-orange-50 rounded-xl text-orange-600">
+                    <Clock className="h-5 w-5" />
+                  </div>
                 </div>
                 <div>
-                  <h3 className="text-4xl font-bold text-slate-800 mt-2">23</h3>
-                  <div className="text-sm text-orange-500 font-medium mt-1">5 Urgent</div>
+                  <h3 className="text-3xl font-bold text-slate-800 mt-2">
+                    {stats ? stats.pendingCount : "---"}
+                  </h3>
+                  <div className="text-[10px] text-orange-500 font-medium mt-1">
+                    Total: {stats ? formatCurrency(stats.pendingAmount) : "---"}
+                  </div>
                 </div>
               </GlassCard>
 
-              <GlassCard className="h-44 flex flex-col justify-between group hover:scale-[1.02] transition-transform duration-300 cursor-pointer">
+              <GlassCard className="h-44 flex flex-col justify-between group hover:scale-[1.02] transition-all duration-300 cursor-pointer border-l-4 border-l-indigo-500">
                 <div className="flex justify-between items-start">
-                  <p className="text-slate-500 font-medium text-sm uppercase tracking-wider">Production</p>
-                  <span className="p-2 bg-indigo-100 rounded-lg text-indigo-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                  </span>
+                  <p className="text-slate-500 font-medium text-xs uppercase tracking-widest">Catalogue Production</p>
+                  <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
+                    <ChefHat className="h-5 w-5" />
+                  </div>
                 </div>
                 <div>
-                  <h3 className="text-4xl font-bold text-slate-800 mt-2">1,204 <span className="text-sm text-slate-400 font-normal">unités</span></h3>
-                  <div className="text-sm text-slate-500 font-medium mt-1">Objectifs atteints</div>
+                  <h3 className="text-3xl font-bold text-slate-800 mt-2">
+                    {stats ? stats.recipeCount : "---"}
+                  </h3>
+                  <div className="text-[10px] text-indigo-500 font-medium mt-1">Recettes actives</div>
                 </div>
               </GlassCard>
 
-              <GlassCard className="h-44 flex flex-col justify-between group hover:scale-[1.02] transition-transform duration-300 cursor-pointer">
+              <GlassCard className="h-44 flex flex-col justify-between group hover:scale-[1.02] transition-all duration-300 cursor-pointer border-l-4 border-l-blue-500">
                 <div className="flex justify-between items-start">
-                  <p className="text-slate-500 font-medium text-sm uppercase tracking-wider">Stock Faible</p>
-                  <span className="p-2 bg-red-100 rounded-lg text-red-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
-                  </span>
+                  <p className="text-slate-500 font-medium text-xs uppercase tracking-widest">Articles en Stock</p>
+                  <div className="p-2 bg-blue-50 rounded-xl text-blue-600">
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
                 </div>
                 <div>
-                  <h3 className="text-4xl font-bold text-slate-800 mt-2">8</h3>
-                  <div className="text-sm text-red-500 font-medium mt-1">Articles à commander</div>
+                  <h3 className="text-3xl font-bold text-slate-800 mt-2">
+                    {stats ? stats.articleCount : "---"}
+                  </h3>
+                  <div className="text-[10px] text-blue-500 font-medium mt-1">Gérés en base locale</div>
                 </div>
               </GlassCard>
             </div>
@@ -74,33 +113,81 @@ export default function Home() {
 
           <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <GlassCard className="lg:col-span-2 min-h-[400px]">
-              <h3 className="text-xl font-bold text-slate-700 mb-6 font-outfit">Activité Récente</h3>
+              <h3 className="text-xl font-bold text-slate-700 mb-6 font-outfit">Flux d&apos;Activité (Achats)</h3>
               <div className="space-y-4">
-                <div className="flex items-center justify-center h-64 text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
-                  Graphique / Flux d&apos;activité
-                </div>
+                {stats?.recentActivity?.length > 0 ? (
+                  <div className="divide-y divide-slate-100">
+                    {stats.recentActivity.map((act: any) => (
+                      <div key={act.id} className="py-4 flex items-center justify-between group cursor-pointer hover:bg-slate-50/50 transition-colors rounded-lg px-2">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
+                            <FileText className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm">{act.label}</p>
+                            <p className="text-xs text-slate-400">{new Date(act.date).toLocaleDateString('fr-FR')}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-slate-700 text-sm">{formatCurrency(act.amount)}</p>
+                          <p className="text-[10px] text-blue-500 font-medium uppercase tracking-widest">Validé</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-64 text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                      <Clock className="w-6 h-6 text-slate-300" />
+                    </div>
+                    <p className="text-sm font-medium">Aucune activité récente détectée</p>
+                  </div>
+                )}
               </div>
             </GlassCard>
+
             <GlassCard className="min-h-[400px]">
               <h3 className="text-xl font-bold text-slate-700 mb-6 font-outfit">Actions Rapides</h3>
               <div className="space-y-4">
-                <button className="w-full py-4 px-6 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl shadow-lg shadow-indigo-200 transition-all font-medium flex items-center justify-center gap-2 transform active:scale-95">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-                  Nouvelle Vente
-                </button>
-                <button className="w-full py-4 px-6 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl transition-all font-medium flex items-center justify-center gap-2 shadow-sm active:scale-95">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                  Saisir Facture
-                </button>
+                <Link href="/ventes" className="block w-full">
+                  <button className="w-full py-5 px-6 bg-gradient-to-br from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white rounded-2xl shadow-xl shadow-blue-200 transition-all font-bold flex items-center justify-between group active:scale-[0.98]">
+                    <div className="flex items-center gap-3">
+                      <Plus className="h-6 w-6" />
+                      <span>Nouvelle Vente</span>
+                    </div>
+                    <ArrowUpRight className="h-5 w-5 opacity-50 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                </Link>
 
-                <button className="w-full py-4 px-6 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl transition-all font-medium flex items-center justify-center gap-2 shadow-sm active:scale-95">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-                  Contrôle Production
-                </button>
+                <Link href="/achats" className="block w-full">
+                  <button className="w-full py-5 px-6 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-2xl transition-all font-bold flex items-center justify-between shadow-sm group active:scale-[0.98]">
+                    <div className="flex items-center gap-3">
+                      <FileText className="h-6 w-6 text-orange-500" />
+                      <span>Saisir Facture</span>
+                    </div>
+                    <ArrowUpRight className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-300" />
+                  </button>
+                </Link>
+
+                <Link href="/production" className="block w-full">
+                  <button className="w-full py-5 px-6 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-2xl transition-all font-bold flex items-center justify-between shadow-sm group active:scale-[0.98]">
+                    <div className="flex items-center gap-3">
+                      <ChefHat className="h-6 w-6 text-indigo-500" />
+                      <span>Production</span>
+                    </div>
+                    <ArrowUpRight className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity text-slate-300" />
+                  </button>
+                </Link>
+
+                <div className="pt-6 mt-6 border-t border-slate-100">
+                  <Link href="/settings" className="flex items-center gap-2 text-slate-500 hover:text-blue-600 transition-colors text-sm font-medium px-2 group">
+                    <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
+                    <span>Gérer mes données & sauvegarde</span>
+                  </Link>
+                </div>
               </div>
             </GlassCard>
           </section>
-
         </div>
       </main>
     </div>

@@ -7,8 +7,8 @@ import { initialFamilies, initialSubFamilies } from "@/lib/data";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Search, ChevronDown, Check, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { saveArticle, deleteArticle, getArticles } from "@/lib/actions/articles";
-import { isTauri } from "@/lib/actions/db-desktop";
+import { getArticles, saveArticle, deleteArticle, getInvoices } from "@/lib/data-service";
+import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
 
 interface ArticlesContentProps {
     initialArticles: Article[];
@@ -16,34 +16,41 @@ interface ArticlesContentProps {
 
 export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
     const [articles, setArticles] = useState<Article[]>(initialArticles);
-    const [invoices] = useState<Invoice[]>([]);
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
     const [editTrigger, setEditTrigger] = useState(0);
 
-    // --- RUNTIME LOAD (TAURI) ---
+    // --- RUNTIME LOAD ---
     useEffect(() => {
-        const loadArticles = async () => {
-            if (isTauri()) {
-                console.log("ArticlesContent: Loading live data from SQLite...");
-                const liveArticles = await getArticles();
-                setArticles(liveArticles || []);
-            }
+        const loadData = async () => {
+            const [liveArticles, liveInvoices] = await Promise.all([
+                getArticles(),
+                getInvoices()
+            ]);
+            setArticles(liveArticles || []);
+            setInvoices(liveInvoices || []);
         };
-        loadArticles();
+        loadData();
     }, []);
 
     const handleSave = async (article: Article) => {
-        const res = await saveArticle(article);
+        let finalArticle = { ...article };
+
+        // If it's a temporary ID, give it a real one before saving
+        if (article.id.startsWith("temp_")) {
+            finalArticle.id = `ART-${Date.now()}`;
+        }
+
+        const res = await saveArticle(finalArticle);
         if (res.success) {
             const exists = articles.some(a => a.id === article.id);
             if (exists) {
-                setArticles(prev => prev.map(a => a.id === article.id ? article : a));
+                // If ID changed, we need to handle that in the state
+                setArticles(prev => prev.map(a => a.id === article.id ? finalArticle : a));
             } else {
-                setArticles(prev => [...prev, article]);
+                setArticles(prev => [...prev, finalArticle]);
             }
-            if (selectedArticle?.id === article.id) {
-                setSelectedArticle(article);
-            }
+            setSelectedArticle(finalArticle);
         }
     };
 
@@ -138,7 +145,18 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.target as HTMLElement).tagName === 'INPUT') return;
+            // Check if another component already handled this event
+            if (e.defaultPrevented) return;
+
+            // Ignorer si focus dans un input, textarea, select ou bouton (ou contentEditable)
+            const active = document.activeElement;
+            const isInputActive =
+                ["INPUT", "TEXTAREA", "SELECT"].includes(active?.tagName || "") ||
+                (active?.tagName === "BUTTON" && !active?.classList.contains("sidebar-item")) ||
+                active?.getAttribute("contenteditable") === "true" ||
+                active?.getAttribute("data-is-input") === "true";
+
+            if (isInputActive) return;
             if (e.key === "Enter") {
                 e.preventDefault();
                 if (selectedArticle) setEditTrigger(Date.now());
@@ -185,10 +203,22 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [selectedType, selectedArticle, filteredArticles]);
 
+    // --- AUTO-SCROLL SIDEBAR ---
+    const sidebarListRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (selectedArticle && sidebarListRef.current) {
+            const index = filteredArticles.findIndex(a => a.id === selectedArticle.id);
+            if (index >= 0) {
+                const el = sidebarListRef.current.children[index] as HTMLElement;
+                el?.scrollIntoView({ block: 'nearest' });
+            }
+        }
+    }, [selectedArticle, filteredArticles]);
+
     return (
         <div className="flex h-screen bg-[#F6F8FC] overflow-hidden">
             <Sidebar />
-            <main className="flex-1 ml-64 min-h-screen flex">
+            <main className="flex-1 ml-64 min-h-screen flex bg-white/30 backdrop-blur-md">
                 <div className="w-[340px] flex flex-col h-full border-r border-slate-200 bg-[#F6F8FC]">
                     <div className="p-5 pb-2 flex flex-col gap-4">
                         <div>
@@ -222,17 +252,17 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                         </div>
                         <div className="flex items-center gap-2">
                             <div className="relative flex-1">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                                <input
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 z-10" />
+                                <GlassInput
                                     placeholder="Rechercher..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:border-blue-400 transition-all shadow-sm placeholder:text-slate-300"
+                                    className="pl-9 py-2"
                                 />
                                 {searchQuery && (
                                     <button
                                         onClick={() => setSearchQuery("")}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 z-10"
                                     >
                                         <X className="w-3.5 h-3.5" />
                                     </button>
@@ -240,9 +270,10 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                             </div>
                             <button
                                 onClick={handleCreateNew}
-                                className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-white shadow-lg hover:bg-blue-700 hover:scale-105 transition-all shrink-0"
+                                className="w-10 h-10 bg-white border border-blue-200 text-blue-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 hover:scale-105 active:scale-95 transition-all"
+                                title="Ajouter un article"
                             >
-                                <Plus className="w-5 h-5" />
+                                <Plus className="w-6 h-6" />
                             </button>
                         </div>
                         <div className="relative z-20" ref={dropdownRef}>
@@ -323,17 +354,17 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                                     key={article.id}
                                     onClick={() => setSelectedArticle(article)}
                                     className={cn(
-                                        "flex items-center gap-3 p-3 border-b border-slate-100 transition-all cursor-pointer group relative hover:bg-white",
+                                        "flex items-center gap-3 p-3 border-b border-slate-100/50 transition-all cursor-pointer group relative hover:bg-white/40",
                                         isSelected
-                                            ? "bg-blue-100 pl-7"
-                                            : "bg-[#F6F8FC] pl-5"
+                                            ? "bg-white/80 pl-7 shadow-sm z-10"
+                                            : "bg-transparent pl-5"
                                     )}
                                 >
                                     <div className={cn(
-                                        "absolute left-0 top-0 bottom-0 w-[4px] transition-colors",
-                                        isSelected ? "bg-blue-600" : "bg-transparent"
+                                        "absolute left-0 top-0 bottom-0 w-[4px] transition-all duration-300",
+                                        isSelected ? "bg-blue-600 h-full" : "bg-transparent h-0 top-1/2"
                                     )} />
-                                    <div className="w-10 h-10 rounded-lg bg-white border border-slate-200/60 flex items-center justify-center shadow-sm shrink-0">
+                                    <div className="w-10 h-10 rounded-lg bg-white/60 border border-white/80 flex items-center justify-center shadow-sm shrink-0">
                                         <span className="text-xl">🌾</span>
                                     </div>
                                     <div className="flex-1 min-w-0 flex flex-col gap-0.5">
@@ -342,17 +373,17 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                                                 {article.code}
                                             </span>
                                         </div>
-                                        <span className={cn("text-xs font-bold truncate transition-colors", isSelected ? "text-blue-700" : "text-slate-700")}>
+                                        <span className={cn("text-xs font-black truncate transition-colors", isSelected ? "text-blue-700" : "text-slate-700")}>
                                             {article.name}
                                         </span>
-                                        <span className="text-xs font-medium text-slate-500">
-                                            {(article.lastPivotPrice || 0).toFixed(2).replace('.', ',')} <span className="text-[10px]">MAD</span>
+                                        <span className="text-xs font-bold text-slate-500">
+                                            {(article.lastPivotPrice || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-[10px]">MAD</span>
                                         </span>
                                     </div>
                                     <div className="pr-1">
-                                        <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded text-slate-400 bg-slate-100">
+                                        <GlassBadge color="blue" className="text-[8px] px-1.5 py-0.5">
                                             {typePrefix}
-                                        </span>
+                                        </GlassBadge>
                                     </div>
                                 </div>
                             );

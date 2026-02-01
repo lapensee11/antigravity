@@ -1,23 +1,33 @@
-import { Suspense } from "react";
-import { AchatsContent } from "@/components/achats/AchatsContent";
-import { getInvoices } from "@/lib/actions/finance";
-import { getArticles } from "@/lib/actions/articles";
-import { getTiers } from "@/lib/actions/tiers";
+"use client";
 
-export default async function AchatsPage() {
-    // Fetch initial data
-    const [invoices, articles, tiers] = await Promise.all([
-        getInvoices(),
-        getArticles(),
-        getTiers(),
-    ]);
+import { Suspense, useEffect, useState } from "react";
+import { AchatsContent } from "@/components/achats/AchatsContent";
+import { getInvoices, getArticles, getTiers } from "@/lib/data-service";
+import { Invoice, Article, Tier } from "@/lib/types";
+
+export default function AchatsPage() {
+    const [data, setData] = useState<{ invoices: Invoice[], articles: Article[], tiers: Tier[] } | null>(null);
+
+    useEffect(() => {
+        async function fetchData() {
+            const [invoices, articles, tiers] = await Promise.all([
+                getInvoices(),
+                getArticles(),
+                getTiers(),
+            ]);
+            setData({ invoices, articles, tiers });
+        }
+        fetchData();
+    }, []);
+
+    if (!data) return <div className="h-screen flex items-center justify-center font-bold text-slate-400">Initialisation de la base de données...</div>;
 
     return (
         <Suspense fallback={<div>Chargement...</div>}>
             <AchatsContent
-                initialInvoices={invoices}
-                initialArticles={articles}
-                initialTiers={tiers}
+                initialInvoices={data.invoices}
+                initialArticles={data.articles}
+                initialTiers={data.tiers}
             />
         </Suspense>
     );

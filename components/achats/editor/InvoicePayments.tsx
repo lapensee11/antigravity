@@ -48,7 +48,8 @@ const DecimalInput = forwardRef<HTMLInputElement, any>(({ value, onChange, class
 
     const handleBlur = () => {
         setIsEditing(false);
-        const num = parseFloat(localValue.replace(',', '.'));
+        const normalized = localValue.replace(/[\s\u00A0]/g, '').replace(',', '.');
+        const num = parseFloat(normalized);
         if (!isNaN(num)) {
             onChange(num);
         } else {
