@@ -3,7 +3,7 @@ import { Tier, TierType } from "@/lib/types";
 import { Save, User, Building, CreditCard, Phone, Mail, Globe, MapPin, Pencil, Trash2, FileText, Plus, Briefcase } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatPhoneNumber } from "@/lib/utils";
 
 interface TiersEditorProps {
     tier?: Tier | null;
@@ -42,9 +42,7 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
     const handleChange = (field: keyof Tier, value: string | number | boolean) => {
         let formattedValue = value;
         if ((field === "phone" || field === "phone2") && typeof value === "string") {
-            // Remove existing spaces and add space every 2 characters
-            const cleaned = value.replace(/\s/g, "");
-            formattedValue = cleaned.replace(/(.{2})(?=.)/g, "$1 ");
+            formattedValue = formatPhoneNumber(value);
         }
 
         // Auto-update code if Type changes

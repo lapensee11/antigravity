@@ -4,7 +4,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TiersEditor } from "@/components/tiers/TiersEditor";
 import { useState, useEffect, useRef } from "react";
 import { Search, Plus, User, Briefcase, Phone, X, Users, Building2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatPhoneNumber } from "@/lib/utils";
 import { saveTier, deleteTier, getTiers } from "@/lib/data-service";
 import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
 import { Tier } from "@/lib/types";
@@ -236,7 +236,7 @@ export function TiersContent({ initialTiers }: { initialTiers: Tier[] }) {
                                     <h3 className="text-base font-bold text-slate-800 leading-tight truncate pr-4">{tier.name}</h3>
                                     {tier.phone && (
                                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 shrink-0 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100/50">
-                                            <Phone className="w-3 h-3" /> {tier.phone}
+                                            <Phone className="w-3 h-3" /> {formatPhoneNumber(tier.phone)}
                                         </div>
                                     )}
                                 </div>

@@ -11,3 +11,14 @@ export async function confirmDelete(message: string): Promise<boolean> {
     resolve(result);
   });
 }
+
+export function formatPhoneNumber(value: string): string {
+  // Remove all non-digit characters
+  const cleaned = value.replace(/\D/g, "");
+
+  // Limit to 10 digits
+  const truncated = cleaned.slice(0, 10);
+
+  // Group by 2 digits with space
+  return truncated.replace(/(\d{2})(?=\d)/g, "$1 ");
+}

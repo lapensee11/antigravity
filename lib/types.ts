@@ -274,6 +274,8 @@ export interface StaffMember {
         type: string;
         amount: number;
         bonus: number;
+        undeclaredBonus?: number;
+        orderId?: string;
         date: string;
     }[];
     notes?: {

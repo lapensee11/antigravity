@@ -77,10 +77,10 @@ export async function populate() {
                 contract: { post: "Chef Boulanger", hireDate: "2022-03-01", exitDate: "-", seniority: "3 ans, 11 mois", seniorityPercentage: 5, leaveBalance: "18 Jours", baseSalary: 6500, fixedBonus: 0 },
                 creditInfo: { loanAmount: 20000, payments: 8000, remaining: 12000 },
                 history: [
-                    { year: "22", type: "EMBAUCHE", amount: 5000, bonus: 500, date: "2022-03-01" },
-                    { year: "23", type: "AUGMENTATION", amount: 5500, bonus: 500, date: "2023-01-01" },
-                    { year: "24", type: "AUGMENTATION", amount: 6000, bonus: 500, date: "2024-06-01" },
-                    { year: "25", type: "AUGMENTATION", amount: 6500, bonus: 500, date: "2025-01-01" }
+                    { year: "22", type: "EMBAUCHE", amount: 5000, bonus: 0, date: "2022-03-01" },
+                    { year: "23", type: "AUGMENTATION", amount: 5500, bonus: 0, date: "2023-01-01" },
+                    { year: "24", type: "AUGMENTATION", amount: 6000, bonus: 0, date: "2024-06-01" },
+                    { year: "25", type: "AUGMENTATION", amount: 6500, bonus: 0, date: "2025-01-01" }
                 ],
                 monthlyData: { "JANVIER": { jours: 26, hSup: 0, pRegul: 0, pOccas: 0, virement: 0, avances: 0, monthlyDeduction: 0 } }
             }
