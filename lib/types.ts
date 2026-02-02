@@ -253,6 +253,7 @@ export interface StaffMember {
         phone2?: string;
         city: string;
         address: string;
+        notes?: string;
     };
     contract: {
         post: string;
