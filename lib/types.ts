@@ -240,6 +240,7 @@ export interface StaffMember {
     firstName: string;
     lastName: string;
     role: string;
+    declarationStatus?: "D" | "ND"; // Déclaré / Non Déclaré
     gender: string;
     birthDate: string;
     matricule: string;
@@ -293,5 +294,22 @@ export interface StaffMember {
         virement: number;
         avances: number;
         monthlyDeduction: number;
+        isPaid?: boolean;
     }>;
+}
+
+export interface AppSetting {
+    key: string;
+    value: string;
+}
+
+export interface Partner {
+    id: string;
+    name: string;
+    commissionHT: string;
+    commissionVAT: string;
+    commissionTTC: string;
+    exoneratedPercentage: string;
+    taxablePercentage: string;
+    color: string;
 }

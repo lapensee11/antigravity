@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
     Search, Plus, X, Pencil, Trash2, Calendar, FileText, Download, Filter,
-    MoreHorizontal, ChevronLeft, ChevronRight, Check, AlertCircle, TrendingUp, TrendingDown,
+    MoreHorizontal, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, AlertCircle, TrendingUp, TrendingDown,
     Save, UserPlus, CreditCard, Clock, Activity, Briefcase, Hash, Phone, MapPin,
     Calendar as CalendarIcon, Heart, Baby, LogOut, Users, Minus, User, DollarSign, Mail, Building2, UserCircle, Calculator, Edit3, Table, ArrowRight, Cake, Banknote, Gift, RefreshCw, Lock
 } from "lucide-react";
@@ -32,9 +32,11 @@ interface PayeContentProps {
     defaultViewMode?: "JOURNAL" | "BASE";
 }
 
-const PayrollInput = ({ value, onChange, className, isCurrency = false }: {
+const PayrollInput = ({ value, onChange, onIncrement, onDecrement, className, isCurrency = false }: {
     value: number;
     onChange: (val: number) => void;
+    onIncrement?: () => void;
+    onDecrement?: () => void;
     className?: string;
     isCurrency?: boolean;
 }) => {
@@ -42,10 +44,20 @@ const PayrollInput = ({ value, onChange, className, isCurrency = false }: {
     const [localValue, setLocalValue] = useState("");
 
     useEffect(() => {
+        const formattedValue = isCurrency
+            ? value.toFixed(2).replace('.', ',')
+            : value.toString().replace('.', ',');
+
+        // Always sync if not editing
         if (!isEditing) {
-            const formattedValue = isCurrency
-                ? value.toFixed(2).replace('.', ',')
-                : value.toString().replace('.', ',');
+            setLocalValue(value === 0 ? "" : formattedValue);
+            return;
+        }
+
+        // If editing, only sync if the numerical value from props changed 
+        // (meaning an external update like arrow keys happened)
+        const currentLocalNum = parseFloat(localValue.replace(',', '.')) || 0;
+        if (value !== currentLocalNum) {
             setLocalValue(value === 0 ? "" : formattedValue);
         }
     }, [value, isEditing, isCurrency]);
@@ -59,9 +71,20 @@ const PayrollInput = ({ value, onChange, className, isCurrency = false }: {
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
         if (e.key === 'Escape') {
-            setLocalValue(value.toFixed(2).replace('.', ','));
+            const formattedValue = isCurrency
+                ? value.toFixed(2).replace('.', ',')
+                : value.toString().replace('.', ',');
+            setLocalValue(formattedValue);
             setIsEditing(false);
             (e.target as HTMLInputElement).blur();
+        }
+        if (e.key === 'ArrowUp' && onIncrement) {
+            e.preventDefault();
+            onIncrement();
+        }
+        if (e.key === 'ArrowDown' && onDecrement) {
+            e.preventDefault();
+            onDecrement();
         }
     };
 
@@ -73,18 +96,40 @@ const PayrollInput = ({ value, onChange, className, isCurrency = false }: {
         );
 
     return (
-        <input
-            type="text"
-            value={displayValue}
-            className={cn("w-full text-center bg-transparent border-none p-0 text-[12px] font-black focus:ring-0", className)}
-            onFocus={() => {
-                setIsEditing(true);
-                setLocalValue(value === 0 ? "" : value.toString().replace('.', ','));
-            }}
-            onBlur={handleBlur}
-            onChange={(e) => setLocalValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-        />
+        <div className="relative flex items-center group/input min-w-[50px]">
+            <input
+                type="text"
+                value={displayValue}
+                className={cn(
+                    "w-full text-center bg-transparent border-none p-0 text-[12px] font-black focus:ring-0 focus:outline-none transition-all",
+                    (onIncrement || onDecrement) && "pr-4",
+                    className
+                )}
+                onFocus={() => {
+                    setIsEditing(true);
+                    setLocalValue(value === 0 ? "" : value.toString().replace('.', ','));
+                }}
+                onBlur={handleBlur}
+                onChange={(e) => setLocalValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+            />
+            {(onIncrement || onDecrement) && (
+                <div className="absolute right-0 flex flex-col opacity-0 group-hover/input:opacity-100 transition-opacity translate-x-1">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onIncrement?.(); }}
+                        className="p-0.5 hover:text-blue-600 transition-colors"
+                    >
+                        <ChevronUp className="w-2.5 h-2.5" />
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onDecrement?.(); }}
+                        className="p-0.5 hover:text-blue-600 transition-colors"
+                    >
+                        <ChevronDown className="w-2.5 h-2.5" />
+                    </button>
+                </div>
+            )}
+        </div>
     );
 };
 
@@ -138,7 +183,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
     // Pour Base Personnel
     const [searchQuery, setSearchQuery] = useState("");
-    const [filterStatus, setFilterStatus] = useState<"TOUS" | "ACTIFS" | "INACTIFS">("TOUS");
+    const [filterStatus, setFilterStatus] = useState<"TOUS" | "ACTIFS" | "INACTIFS">("ACTIFS");
     const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [activeDetailTab, setActiveDetailTab] = useState<"profile" | "contract" | "salary">("profile");
@@ -179,6 +224,10 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             if (filterStatus === "INACTIFS") return !!emp.contract?.exitDate;
 
             return true;
+        }).sort((a, b) => {
+            const matrA = a.matricule || `M00${a.id}`;
+            const matrB = b.matricule || `M00${b.id}`;
+            return matrA.localeCompare(matrB, undefined, { numeric: true, sensitivity: 'base' });
         });
     }, [employees, searchQuery, filterStatus]);
 
@@ -200,6 +249,14 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             borderCard: "border-slate-200 " + (isFemale ? "border-red-500/20" : "border-blue-500/20"),
         };
     }, [selectedEmployee]);
+
+    const sortedEmployees = useMemo(() => {
+        return [...employees].sort((a, b) => {
+            const matrA = a.matricule || `M00${a.id}`;
+            const matrB = b.matricule || `M00${b.id}`;
+            return matrA.localeCompare(matrB, undefined, { numeric: true, sensitivity: 'base' });
+        });
+    }, [employees]);
 
     const chartData = useMemo(() => {
         if (!selectedEmployee) return [];
@@ -374,9 +431,10 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         const newId = Math.max(...employees.map(e => e.id), 0) + 1;
         const newEmployee: any = {
             id: newId,
-            firstName: "Nouveau",
-            lastName: "Salarié",
+            firstName: "",
+            lastName: "",
             role: "Employé",
+            declarationStatus: "D",
             gender: "M",
             situationFamiliale: "Célibataire",
             childrenCount: 0,
@@ -419,10 +477,17 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
     // --- HELPERS ---
     const getMonthlyData = (emp: StaffMember) => {
+        // Find latest undeclared bonus from history
+        let latestBonus = 0;
+        if (emp.history && emp.history.length > 0) {
+            const sortedHistory = [...emp.history].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            latestBonus = sortedHistory[0]?.undeclaredBonus || 0;
+        }
+
         return emp.monthlyData?.[currentMonth] || {
             jours: 26,
             hSup: 0,
-            pRegul: 0,
+            pRegul: latestBonus,
             pOccas: 0,
             virement: 0,
             avances: 0,
@@ -596,11 +661,30 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         setEmployees(prev => prev.map(emp => {
             if (emp.id === empId) {
                 const currentData = getMonthlyData(emp);
+                let updates: any = { [field]: value };
+
+                // Auto-calculate Prorated Bonus if 'jours' changes
+                if (field === 'jours') {
+                    // Find latest undeclared bonus from history
+                    let latestBonus = 0;
+                    if (emp.history && emp.history.length > 0) {
+                        const sortedHistory = [...emp.history].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                        latestBonus = sortedHistory[0]?.undeclaredBonus || 0;
+                    }
+
+                    if (latestBonus > 0) {
+                        const days = Number(value);
+                        // Prorata based on 26 days. If days >= 26, full bonus.
+                        const prorated = days < 26 ? (latestBonus * days / 26) : latestBonus;
+                        updates.pRegul = Math.round(prorated * 100) / 100; // Round to 2 decimals
+                    }
+                }
+
                 return {
                     ...emp,
                     monthlyData: {
                         ...emp.monthlyData,
-                        [currentMonth]: { ...currentData, [field]: value }
+                        [currentMonth]: { ...currentData, ...updates }
                     }
                 };
             }
@@ -755,128 +839,109 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                 {/* Table Header */}
                                 {/* Table Header */}
                                 {journalSubView === "SAISIE" ? (
-                                    <div className="bg-[#2C3E50] text-[#7F8C8D] h-14 flex items-center px-4 shrink-0 font-black text-[10px] uppercase tracking-widest border-b border-slate-700">
-                                        <div className="w-[5%] text-white">Matr</div>
-                                        <div className="w-[15%] text-white">Salarié</div>
-                                        <div className="w-[8%] text-center text-[#2ECC71]">Net Cible</div>
-                                        <div className="w-px self-stretch bg-slate-800 mx-1" />
+                                    <div className="bg-[#2C3E50] text-[#7F8C8D] h-10 flex items-center px-4 shrink-0 font-black text-[10px] uppercase tracking-widest border-b border-slate-700">
+                                        <div className="w-[3.5%] text-white">Matr</div>
+                                        <div className="w-[13.5%] text-white">Salarié</div>
+                                        <div className="w-[7.5%] text-center text-[#2ECC71]">Net Cible</div>
                                         <div className="w-[10%] text-center text-white">Mois / Année</div>
-                                        <div className="w-px self-stretch bg-slate-800 mx-1" />
                                         <div className="w-[7%] text-center text-white">Jours</div>
                                         <div className="w-[7%] text-center text-white">H. Sup</div>
                                         <div className="w-[8%] text-center text-white">P. Régul</div>
                                         <div className="w-[8%] text-center text-white">P. Occas</div>
-                                        <div className="w-px self-stretch bg-slate-800 mx-1" />
-                                        <div className="w-[8%] text-center text-[#F39C12]">Virement</div>
-                                        <div className="w-[8%] text-center text-[#F39C12]">Avances</div>
+                                        <div className="w-[7%] text-center text-[#F39C12]">Virement</div>
+                                        <div className="w-[7%] text-center text-[#F39C12]">Avances</div>
                                         <div className="w-[8%] text-center text-[#F39C12]">Retenue Prêt</div>
-                                        <div className="w-px self-stretch bg-slate-800 mx-1" />
-                                        <div className="w-[10%] text-right pr-4 text-white">Net à Payer</div>
+                                        <div className="w-[8%] text-right text-white">Net à Payer</div>
+                                        <div className="w-[5%] text-center text-[#2ECC71]">Payé</div>
                                     </div>
                                 ) : (
-                                    <div className="bg-[#A67C00] text-white h-14 flex items-stretch px-4 shrink-0 font-black text-[9px] uppercase tracking-widest border-b border-[#8C6900]">
+                                    <div className="bg-[#A67C00] text-white h-10 flex items-stretch px-4 shrink-0 font-black text-[9px] uppercase tracking-widest border-b border-[#8C6900]">
                                         <div className="w-[5%] flex items-center">Matr.</div>
-                                        <div className="w-[22%] flex items-center border-r border-white/20">Salarié</div>
+                                        <div className="w-[22%] flex items-center">Salarié</div>
                                         <div className="w-[9%] flex items-center justify-center">Net Cible</div>
                                         <div className="w-[6%] flex items-center justify-center">Nb Jours</div>
                                         <div className="w-[8%] flex items-center justify-center">Brut</div>
                                         <div className="w-[9%] flex items-center justify-center">Brut Imp.</div>
-                                        <div className="w-[9%] flex items-center justify-center border-r border-white/20">Net Imp.</div>
+                                        <div className="w-[9%] flex items-center justify-center">Net Imp.</div>
                                         <div className="w-[7%] flex items-center justify-center">CNSS</div>
                                         <div className="w-[7%] flex items-center justify-center">AMO</div>
-                                        <div className="w-[7%] flex items-center justify-center border-r border-white/20">IR</div>
+                                        <div className="w-[7%] flex items-center justify-center">IR</div>
                                         <div className="w-[11%] flex items-center justify-end pr-4">Salaire Net</div>
                                     </div>
                                 )}
 
                                 {/* Table Body */}
-                                <div className="flex-1 overflow-y-auto custom-scrollbar divide-y-2 divide-slate-300">
-                                    {employees.map(emp => {
+                                <div className="flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-200">
+                                    {sortedEmployees.map(emp => {
                                         const mData = getMonthlyData(emp);
                                         const netPayer = calculateNet(emp);
 
+                                        // Filter ND employees in COMPTABLE view
+                                        if (journalSubView === "COMPTABLE" && emp.declarationStatus === "ND") return null;
+
                                         return (
-                                            <div key={emp.id} className="flex items-center h-16 px-4 hover:bg-slate-50 transition-colors group">
+                                            <div key={emp.id} className="flex items-center h-11 px-4 hover:bg-slate-50 transition-colors group">
                                                 {journalSubView === "SAISIE" ? (
                                                     <>
                                                         {/* Matr */}
-                                                        <div className="w-[5%] text-[10px] font-bold text-slate-400 uppercase tracking-tighter border-r border-slate-300 h-full flex items-center">{emp.matricule || `M00${emp.id}`}</div>
+                                                        <div className="w-[3.5%] flex items-center gap-1.5 h-full">
+                                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{emp.matricule || `M00${emp.id}`}</div>
+                                                            <div className={cn(
+                                                                "w-1.5 h-1.5 rounded-full shrink-0",
+                                                                emp.gender === 'H' || emp.gender === 'M' || emp.gender === 'Male' ? "bg-blue-400" : "bg-red-400"
+                                                            )} />
+                                                        </div>
 
                                                         {/* Salarié */}
-                                                        <div className="w-[15%] flex items-center gap-3 pr-2 border-r border-slate-300 h-full">
-                                                            <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-400 border border-slate-200 flex items-center justify-center font-black text-[11px] shrink-0">
-                                                                {emp.firstName[0]}{emp.lastName[0]}
+                                                        <div className="w-[13.5%] flex items-center pr-2 h-full">
+                                                            <div className="text-[12px] font-black text-slate-800 leading-none truncate">
+                                                                <span className="uppercase">{emp.lastName}</span> <span className="capitalize">{emp.firstName.toLowerCase()}</span>
                                                             </div>
-                                                            <div className="text-[12px] font-black text-slate-800 uppercase leading-none truncate">{emp.lastName} {emp.firstName}</div>
                                                         </div>
 
-                                                        <div className="w-[8%] text-center text-[13px] font-black text-slate-700">
+                                                        <div className="w-[7.5%] text-center text-[13px] font-black text-slate-700">
                                                             {(emp.contract?.baseSalary || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[11px] font-black opacity-70">Dh</span>
                                                         </div>
-
-                                                        <div className="w-px self-stretch bg-slate-300 mx-1" />
 
                                                         {/* Mois / Année */}
                                                         <div className="w-[10%] text-center text-[12px] font-black text-black uppercase tracking-tight">
                                                             {currentMonth.substring(0, 3)} {currentYear}
                                                         </div>
 
-                                                        <div className="w-px self-stretch bg-slate-400 mx-1" />
-
                                                         {/* Jours */}
                                                         <div className="w-[7%] flex justify-center">
-                                                            <div className="flex items-center gap-1.5 transition-all w-full max-w-[70px]">
-                                                                <button
-                                                                    onClick={() => updateMonthlyValue(emp.id, 'jours', Math.max(0, mData.jours - 0.5))}
-                                                                    className="text-slate-400 hover:text-blue-600 transition-colors"
-                                                                >
-                                                                    <ChevronLeft className="w-4 h-4" />
-                                                                </button>
+                                                            <div className="flex items-center transition-all w-full max-w-[60px]">
                                                                 <PayrollInput
                                                                     value={mData.jours}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'jours', v)}
-                                                                    className="w-12 text-black"
+                                                                    onIncrement={() => updateMonthlyValue(emp.id, 'jours', Math.min(31, mData.jours + 0.5))}
+                                                                    onDecrement={() => updateMonthlyValue(emp.id, 'jours', Math.max(0, mData.jours - 0.5))}
+                                                                    className={cn("w-12", mData.jours !== 26 ? "text-green-600 font-black" : "text-black")}
                                                                 />
-                                                                <button
-                                                                    onClick={() => updateMonthlyValue(emp.id, 'jours', Math.min(31, mData.jours + 0.5))}
-                                                                    className="text-slate-400 hover:text-blue-600 transition-colors"
-                                                                >
-                                                                    <ChevronRight className="w-4 h-4" />
-                                                                </button>
                                                             </div>
                                                         </div>
 
                                                         {/* H. Sup */}
                                                         <div className="w-[7%] flex justify-center">
-                                                            <div className="flex items-center gap-1.5 transition-all w-full max-w-[70px]">
-                                                                <button
-                                                                    onClick={() => updateMonthlyValue(emp.id, 'hSup', Math.max(0, mData.hSup - 4))}
-                                                                    className="text-slate-400 hover:text-blue-600 transition-colors"
-                                                                >
-                                                                    <ChevronLeft className="w-4 h-4" />
-                                                                </button>
+                                                            <div className="flex items-center transition-all w-full max-w-[60px]">
                                                                 <PayrollInput
                                                                     value={mData.hSup}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'hSup', v)}
-                                                                    className="w-10 text-black"
+                                                                    onIncrement={() => updateMonthlyValue(emp.id, 'hSup', mData.hSup + 2)}
+                                                                    onDecrement={() => updateMonthlyValue(emp.id, 'hSup', Math.max(0, mData.hSup - 2))}
+                                                                    className={cn("w-10", mData.hSup !== 0 ? "text-green-600 font-black" : "text-black")}
                                                                 />
-                                                                <button
-                                                                    onClick={() => updateMonthlyValue(emp.id, 'hSup', mData.hSup + 4)}
-                                                                    className="text-slate-400 hover:text-blue-600 transition-colors"
-                                                                >
-                                                                    <ChevronRight className="w-4 h-4" />
-                                                                </button>
                                                             </div>
                                                         </div>
 
                                                         {/* P. Régul */}
-                                                        <div className="w-[8%] flex justify-center border-x border-slate-100 h-full items-center">
+                                                        <div className="w-[8%] flex justify-center h-full items-center">
                                                             <div className="w-full max-w-[70px]">
                                                                 <PayrollInput
                                                                     value={mData.pRegul || 0}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'pRegul', v)}
                                                                     isCurrency={true}
-                                                                    className="text-black"
+                                                                    className={cn(mData.pRegul ? "text-green-600 font-black" : "text-black")}
                                                                 />
                                                             </div>
                                                         </div>
@@ -888,15 +953,13 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     value={mData.pOccas || 0}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'pOccas', v)}
                                                                     isCurrency={true}
-                                                                    className="text-black"
+                                                                    className={cn(mData.pOccas ? "text-green-600 font-black" : "text-black")}
                                                                 />
                                                             </div>
                                                         </div>
 
-                                                        <div className="w-px self-stretch bg-slate-400 mx-1" />
-
                                                         {/* Virement */}
-                                                        <div className="w-[8%] flex justify-center border-x border-slate-100 h-full items-center">
+                                                        <div className="w-[8%] flex justify-center h-full items-center">
                                                             <div className="w-full max-w-[70px]">
                                                                 <PayrollInput
                                                                     value={mData.virement || 0}
@@ -934,27 +997,48 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                             </div>
                                                         </div>
 
-                                                        <div className="w-px self-stretch bg-slate-400 mx-1" />
-
                                                         {/* Net à Payer */}
-                                                        <div className="w-[10%] text-right pr-4">
-                                                            <div className="text-[15px] font-black text-black">
-                                                                {netPayer.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-70">Dh</span>
+                                                        <div className="w-[8%] text-right">
+                                                            <div className="text-[14px] font-black text-black">
+                                                                {netPayer.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                             </div>
+                                                        </div>
+
+                                                        {/* Payé */}
+                                                        <div className="w-[5%] flex justify-center">
+                                                            <button
+                                                                onClick={() => updateMonthlyValue(emp.id, 'isPaid', !mData.isPaid)}
+                                                                className={cn(
+                                                                    "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
+                                                                    mData.isPaid
+                                                                        ? "bg-green-500 border-green-500 text-white"
+                                                                        : "border-slate-200 hover:border-green-400 group-hover:bg-slate-50"
+                                                                )}
+                                                            >
+                                                                {mData.isPaid && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                                                            </button>
                                                         </div>
                                                     </>
                                                 ) : (
                                                     <div className="flex items-stretch h-16 w-full px-4 hover:bg-[#FFFBF0] transition-colors">
                                                         {/* Matr */}
-                                                        <div className="w-[5%] text-[10px] font-bold text-slate-400 uppercase tracking-tighter flex items-center">{emp.matricule || `M00${emp.id}`}</div>
+                                                        <div className="w-[5%] flex items-center gap-1.5 h-full">
+                                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{emp.matricule || `M00${emp.id}`}</span>
+                                                            <div className={cn(
+                                                                "w-1.5 h-1.5 rounded-full shrink-0",
+                                                                emp.gender === 'H' || emp.gender === 'M' || emp.gender === 'Male' ? "bg-blue-400" : "bg-red-400"
+                                                            )} />
+                                                        </div>
 
                                                         {/* Salarié */}
-                                                        <div className="w-[22%] flex items-center gap-3 pr-2 h-full border-r border-slate-200">
+                                                        <div className="w-[22%] flex items-center gap-3 pr-2 h-full">
                                                             <div className="w-8 h-8 rounded-full bg-[#FDF6E3] text-[#A67C00] border border-[#F0E6D2] flex items-center justify-center font-black text-[11px] shrink-0">
-                                                                {emp.firstName[0]}{emp.lastName[0]}
+                                                                {emp.lastName[0]}{emp.firstName[0]}
                                                             </div>
                                                             <div className="min-w-0">
-                                                                <div className="text-[12px] font-black text-slate-800 uppercase leading-none mb-1 truncate">{emp.lastName} {emp.firstName}</div>
+                                                                <div className="text-[12px] font-black text-slate-800 leading-none mb-1 truncate">
+                                                                    <span className="uppercase">{emp.lastName}</span> <span className="capitalize">{emp.firstName.toLowerCase()}</span>
+                                                                </div>
                                                             </div>
                                                         </div>
 
@@ -979,7 +1063,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         {/* Net Imp */}
-                                                        <div className="w-[9%] flex items-center justify-center text-[11px] font-bold text-slate-400 border-r border-slate-200">
+                                                        <div className="w-[9%] flex items-center justify-center text-[11px] font-bold text-slate-400">
                                                             {calculateCompta(emp).netImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
 
@@ -994,7 +1078,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         {/* IR */}
-                                                        <div className="w-[7%] flex items-center justify-center text-[11px] font-bold text-slate-400 border-r border-slate-200">
+                                                        <div className="w-[7%] flex items-center justify-center text-[11px] font-bold text-slate-400">
                                                             {calculateCompta(emp).ir.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
 
@@ -1140,7 +1224,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
                                         {/* Filtres : 3 Pill Tabs */}
                                         <div className="bg-slate-50 p-1.5 rounded-2xl flex gap-1 mb-8">
-                                            {["TOUS", "ACTIFS", "INACTIFS"].map(f => (
+                                            {["ACTIFS", "INACTIFS", "TOUS"].map(f => (
                                                 <button
                                                     key={f}
                                                     onClick={() => setFilterStatus(f as any)}
@@ -1219,7 +1303,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                             ? "border-slate-300 text-slate-500"
                                                             : emp.gender === "F" ? "border-red-200 text-red-600" : "border-blue-200 text-blue-600"
                                                     )}>
-                                                        {emp.firstName[0]}{emp.lastName[0]}
+                                                        {emp.lastName[0]}{emp.firstName[0]}
                                                     </div>
 
                                                     <div className="flex-1 min-w-0 pr-6">
@@ -1233,9 +1317,21 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                 )}>
                                                                     {emp.lastName} {emp.firstName}
                                                                 </span>
-                                                                <span className="text-[10px] font-black text-slate-400 tracking-widest shrink-0">
-                                                                    {emp.matricule || `M00${emp.id}`}
-                                                                </span>
+                                                                <div className="flex flex-col items-end gap-0.5 shrink-0">
+                                                                    <span className="text-[10px] font-black text-slate-400 tracking-widest">
+                                                                        {emp.matricule || `M00${emp.id}`}
+                                                                    </span>
+                                                                    {emp.declarationStatus === "ND" && (
+                                                                        <span className={cn(
+                                                                            "text-[8px] font-black uppercase tracking-widest px-1 py-px rounded-[3px] border leading-none",
+                                                                            emp.gender === "F"
+                                                                                ? "bg-red-50 text-red-600 border-red-100"
+                                                                                : "bg-blue-50 text-blue-600 border-blue-100"
+                                                                        )}>
+                                                                            ND
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                             <div className="flex items-center justify-between mt-0.5">
                                                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{emp.role}</span>
@@ -1278,6 +1374,9 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                             );
                                         })}
                                     </div>
+                                    <div className="p-4 border-t border-slate-200 bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
+                                        {filteredEmployees.length} Salarié{filteredEmployees.length > 1 ? 's' : ''} : <span className="text-blue-600">{filteredEmployees.filter(e => e.gender !== 'F').length} H</span>, <span className="text-red-600">{filteredEmployees.filter(e => e.gender === 'F').length} F</span>
+                                    </div>
                                 </div>
 
                                 {/* Main Detail Column */}
@@ -1309,13 +1408,18 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                 <div className="flex items-center gap-3">
                                                                     <input
                                                                         value={selectedEmployee.lastName}
-                                                                        onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'lastName', e.target.value)}
+                                                                        onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'lastName', e.target.value.toUpperCase())}
                                                                         className="text-4xl font-black text-slate-800 tracking-tighter uppercase bg-white border border-slate-200 rounded-xl px-4 py-1 focus:outline-none focus:ring-4 focus:ring-blue-50 w-[300px]"
                                                                         placeholder="NOM"
                                                                     />
                                                                     <input
                                                                         value={selectedEmployee.firstName}
-                                                                        onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'firstName', e.target.value)}
+                                                                        onChange={(e) => {
+                                                                            // Capitalize first letter
+                                                                            const val = e.target.value;
+                                                                            const capitalized = val.charAt(0).toUpperCase() + val.slice(1);
+                                                                            handleEmployeeChange(selectedEmployee.id, 'firstName', capitalized);
+                                                                        }}
                                                                         className="text-4xl font-bold text-slate-400 capitalize bg-white border border-slate-200 rounded-xl px-4 py-1 focus:outline-none focus:ring-4 focus:ring-blue-50 w-[300px]"
                                                                         placeholder="Prénom"
                                                                     />
@@ -1363,8 +1467,48 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-800 bg-white border border-slate-200 rounded-lg px-2 py-0.5 focus:outline-none w-48"
                                                                 />
                                                             ) : (
-                                                                <div className="text-slate-400 text-[11px] font-black uppercase tracking-[0.2em]">
-                                                                    {selectedEmployee.role}
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="text-slate-400 text-[11px] font-black uppercase tracking-[0.2em]">
+                                                                        {selectedEmployee.role}
+                                                                    </div>
+                                                                    {selectedEmployee.declarationStatus === "ND" && (
+                                                                        <span className={cn(
+                                                                            "px-1.5 py-0.5 rounded-[4px] border text-[9px] font-black uppercase tracking-wider",
+                                                                            selectedEmployee.gender === "F"
+                                                                                ? "bg-red-100 text-red-600 border-red-200"
+                                                                                : "bg-blue-100 text-blue-600 border-blue-200"
+                                                                        )}>
+                                                                            ND
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            )}
+
+                                                            {/* Declaration Status Radio - Edit Mode */}
+                                                            {isEditing && (
+                                                                <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                                                                    <button
+                                                                        onClick={() => handleEmployeeChange(selectedEmployee.id, 'declarationStatus', 'D')}
+                                                                        className={cn(
+                                                                            "px-2 py-0.5 rounded-md text-[9px] font-black transition-all",
+                                                                            (selectedEmployee.declarationStatus || "D") === "D"
+                                                                                ? "bg-white text-emerald-600 shadow-sm border border-slate-100"
+                                                                                : "text-slate-400 hover:text-slate-600"
+                                                                        )}
+                                                                    >
+                                                                        D
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleEmployeeChange(selectedEmployee.id, 'declarationStatus', 'ND')}
+                                                                        className={cn(
+                                                                            "px-2 py-0.5 rounded-md text-[9px] font-black transition-all",
+                                                                            selectedEmployee.declarationStatus === "ND"
+                                                                                ? "bg-white text-red-600 shadow-sm border border-slate-100"
+                                                                                : "text-slate-400 hover:text-slate-600"
+                                                                        )}
+                                                                    >
+                                                                        ND
+                                                                    </button>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -1428,8 +1572,8 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                             1. Informations Personnelles
                                                         </h3>
                                                     </div>
-                                                    <div className="bg-white rounded-[2rem] p-10 border border-slate-100 shadow-sm -mt-3">
-                                                        <div className="grid grid-cols-3 gap-y-6 gap-x-12">
+                                                    <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm -mt-3">
+                                                        <div className="grid grid-cols-3 gap-y-2 gap-x-12">
                                                             <div>
                                                                 <div className="flex items-center gap-4">
                                                                     <Cake className="w-4 h-4 text-slate-400 shrink-0" />
@@ -1582,7 +1726,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
                                                             <div className="col-span-3 h-px bg-slate-100 my-1" />
 
-                                                            <div className="col-span-3 flex flex-col pt-2">
+                                                            <div className="col-span-3 flex flex-col pt-0">
                                                                 <div className="grid grid-cols-2 gap-8">
                                                                     <div className="border-r border-slate-100 pr-8">
                                                                         <div className="flex items-start gap-4">
@@ -1620,16 +1764,16 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                             <FileText className="w-4 h-4 text-slate-400 shrink-0 mt-1.5" />
                                                                             <div className="flex-1">
                                                                                 {isEditing ? (
-                                                                                    <input
+                                                                                    <textarea
                                                                                         value={selectedEmployee.personalInfo.notes || ""}
                                                                                         onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'personalInfo.notes', e.target.value)}
-                                                                                        className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-[13px] font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all"
+                                                                                        className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-[13px] font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all h-[75px] resize-none overflow-y-auto"
                                                                                         placeholder="Notes particulières..."
                                                                                     />
                                                                                 ) : (
-                                                                                    <span className="text-[13px] font-black text-slate-800 leading-relaxed italic opacity-70">
+                                                                                    <div className="text-[13px] font-bold text-slate-800 leading-relaxed italic opacity-70 whitespace-pre-wrap">
                                                                                         {selectedEmployee.personalInfo.notes || "Aucune note particulière"}
-                                                                                    </span>
+                                                                                    </div>
                                                                                 )}
                                                                             </div>
                                                                         </div>
@@ -1646,8 +1790,8 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                             2. Poste & FINANCE
                                                         </h3>
                                                     </div>
-                                                    <div className="bg-white rounded-[2rem] p-10 border border-slate-100 shadow-sm -mt-3">
-                                                        <div className="grid grid-cols-3 gap-6 mb-8">
+                                                    <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm -mt-3">
+                                                        <div className="grid grid-cols-3 gap-2 mb-4">
                                                             <div className="border-r border-slate-100 pr-8">
                                                                 <div className="flex items-center gap-4">
                                                                     <Briefcase className="w-4 h-4 text-slate-400 shrink-0" />
@@ -1744,7 +1888,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                             const totalLeave = baseLeave + seniorityBonusLeave;
 
                                                             return (
-                                                                <div className="grid grid-cols-3 gap-6 mb-12">
+                                                                <div className="grid grid-cols-3 gap-2 mb-4">
                                                                     <div className="bg-emerald-50 border border-emerald-100 rounded-full aspect-square w-32 mx-auto flex flex-col items-center justify-center shadow-sm">
                                                                         <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Congés</span>
                                                                         <span className="text-xl font-black text-emerald-700 leading-none">{totalLeave}J</span>
@@ -1762,8 +1906,8 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                 </div>
                                                             );
                                                         })()}
-                                                        <div className="col-span-3 bg-slate-50 border border-slate-100 rounded-2xl p-6 shadow-[0_4px_6px_-1px_rgba(100,116,139,0.2)]">
-                                                            <div className="grid grid-cols-3 gap-6">
+                                                        <div className="col-span-3 bg-slate-50 border border-slate-100 rounded-2xl p-4 shadow-[0_4px_6px_-1px_rgba(100,116,139,0.2)]">
+                                                            <div className="grid grid-cols-3 gap-2">
                                                                 <div className="flex flex-col items-center justify-center">
                                                                     <span className="text-[10px] font-black text-slate-400 uppercase mb-2">Montant Prêté</span>
                                                                     {isEditing ? (

@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import { Article, Invoice, Tier, StaffMember, Recipe, Family, SubFamily, StructureType, Transaction } from './types';
+import { Article, Invoice, Tier, StaffMember, Recipe, Family, SubFamily, StructureType, Transaction, AppSetting, AccountingAccount, Partner } from './types';
 
 export class BakoDB extends Dexie {
     invoices!: EntityTable<Invoice, 'id'>;
@@ -14,10 +14,12 @@ export class BakoDB extends Dexie {
     salesData!: EntityTable<any, 'id'>; // Flexible for now
     accountingNatures!: EntityTable<{ id: string, name: string }, 'id'>;
     accounting_accounts!: EntityTable<AccountingAccount, 'id'>;
+    settings!: EntityTable<AppSetting, 'key'>;
+    partners!: EntityTable<Partner, 'id'>;
 
     constructor() {
         super('BakoDB');
-        this.version(4).stores({
+        this.version(6).stores({
             invoices: 'id, supplierId, date, status, totalTTC',
             employees: 'id, lastName, role',
             articles: 'id, name, subFamilyId',
@@ -29,7 +31,9 @@ export class BakoDB extends Dexie {
             transactions: 'id, date, type, accountId',
             salesData: 'id, date',
             accountingNatures: 'id, name',
-            accounting_accounts: '++id, code, label, class, type'
+            accounting_accounts: '++id, code, label, class, type',
+            settings: 'key',
+            partners: 'id'
         });
     }
 }
@@ -37,7 +41,7 @@ export class BakoDB extends Dexie {
 export const db = new BakoDB();
 
 import { initialTypes, initialFamilies, initialSubFamilies } from './data';
-import { AccountingAccount } from './types';
+
 
 // Initial data population
 export async function populate() {

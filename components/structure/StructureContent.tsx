@@ -8,8 +8,11 @@ import { cn } from "@/lib/utils";
 import {
     getFamilies, saveFamily, deleteFamily,
     getSubFamilies, saveSubFamily, deleteSubFamily,
-    getAccountingAccounts, saveAccountingAccount, deleteAccountingAccount
+    getAccountingAccounts, saveAccountingAccount, deleteAccountingAccount,
+    getSettings, saveSetting,
+    getPartners, savePartner, deletePartner
 } from "@/lib/data-service";
+import { Partner } from "@/lib/types";
 
 import {
     Wheat,
@@ -37,7 +40,9 @@ import {
     Pencil,
     Check,
     X,
-    FileText
+    FileText,
+    Save,
+    RefreshCw
 } from "lucide-react";
 
 const ICONS = [
@@ -87,12 +92,58 @@ export function StructureContent({
     });
     const [loading, setLoading] = useState(true);
 
+    // Settings & Partners State
+    const [settings, setSettings] = useState<Record<string, string>>({});
+    const [partners, setPartners] = useState<Partner[]>([]);
+    const [isSettingsSaving, setIsSettingsSaving] = useState(false);
+    const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
+    const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
+    const [partnerFormData, setPartnerFormData] = useState<Partner>({
+        id: "",
+        name: "",
+        commissionHT: "1.00",
+        commissionVAT: "20",
+        commissionTTC: "1.20",
+        exoneratedPercentage: "10",
+        taxablePercentage: "90",
+        color: "#D69E2E"
+    });
+
     useEffect(() => {
         const load = async () => {
-            const [accounts] = await Promise.all([
-                getAccountingAccounts()
+            const [accounts, s, p] = await Promise.all([
+                getAccountingAccounts(),
+                getSettings(),
+                getPartners()
             ]);
             setAccountingAccounts(accounts);
+            setSettings(s);
+
+            // Migration Logic: If no partners but old glovo settings exist, create Glovo partner
+            if (p.length === 0 && (s.glovo_commission || s.glovo_exo || s.glovo_imp)) {
+                const glovoPartner: Partner = {
+                    id: "p-glovo",
+                    name: "Glovo",
+                    commissionHT: s.glovo_commission || "1.00",
+                    commissionVAT: "20",
+                    commissionTTC: (parseFloat(s.glovo_commission || "1") * 1.2).toFixed(2),
+                    exoneratedPercentage: s.glovo_exo || "10",
+                    taxablePercentage: s.glovo_imp || "90",
+                    color: "#D69E2E"
+                };
+                await savePartner(glovoPartner);
+                setPartners([glovoPartner]);
+            } else {
+                // Default values for existing partners missing the new fields
+                const updatedPartners = p.map(partner => ({
+                    ...partner,
+                    commissionHT: partner.commissionHT || (partner as any).commissionRate || "0",
+                    commissionVAT: partner.commissionVAT || "20",
+                    commissionTTC: partner.commissionTTC || (parseFloat(partner.commissionHT || (partner as any).commissionRate || "0") * 1.2).toFixed(2)
+                }));
+                setPartners(updatedPartners);
+            }
+
             setLoading(false);
         };
         load();
@@ -286,6 +337,55 @@ export function StructureContent({
         }
     };
 
+    const handleSaveSettings = async () => {
+        setIsSettingsSaving(true);
+        try {
+            await Promise.all(
+                Object.entries(settings).map(([key, value]) => saveSetting(key, value))
+            );
+        } catch (e) {
+            alert("Erreur lors de la sauvegarde des paramètres");
+        } finally {
+            setIsSettingsSaving(false);
+        }
+    };
+
+    const handleOpenPartnerModal = (partner?: Partner) => {
+        if (partner) {
+            setEditingPartner(partner);
+            setPartnerFormData(partner);
+        } else {
+            setEditingPartner(null);
+            setPartnerFormData({
+                id: `p-${Date.now()}`,
+                name: "",
+                commissionHT: "1.00",
+                commissionVAT: "20",
+                commissionTTC: "1.20",
+                exoneratedPercentage: "10",
+                taxablePercentage: "90",
+                color: "#D69E2E"
+            });
+        }
+        setIsPartnerModalOpen(true);
+    };
+
+    const handleSavePartner = async () => {
+        if (!partnerFormData.name) return;
+        await savePartner(partnerFormData);
+        const data = await getPartners();
+        setPartners(data);
+        setIsPartnerModalOpen(false);
+    };
+
+    const handleDeletePartner = async (id: string) => {
+        if (confirm("Supprimer ce partenaire ?")) {
+            await deletePartner(id);
+            const data = await getPartners();
+            setPartners(data);
+        }
+    };
+
     const getParentLabel = () => {
         if (modalMode === "family") {
             if (editMode) {
@@ -431,8 +531,8 @@ export function StructureContent({
                     {[
                         { id: 1, label: "Structure", sub: "Familles - Sous-Familles" },
                         { id: 2, label: "Plan Comptable", sub: "Natures de charges" },
-                        { id: 3, label: "Vide 1", sub: "Section libre" },
-                        { id: 4, label: "Vide 2", sub: "Section libre" }
+                        { id: 3, label: "Paramètres Généraux", sub: "Partenaires & Taxes" },
+                        { id: 4, label: "Vide", sub: "Section libre" }
                     ].map(tab => (
                         <button
                             key={tab.id}
@@ -567,12 +667,99 @@ export function StructureContent({
                         </div>
                     )}
 
-                    {(activeTab === 3 || activeTab === 4) && (
+                    {activeTab === 3 && (
+                        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            {/* Partners List */}
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-xl font-bold text-slate-800">Partenaires de livraison</h3>
+                                <button
+                                    onClick={() => handleOpenPartnerModal()}
+                                    className="flex items-center gap-2 px-6 py-2 bg-slate-800 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg hover:bg-slate-700 transition-all active:scale-95"
+                                >
+                                    <Plus className="w-4 h-4" />
+                                    Nouveau Partenaire
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {partners.map(partner => (
+                                    <div key={partner.id} className="bg-white rounded-[1.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col group hover:shadow-md transition-all">
+                                        <div
+                                            className="px-6 py-4 flex items-center justify-between transition-colors border-b border-white/20"
+                                            style={{ backgroundColor: partner.color }}
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center text-white backdrop-blur-md">
+                                                    <Truck className="w-4 h-4" />
+                                                </div>
+                                                <h2 className="text-lg font-bold text-white tracking-tight">{partner.name}</h2>
+                                            </div>
+                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                    onClick={() => handleOpenPartnerModal(partner)}
+                                                    className="p-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition-all active:scale-95"
+                                                >
+                                                    <Pencil className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeletePartner(partner.id)}
+                                                    className="p-2 bg-white/20 text-white rounded-lg hover:bg-white/30 transition-all active:scale-95"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-5 flex-1 space-y-4">
+                                            {/* Vertical Details Summary */}
+                                            <div className="space-y-3">
+                                                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Comm HT</span>
+                                                        <span className="text-sm font-black text-slate-700">{partner.commissionHT}%</span>
+                                                    </div>
+                                                    <div className="h-6 w-px bg-slate-200 mx-2" />
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">TVA</span>
+                                                        <span className="text-sm font-black text-slate-700">{partner.commissionVAT}%</span>
+                                                    </div>
+                                                    <div className="h-6 w-px bg-slate-200 mx-2" />
+                                                    <div className="flex flex-col text-right">
+                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Comm TTC</span>
+                                                        <span className="text-sm font-black text-blue-600">{partner.commissionTTC}%</span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div className="bg-orange-50/50 p-3 rounded-xl border border-orange-100/50">
+                                                        <span className="text-[8px] font-black text-orange-400 uppercase tracking-widest block mb-1">% Exonéré</span>
+                                                        <span className="text-sm font-black text-orange-600">{partner.exoneratedPercentage}%</span>
+                                                    </div>
+                                                    <div className="bg-blue-50/50 p-3 rounded-xl border border-blue-100/50">
+                                                        <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest block mb-1">% Imposable</span>
+                                                        <span className="text-sm font-black text-blue-600">{partner.taxablePercentage}%</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {partners.length === 0 && (
+                                    <div className="h-48 flex flex-col items-center justify-center bg-white/40 rounded-[2.5rem] border-2 border-dashed border-slate-200">
+                                        <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Aucun partenaire configuré</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 4 && (
                         <div className="h-96 flex flex-col items-center justify-center bg-white/40 rounded-[2.5rem] border-2 border-dashed border-slate-200 animate-in fade-in duration-700">
                             <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mb-6">
                                 <Palette className="w-10 h-10 text-slate-200" />
                             </div>
-                            <h3 className="text-2xl font-black text-slate-400 italic">Vide {activeTab - 2}</h3>
+                            <h3 className="text-2xl font-black text-slate-400 italic">Vide</h3>
                             <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mt-2">Section en attente de configuration</p>
                         </div>
                     )}
@@ -665,6 +852,119 @@ export function StructureContent({
                                     className="w-full bg-[#D69E2E] hover:bg-[#B7791F] text-white font-bold py-4 rounded-xl text-lg tracking-wide shadow-xl shadow-orange-100 transition-all transform active:scale-95"
                                 >
                                     ENREGISTRER
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Partner Modal */}
+                {isPartnerModalOpen && (
+                    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsPartnerModalOpen(false)} />
+                        <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-xl relative z-10 overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                            {/* Header */}
+                            <div className="bg-[#2D3748] px-8 py-6 flex justify-between items-center">
+                                <h3 className="text-2xl font-bold text-white italic">
+                                    {editingPartner ? 'Modifier Partenaire' : 'Nouveau Partenaire'}
+                                </h3>
+                                <button onClick={() => setIsPartnerModalOpen(false)} className="text-white/40 hover:text-white transition-colors">
+                                    <X className="w-8 h-8" />
+                                </button>
+                            </div>
+
+                            {/* Body */}
+                            <div className="p-8 space-y-6">
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div className="col-span-1">
+                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Nom du partenaire</label>
+                                        <input
+                                            value={partnerFormData.name}
+                                            onChange={e => setPartnerFormData({ ...partnerFormData, name: e.target.value })}
+                                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-700 focus:outline-none focus:border-blue-500 transition-colors"
+                                            placeholder="Ex: Glovo, Jumia..."
+                                        />
+                                    </div>
+                                    <div className="col-span-1">
+                                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Couleur Thème</label>
+                                        <div className="flex gap-3 items-center">
+                                            <input
+                                                type="color"
+                                                value={partnerFormData.color}
+                                                onChange={e => setPartnerFormData({ ...partnerFormData, color: e.target.value })}
+                                                className="w-12 h-12 rounded-lg cursor-pointer border-none bg-transparent"
+                                            />
+                                            <input
+                                                value={partnerFormData.color}
+                                                onChange={e => setPartnerFormData({ ...partnerFormData, color: e.target.value })}
+                                                className="flex-1 bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-mono font-bold text-slate-700 uppercase"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Comm HT (%)</label>
+                                        <input
+                                            value={partnerFormData.commissionHT}
+                                            onChange={e => {
+                                                const ht = e.target.value;
+                                                const v = parseFloat(partnerFormData.commissionVAT) || 0;
+                                                const ttc = (parseFloat(ht) * (1 + v / 100)).toFixed(2);
+                                                setPartnerFormData({ ...partnerFormData, commissionHT: ht, commissionTTC: isNaN(parseFloat(ttc)) ? "0" : ttc });
+                                            }}
+                                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-700"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">TVA (%)</label>
+                                        <input
+                                            value={partnerFormData.commissionVAT}
+                                            onChange={e => {
+                                                const v = e.target.value;
+                                                const ht = parseFloat(partnerFormData.commissionHT) || 0;
+                                                const ttc = (ht * (1 + parseFloat(v) / 100)).toFixed(2);
+                                                setPartnerFormData({ ...partnerFormData, commissionVAT: v, commissionTTC: isNaN(parseFloat(ttc)) ? "0" : ttc });
+                                            }}
+                                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-700"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Comm TTC (%)</label>
+                                        <input
+                                            value={partnerFormData.commissionTTC}
+                                            readOnly
+                                            className="w-full bg-blue-50 border-2 border-blue-100 rounded-xl px-4 py-3 font-black text-blue-600 outline-none"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">% Exonéré</label>
+                                        <input
+                                            value={partnerFormData.exoneratedPercentage}
+                                            onChange={e => setPartnerFormData({ ...partnerFormData, exoneratedPercentage: e.target.value })}
+                                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-700"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">% Imposable</label>
+                                        <input
+                                            value={partnerFormData.taxablePercentage}
+                                            onChange={e => setPartnerFormData({ ...partnerFormData, taxablePercentage: e.target.value })}
+                                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-3 font-bold text-slate-700"
+                                        />
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={handleSavePartner}
+                                    className="w-full py-4 rounded-xl text-white font-black uppercase tracking-widest text-sm shadow-xl transition-all transform active:scale-95"
+                                    style={{ backgroundColor: partnerFormData.color || '#2D3748' }}
+                                >
+                                    Enregistrer Partenaire
                                 </button>
                             </div>
                         </div>

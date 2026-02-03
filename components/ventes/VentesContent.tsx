@@ -8,7 +8,8 @@ import { useState, useEffect, Suspense, useRef, useMemo, useCallback } from "rea
 import { useSearchParams } from "next/navigation";
 import { Calendar, TrendingUp, ShieldCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { saveSalesData, getSalesData } from "@/lib/data-service";
+import { saveSalesData, getSalesData, getPartners } from "@/lib/data-service";
+import { Partner } from "@/lib/types";
 
 // Define the shape of saved data for a day
 interface DayData {
@@ -20,7 +21,18 @@ interface DayData {
     payments: { nbCmi: string; mtCmi: string; nbChq: string; mtChq: string; especes: string };
     subTotalInput: string;
     nbTickets: string;
-    glovo: { brut: string; brutImp: string; brutExo: string; incid: string; cash: string };
+    glovo: {
+        brut: string;
+        brutImp: string;
+        brutExo: string;
+        incid: string;
+        cash: string;
+        // SNAPSHOT FIELDS (Historical Rates)
+        usageCommissionHT?: string;
+        usageCommissionTTC?: string;
+        usageTaxablePercentage?: string;
+        usageExoneratedPercentage?: string;
+    };
     hours: { startH: string; startM: string; endH: string; endM: string };
     coeffExo?: string; // NEW
     coeffImp?: string; // NEW
@@ -107,7 +119,30 @@ const syncToBank = (data: DayData, date: string, amount: number) => {
 };
 
 // HELPER: Master Sync Logic (Real -> Declared)
-const calculateDeclaredFromReal = (realData: DayData, currentDeclared: DayData): DayData => {
+const calculateDeclaredFromReal = (realData: DayData, currentDeclared: DayData, partners: Partner[]): DayData => {
+    // 0. Remove Partner Lookup - FULLY AUTONOMOUS (Legacy Default 15/18)
+    const realGlovo = realData.glovo || { brut: "0", incid: "0", cash: "0" };
+    const hasData = parseFloat(realGlovo.brut) > 0;
+    const hasSnapshot = !!realGlovo.usageCommissionTTC;
+
+    // Default Constants
+    const DEF_HT = 15;
+    const DEF_TTC = 18; // 15 * 1.2
+
+    let defaultComm = DEF_TTC.toString();
+    // If we had logic for different defaults, we would put it here.
+    // But now: Default is ALWAYS 18 (derived from 15).
+
+    // 4. Robust Rate Normalizer
+    const resolveRate = (valStr: string | undefined, fallback: string) => {
+        let val = parseFloat(valStr || fallback);
+        if (val > 0 && val < 1) val = val * 100;
+        return val;
+    };
+
+    const commTTC = resolveRate(realGlovo.usageCommissionTTC ? realGlovo.usageCommissionTTC : defaultComm, defaultComm) / 100;
+    const gMultiplier = 1 - commTTC;
+
     // 1. Get Coefficients (Default or Existing)
     const cExo = parseFloat(currentDeclared.coeffExo || "1.11") || 1.11;
     const cImp = parseFloat(currentDeclared.coeffImp || "0.60") || 0.60;
@@ -148,11 +183,22 @@ const calculateDeclaredFromReal = (realData: DayData, currentDeclared: DayData):
     const mtCmi = parseFloat(payments.mtCmi) || 0;
     const mtChq = parseFloat(payments.mtChq) || 0;
 
-    // 5. Glovo Breakdown (10/90 Rule)
-    const realGlovo = realData.glovo || { brut: "0", incid: "0", cash: "0" };
+    // 5. Glovo Breakdown (Partner Rule)
+    // realGlovo is already defined above
     const glovoBrut = parseFloat(realGlovo.brut) || 0;
-    const gImp = (glovoBrut * 0.90) / 1.2; // 90% Imposable (HT)
-    const gExo = glovoBrut * 0.10;         // 10% Exonerated
+
+    // Use partner specific percentages if available, fallback to 90/10 (Legacy Priority)
+    let defaultImp = "90";
+    let defaultExo = "10";
+
+    // Only use Partner Settings if truly NEW (no data, no snapshot) -> NOW REMOVED
+    // Defaults are always 90/10 unless overridden by snapshot.
+
+    const pImp = resolveRate(realGlovo.usageTaxablePercentage ? realGlovo.usageTaxablePercentage : defaultImp, defaultImp) / 100;
+    const pExo = resolveRate(realGlovo.usageExoneratedPercentage ? realGlovo.usageExoneratedPercentage : defaultExo, defaultExo) / 100;
+
+    const gImp = (glovoBrut * pImp) / 1.2; // Taxable part (HT)
+    const gExo = glovoBrut * pExo;         // Exonerated part
     const declaredGlovo = {
         ...realGlovo,
         brutImp: gImp.toFixed(2),
@@ -163,8 +209,8 @@ const calculateDeclaredFromReal = (realData: DayData, currentDeclared: DayData):
     // Formula: TTC (D) - CMI - Chèques - Glovo Brut + Glovo Cash
     const valEspDeclared = newTotalTTC - mtCmi - mtChq - glovoBrut + (parseFloat(realGlovo.cash) || 0);
 
-    // 7. Glovo Net (Standard Calc)
-    const glovoNet = (glovoBrut * 0.82) - (parseFloat(realGlovo.incid) || 0) - (parseFloat(realGlovo.cash) || 0);
+    // 7. Glovo Net (Dynamic Calc)
+    const glovoNet = (glovoBrut * gMultiplier) - (parseFloat(realGlovo.incid) || 0) - (parseFloat(realGlovo.cash) || 0);
 
     return {
         ...currentDeclared,
@@ -202,6 +248,11 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
     const [selectedMonth, setSelectedMonth] = useState(currentMonth);
     const [selectedPeriod, setSelectedPeriod] = useState<"FULL" | "Q1" | "Q2">("FULL");
     const [viewMode, setViewMode] = useState<"Saisie" | "Compta">("Saisie"); // NEW: View Mode State
+    const [partners, setPartners] = useState<Partner[]>([]);
+
+    useEffect(() => {
+        getPartners().then(setPartners);
+    }, []);
 
     // Keyboard Navigation State
     const [focusedRowIndex, setFocusedRowIndex] = useState<number>(-1);
@@ -293,7 +344,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
             let newDeclaredData = { ...existingDeclared };
 
             if (modalType === "Real") {
-                newDeclaredData = calculateDeclaredFromReal(updatedData, existingDeclared);
+                newDeclaredData = calculateDeclaredFromReal(updatedData, existingDeclared, partners);
             } else {
                 newDeclaredData = updatedData;
             }
@@ -313,7 +364,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
 
             return newState;
         });
-    }, [modalType, selectedDate]);
+    }, [modalType, selectedDate, partners]);
 
     // INLINE COEFF UPDATE (Re-Calc Declared)
     const handleCoeffUpdate = useCallback((dateKey: string, newCoeffImp: string) => {
@@ -326,7 +377,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                 coeffImp: newCoeffImp
             };
 
-            const updatedDeclared = calculateDeclaredFromReal(dayReal, updatedDeclaredBase);
+            const updatedDeclared = calculateDeclaredFromReal(dayReal, updatedDeclaredBase, partners);
 
             // Save to SQLite
             saveSalesData(dateKey, undefined, updatedDeclared);
@@ -346,6 +397,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
         setSalesData(prev => {
             const dayReal = prev[dateKey]?.real || {} as DayData;
             const currentDeclared = prev[dateKey]?.declared || {} as DayData;
+            // No Partner Lookup needed anymore
 
             const updatedGlovo = { ...dayReal.glovo, [field]: value };
             if (!updatedGlovo.brut) updatedGlovo.brut = "0";
@@ -355,18 +407,75 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
             const glovoBrutVal = parseFloat(updatedGlovo.brut) || 0;
             const glovoIncidVal = parseFloat(updatedGlovo.incid) || 0;
             const glovoCashVal = parseFloat(updatedGlovo.cash) || 0;
-            const newGlovoNet = (glovoBrutVal * 0.82) - glovoIncidVal - glovoCashVal;
+
+            // DYNAMIC CALC: Use Snapshot if available
+            const hasData = glovoBrutVal > 0;
+            const hasSnapshot = !!updatedGlovo.usageCommissionTTC;
+
+            let defCommHT = "15";
+            let defComm = "18"; // 15*1.2
+            let defImp = "90";
+            let defExo = "10";
+
+            // Removing Partner Lookups. All defaults are constant now.
+            // If snapshot exists, it overrides.
+
+            // Robust Rate Resolver (Handles 0.18 vs 18)
+            const resolveRate = (snapshotVal: string | undefined, partnerVal: string | undefined, defaultVal: string) => {
+                let val = parseFloat(snapshotVal || partnerVal || defaultVal);
+                // Heuristic: If val is small (< 1) and not 0, it's likely a factor (0.18), convert to % (18)
+                // But commission allows 0. So check > 0
+                if (val > 0 && val < 1) return val * 100;
+                return val;
+            };
+
+            // Resolve Rates
+            // NOTE: CommTTC is derived from HT if explicit input?
+            // "handleGlovoUpdate" usually handles cell edits.
+            // But we don't have explicit HT cell edits here (only brut/incid/cash).
+            // So we rely on existing snapshots.
+
+            const commHT = resolveRate(updatedGlovo.usageCommissionHT, undefined, defCommHT);
+
+            // If we have a stored HT but no TTC snapshot (rare edge case), recompute TTC?
+            // But we generally trust usageCommissionTTC if it exists.
+            // If we are strictly driving by HT now:
+            const computedTTC = commHT * 1.2;
+
+            // Priority: Snapshot TTC -> Computed TTC (from snapshot HT) -> Default
+            // Wait, we want standardization. TTC should align with HT.
+            // If I change Brut, I shouldn't change the Rate. The Rate is fixed in the snapshot.
+            // So we just read the snapshot.
+
+            const commTTC = resolveRate(updatedGlovo.usageCommissionTTC, undefined, computedTTC.toFixed(2)) / 100;
+            const pImp = resolveRate(updatedGlovo.usageTaxablePercentage, undefined, defImp) / 100;
+            const pExo = resolveRate(updatedGlovo.usageExoneratedPercentage, undefined, defExo) / 100;
+
+            const newGlovoNet = (glovoBrutVal * (1 - commTTC)) - glovoIncidVal - glovoCashVal;
+            const newGlovoImp = (glovoBrutVal * pImp) / 1.2;
+            const newGlovoExo = glovoBrutVal * pExo;
+
+            // SAVE SNAPSHOT
+            const updatedGlovoFull = {
+                ...updatedGlovo,
+                brutImp: newGlovoImp.toFixed(2),
+                brutExo: newGlovoExo.toFixed(2),
+                usageCommissionHT: commHT.toString(),
+                usageCommissionTTC: (commTTC * 100).toString(), // Store as 18
+                usageTaxablePercentage: (pImp * 100).toString(), // Store as 90
+                usageExoneratedPercentage: (pExo * 100).toString() // Store as 10
+            };
 
             const updatedReal: DayData = {
                 ...dayReal,
-                glovo: updatedGlovo,
+                glovo: updatedGlovoFull,
                 calculated: {
                     ...(dayReal.calculated || {}),
                     glovo: newGlovoNet.toFixed(2)
                 }
             };
 
-            const updatedDeclared = calculateDeclaredFromReal(updatedReal, currentDeclared);
+            const updatedDeclared = calculateDeclaredFromReal(updatedReal, currentDeclared, partners);
 
             // Save to SQLite
             saveSalesData(dateKey, updatedReal, updatedDeclared);
@@ -440,8 +549,8 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                         impHt: valImpHT.toFixed(2),
                         totHt: valTotHT.toFixed(2),
                         ttc: valTTC.toFixed(2),
-                        glovoExo: salesData[isoKey]?.real?.glovo?.brutExo || "0.00",
-                        glovoImp: salesData[isoKey]?.real?.glovo?.brutImp || "0.00"
+                        glovoExo: salesData[isoKey]?.declared?.glovo?.brutExo || "0.00",
+                        glovoImp: salesData[isoKey]?.declared?.glovo?.brutImp || "0.00"
                     };
                 })()
             });
@@ -547,6 +656,26 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [focusedRowIndex, tableRows, modalType]);
+
+    // Helper to find Last Known Glovo Rates (Memory)
+    const getLastGlovoRates = () => {
+        // Iterate salesData to find most recent entry with Glovo usage rates
+        const dates = Object.keys(salesData).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+        for (const d of dates) {
+            const day = salesData[d]?.real;
+            const glovo = day?.glovo;
+            if (glovo && glovo.usageCommissionTTC) {
+                return {
+                    commHT: glovo.usageCommissionHT || "15",
+                    commTTC: glovo.usageCommissionTTC,
+                    imp: glovo.usageTaxablePercentage || "90",
+                    exo: glovo.usageExoneratedPercentage || "10"
+                };
+            }
+        }
+        return undefined;
+    };
 
     return (
         <div className="flex min-h-screen bg-slate-50/50">
@@ -810,6 +939,11 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                             onClick={() => {
                                                 setFocusedRowIndex(i);
                                                 setSelectedDate(row.isoKey);
+                                            }}
+                                            onDoubleClick={() => {
+                                                setFocusedRowIndex(i);
+                                                setSelectedDate(row.isoKey);
+                                                setModalType("Real"); // Open Modal on Double Click
                                             }}
                                             className={cn(
                                                 "transition-all duration-100 group cursor-pointer border-b border-slate-50",
@@ -1078,10 +1212,14 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                 <td className="px-3 py-4 text-right text-orange-400 font-bold font-mono min-w-[90px]">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 9: Glovo Brut */}
                                                 <td className="px-3 py-4 text-right font-black text-yellow-400 font-mono min-w-[80px]">
-                                                    {(periodTotals as any).glovo?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    {periodTotals.glovoBrut.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
-                                                {/* 10, 11, 12 Labels Detail */}
-                                                <td className="px-2 py-4 text-right text-yellow-500/80 border-r-2 border-[#451a03]" colSpan={3}>Détails Glovo Net</td>
+                                                {/* 10, 11: Incid/Cash (Labels) */}
+                                                <td className="px-2 py-4 text-right text-yellow-500/80" colSpan={2}>Détails Glovo Net</td>
+                                                {/* 12: Glovo Net */}
+                                                <td className="px-3 py-4 text-right font-black text-yellow-300 font-mono border-r-2 border-[#451a03] min-w-[100px]">
+                                                    {periodTotals.glovo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
                                             </>
                                         ) : (
                                             <>
@@ -1118,11 +1256,11 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                     onSave={handleSave}
                     date={selectedDate}
                     isDeclared={modalType === "Declared"}
-                    initialData={modalType === "Real" ? salesData[selectedDate]?.real : salesData[selectedDate]?.declared}
-                    realData={salesData[selectedDate]?.real}
+                    initialData={salesData[selectedDate]?.[modalType === "Real" ? "real" : "declared"]}
+                    partners={partners}
+                    lastRates={getLastGlovoRates()}
                 />
             </main>
         </div>
     );
 }
-

@@ -1,5 +1,5 @@
 import { db } from './db';
-import { Article, StaffMember, Invoice, Tier, Family, SubFamily, Recipe, StructureType, Transaction, AccountingAccount } from './types';
+import { Article, StaffMember, Invoice, Tier, Family, SubFamily, Recipe, StructureType, Transaction, AccountingAccount, AppSetting, Partner } from './types';
 
 // ... (previous imports)
 
@@ -191,6 +191,32 @@ export async function saveAccountingAccount(account: AccountingAccount): Promise
 
 export async function deleteAccountingAccount(id: string): Promise<{ success: true }> {
     await db.accounting_accounts.delete(id);
+    return { success: true };
+}
+
+// APP SETTINGS
+export async function getSettings(): Promise<Record<string, string>> {
+    const all = await db.settings.toArray();
+    return all.reduce((acc, curr) => ({ ...acc, [curr.key]: curr.value }), {});
+}
+
+export async function saveSetting(key: string, value: string): Promise<{ success: true }> {
+    await db.settings.put({ key, value });
+    return { success: true };
+}
+
+// PARTNERS
+export async function getPartners(): Promise<Partner[]> {
+    return await db.partners.toArray();
+}
+
+export async function savePartner(partner: Partner): Promise<{ success: true }> {
+    await db.partners.put(partner);
+    return { success: true };
+}
+
+export async function deletePartner(id: string): Promise<{ success: true }> {
+    await db.partners.delete(id);
     return { success: true };
 }
 

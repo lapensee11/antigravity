@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Check, X, Clock, ChevronUp, ChevronDown, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Partner } from "@/lib/types";
 
 interface SalesInputModalProps {
     isOpen: boolean;
@@ -8,8 +9,11 @@ interface SalesInputModalProps {
     onSave?: (data: any, isDraft: boolean, targetDate?: string) => void;
     date: string;
     isDeclared?: boolean;
+
     initialData?: any;
-    realData?: any; // NEW PROP
+    realData?: any;
+    partners: Partner[];
+    lastRates?: { commHT: string; commTTC: string; imp: string; exo: string }; // NEW PROP
 }
 
 // Grouped Families for Declaré
@@ -21,8 +25,68 @@ const FAMILY_GROUPS = [
     { name: "Group 5", items: ["PAIN SG", "GÂTEAUX SG"] },
 ];
 
-export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, initialData, realData }: SalesInputModalProps) {
+export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, initialData, realData, partners, lastRates }: SalesInputModalProps) {
     const isModalDeclared = isDeclared;
+    // Glovo Partner Config
+    // PARTNER LOGIC REMOVED - FULLY AUTONOMOUS
+    // DEFAULTS: HT=15, Imp=90, Exo=10. TTC Calculated (HT*1.2)
+    const initialGlovo = initialData?.glovo || {};
+    const hasData = !!initialData?.glovo?.brut;
+    const hasSnapshot = !!initialGlovo.usageCommissionTTC;
+
+    // Hardcoded Defaults (Ultimate Fallback)
+    const DEFAULT_HT = "15";
+    const DEFAULT_IMP = "90";
+    const DEFAULT_EXO = "10";
+    const DEFAULT_TTC = (parseFloat(DEFAULT_HT) * 1.2).toFixed(2); // 18.00
+
+    // NEW LOGIC: Use lastRates if available (Smart Default) for NEW entries
+    // Fallback to Hardcoded if no lastRates.
+    let defaultCommHT = lastRates?.commHT || DEFAULT_HT;
+    let defaultCommTTC = lastRates?.commTTC || DEFAULT_TTC;
+    let defaultImp = lastRates?.imp || DEFAULT_IMP;
+    let defaultExo = lastRates?.exo || DEFAULT_EXO;
+
+    if (hasData && !hasSnapshot) {
+        // LEGACY ENTRY (Data exists but No Snapshot): Force STATIC Historic Defaults
+        // Ignore smart defaults to protect history.
+        defaultCommHT = "15";
+        defaultCommTTC = "18";
+        defaultImp = "90";
+        defaultExo = "10";
+    }
+
+    const resolveRateRobust = (valStr: string | undefined, fallback: string) => {
+        let val = parseFloat(valStr || fallback);
+        // Robustness: Handle 0.15 vs 15
+        if (val > 0 && val < 1) val = val * 100;
+        return val;
+    };
+
+    let startCommHT = resolveRateRobust(initialGlovo.usageCommissionHT, defaultCommHT);
+    let startCommTTC = resolveRateRobust(initialGlovo.usageCommissionTTC, defaultCommTTC);
+    let startImp = resolveRateRobust(initialGlovo.usageTaxablePercentage, defaultImp);
+    let startExo = resolveRateRobust(initialGlovo.usageExoneratedPercentage, defaultExo);
+
+    // Safety: If snapshot has TTC but no HT (legacy), reverse calc HT?
+    // Or just rely on defaults. 
+    // If we have legacy TTC=18 but no HT, we set HT = 18/1.2 = 15.
+    if (!initialGlovo.usageCommissionHT && initialGlovo.usageCommissionTTC) {
+        startCommHT = startCommTTC / 1.2;
+    }
+
+    // Initial State
+    const [rates, setRates] = useState({
+        commHT: startCommHT.toString(),
+        commTTC: (startCommHT * 1.2).toFixed(2), // Always drive TTC by HT
+        imp: startImp.toString(),
+        exo: startExo.toString()
+    });
+
+    const commTTC = parseFloat(rates.commTTC) / 100;
+    const pImp = parseFloat(rates.imp) / 100;
+    const pExo = parseFloat(rates.exo) / 100;
+
 
     // Header Color Logic
     const headerColor = isModalDeclared ? "bg-[#451a03]" : "bg-[#1E293B]";
@@ -34,7 +98,10 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
     const [payments, setPayments] = useState({ nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" });
     const [subTotalInput, setSubTotalInput] = useState(""); // Manual Subtotal
     const [nbTickets, setNbTickets] = useState("");
-    const [glovo, setGlovo] = useState({ brut: "", brutImp: "", brutExo: "", incid: "", cash: "" });
+    const [glovo, setGlovo] = useState({
+        brut: "", brutImp: "", brutExo: "", incid: "", cash: "",
+        usageCommissionTTC: "", usageTaxablePercentage: "", usageExoneratedPercentage: ""
+    });
 
     // NEW: Coefficients State
     const [coeffExo, setCoeffExo] = useState("1.11");
@@ -140,7 +207,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
     const mtChq = parseFloat(payments.mtChq) || 0;
 
     // Glovo Net
-    const glovoNet = ((parseFloat(glovo.brut) || 0) * 0.82) - (parseFloat(glovo.incid) || 0) - (parseFloat(glovo.cash) || 0);
+    const glovoNet = ((parseFloat(glovo.brut) || 0) * (1 - commTTC)) - (parseFloat(glovo.incid) || 0) - (parseFloat(glovo.cash) || 0);
 
     // Total HT
     const totalHT = valImpHT + valExo;
@@ -213,7 +280,49 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                 setPayments(initialData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" });
                 setSubTotalInput(initialData.subTotalInput || "");
                 setNbTickets(initialData.nbTickets || "");
-                setGlovo(initialData.glovo || { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" });
+                // Reset Local Rates State
+                const iGlovo = initialData.glovo || {};
+                const hData = !!iGlovo.brut;
+                const hSnap = !!iGlovo.usageCommissionTTC;
+
+                // DEFAULTS CONSTANTS
+                const DEF_HT = 15;
+                const DEF_IMP = 90;
+                const DEF_EXO = 10;
+
+                let rCommHT = DEF_HT.toString();
+                let rImp = DEF_IMP.toString();
+                let rExo = DEF_EXO.toString();
+
+                if (!hData) {
+                    // NEW/EMPTY: Use Smart Default (lastRates)
+                    rCommHT = lastRates?.commHT || DEF_HT.toString();
+                    rImp = lastRates?.imp || DEF_IMP.toString();
+                    rExo = lastRates?.exo || DEF_EXO.toString();
+                } else if (!hSnap) {
+                    // Legacy: Force Historic
+                    rCommHT = "15"; rImp = "90"; rExo = "10";
+                } else {
+                    // Snapshot: Use Stored
+                    const resolveRateRobust = (valStr: string | undefined, fallback: number) => {
+                        let val = parseFloat(valStr || fallback.toString());
+                        if (val > 0 && val < 1) val = val * 100;
+                        return val.toString();
+                    };
+                    rCommHT = resolveRateRobust(iGlovo.usageCommissionHT, DEF_HT);
+                    rImp = resolveRateRobust(iGlovo.usageTaxablePercentage, DEF_IMP);
+                    rExo = resolveRateRobust(iGlovo.usageExoneratedPercentage, DEF_EXO);
+                }
+
+                // Calc TTC from HT
+                const rCommTTC = lastRates?.commTTC && !hData ? lastRates.commTTC : (parseFloat(rCommHT) * 1.2).toFixed(2);
+
+                setRates({ commHT: rCommHT?.toString(), commTTC: rCommTTC?.toString(), imp: rImp?.toString(), exo: rExo?.toString() });
+
+                setGlovo(initialData.glovo || {
+                    brut: "", brutImp: "", brutExo: "", incid: "", cash: "",
+                    usageCommissionHT: rCommHT, usageCommissionTTC: rCommTTC, usageTaxablePercentage: rImp, usageExoneratedPercentage: rExo
+                });
                 setHours(initialData.hours || { startH: "07", startM: "00", endH: "20", endM: "00" });
                 setCoeffExo(initialData?.coeffExo || "1.11");
                 setCoeffImp(initialData?.coeffImp || "0.60");
@@ -224,7 +333,13 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                     payments: initialData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" },
                     subTotalInput: initialData.subTotalInput || "",
                     nbTickets: initialData.nbTickets || "",
-                    glovo: initialData.glovo || { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" },
+                    glovo: initialData.glovo || {
+                        brut: "", brutImp: "", brutExo: "", incid: "", cash: "",
+                        usageCommissionHT: initialData.glovo?.usageCommissionHT || rCommHT,
+                        usageCommissionTTC: initialData.glovo?.usageCommissionTTC || rCommTTC,
+                        usageTaxablePercentage: initialData.glovo?.usageTaxablePercentage || rImp,
+                        usageExoneratedPercentage: initialData.glovo?.usageExoneratedPercentage || rExo
+                    },
                     hours: initialData.hours || { startH: "07", startM: "00", endH: "20", endM: "00" },
                     coeffExo: initialData?.coeffExo || "1.11",
                     coeffImp: initialData?.coeffImp || "0.60"
@@ -236,7 +351,10 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                 setPayments({ nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" });
                 setSubTotalInput("");
                 setNbTickets("");
-                setGlovo({ brut: "", brutImp: "", brutExo: "", incid: "", cash: "" });
+                setGlovo({
+                    brut: "", brutImp: "", brutExo: "", incid: "", cash: "",
+                    usageCommissionTTC: "", usageTaxablePercentage: "", usageExoneratedPercentage: ""
+                });
                 setHours({ startH: "07", startM: "00", endH: "20", endM: "00" });
                 setCoeffExo("1.11");
                 setCoeffImp("0.60");
@@ -247,7 +365,10 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                     payments: { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" },
                     subTotalInput: "",
                     nbTickets: "",
-                    glovo: { brut: "", brutImp: "", brutExo: "", incid: "", cash: "" },
+                    glovo: {
+                        brut: "", brutImp: "", brutExo: "", incid: "", cash: "",
+                        usageCommissionHT: "", usageCommissionTTC: "", usageTaxablePercentage: "", usageExoneratedPercentage: ""
+                    },
                     hours: { startH: "07", startM: "00", endH: "20", endM: "00" },
                     coeffExo: "1.11",
                     coeffImp: "0.60"
@@ -293,13 +414,11 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             if (realData.glovo) {
                 const realGlovo = realData.glovo || { brut: "0", incid: "0", cash: "0" };
                 const gBrut = parseFloat(realGlovo.brut) || 0;
-                const gImp = (gBrut * 0.90) / 1.2;
-                const gExo = gBrut * 0.10;
 
                 const declaredGlovo = {
                     ...realGlovo,
-                    brutImp: gImp.toFixed(2),
-                    brutExo: gExo.toFixed(2)
+                    brutImp: (gBrut * pImp / 1.2).toFixed(2),
+                    brutExo: (gBrut * pExo).toFixed(2)
                 };
                 setGlovo(declaredGlovo);
             }
@@ -379,7 +498,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             const cValRemise = cTotalTTC - dSubTotal;
 
             // 4. Glovo Net
-            const cGlovoNet = ((parseFloat(dGlovo.brut) || 0) * 0.82) - (parseFloat(dGlovo.incid) || 0) - (parseFloat(dGlovo.cash) || 0);
+            const cGlovoNet = ((parseFloat(dGlovo.brut) || 0) * (1 - commTTC)) - (parseFloat(dGlovo.incid) || 0) - (parseFloat(dGlovo.cash) || 0);
 
             // 5. Espèces & Supplements
             const cTotalSupp = (parseFloat(dSupp.traiteurs) || 0) + (parseFloat(dSupp.caisse) || 0);
@@ -807,11 +926,101 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                         {/* Glovo Block (Detailed) */}
                         <div className="bg-[#FFF9C4] rounded-xl p-4 flex-1 shadow-sm border border-[#F9E79F] relative overflow-hidden flex flex-col">
                             {/* Glovo Header */}
-                            <div className="flex items-center gap-2 mb-4">
-                                <div className="w-5 h-5 rounded-full bg-[#FFC107] flex items-center justify-center">
-                                    <span className="text-[10px] font-bold text-black">G</span>
+                            <div className="flex items-center gap-2 mb-4 justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-5 h-5 rounded-full bg-[#FFC107] flex items-center justify-center">
+                                        <span className="text-[10px] font-bold text-black">G</span>
+                                    </div>
+                                    <span className="font-serif font-bold text-[#5D4037] text-sm">GLOVO</span>
                                 </div>
-                                <span className="font-serif font-bold text-[#5D4037] text-sm">GLOVO</span>
+                                {/* DISCREET RATES INPUTS */}
+                                <div className="flex gap-1 items-center opacity-70 hover:opacity-100 transition-opacity">
+                                    <div className="flex flex-col items-center">
+                                        <label className="text-[8px] uppercase font-bold text-slate-400 leading-none">HT</label>
+                                        <input
+                                            value={rates.commHT}
+                                            onChange={e => {
+                                                const newHT = e.target.value;
+                                                const newHTVal = parseFloat(newHT || "0");
+                                                const newTTC = (newHTVal * 1.2).toFixed(2); // Auto Calc TTC
+
+                                                setRates(prev => ({ ...prev, commHT: newHT, commTTC: newTTC }));
+                                                setGlovo(prev => {
+                                                    const next = {
+                                                        ...prev,
+                                                        usageCommissionHT: newHT,
+                                                        usageCommissionTTC: newTTC
+                                                    };
+                                                    formDataRef.current.glovo = next;
+                                                    return next;
+                                                });
+                                            }}
+                                            className="w-8 h-4 text-[10px] font-mono text-center bg-white/50 border border-[#FBC02D]/30 rounded focus:bg-white focus:border-[#FBC02D] outline-none text-[#5D4037]"
+                                            tabIndex={-1}
+                                        />
+                                    </div>
+                                    <div className="flex flex-col items-center">
+                                        <label className="text-[8px] uppercase font-bold text-slate-400 leading-none">TTC</label>
+                                        <input
+                                            value={rates.commTTC}
+                                            readOnly // READ ONLY
+                                            disabled
+                                            className="w-8 h-4 text-[10px] font-mono text-center bg-slate-100/50 border border-slate-200 rounded text-slate-500 cursor-not-allowed"
+                                            title="Calculé (HT * 1.2)"
+                                            tabIndex={-1}
+                                        />
+                                    </div>
+                                    <div className="flex flex-col items-center">
+                                        <label className="text-[8px] uppercase font-bold text-slate-400 leading-none">Imp</label>
+                                        <input
+                                            value={rates.imp}
+                                            onChange={e => {
+                                                const newImp = e.target.value;
+                                                setRates(prev => ({ ...prev, imp: newImp }));
+                                                // Trigger Recalc of Breakdown
+                                                const val = parseFloat(glovo.brut) || 0;
+                                                const pImpVal = parseFloat(newImp || "90") / 100;
+                                                const impVal = (val * pImpVal) / 1.2;
+                                                setGlovo(prev => {
+                                                    const next = {
+                                                        ...prev,
+                                                        brutImp: impVal.toFixed(2),
+                                                        usageTaxablePercentage: newImp
+                                                    };
+                                                    formDataRef.current.glovo = next;
+                                                    return next;
+                                                });
+                                            }}
+                                            className="w-8 h-4 text-[10px] font-mono text-center bg-white/50 border border-[#FBC02D]/30 rounded focus:bg-white focus:border-[#FBC02D] outline-none text-[#5D4037]"
+                                            tabIndex={-1}
+                                        />
+                                    </div>
+                                    <div className="flex flex-col items-center">
+                                        <label className="text-[8px] uppercase font-bold text-slate-400 leading-none">Exo</label>
+                                        <input
+                                            value={rates.exo}
+                                            onChange={e => {
+                                                const newExo = e.target.value;
+                                                setRates(prev => ({ ...prev, exo: newExo }));
+                                                // Trigger Recalc of Breakdown
+                                                const val = parseFloat(glovo.brut) || 0;
+                                                const pExoVal = parseFloat(newExo || "10") / 100;
+                                                const exoVal = val * pExoVal;
+                                                setGlovo(prev => {
+                                                    const next = {
+                                                        ...prev,
+                                                        brutExo: exoVal.toFixed(2),
+                                                        usageExoneratedPercentage: newExo
+                                                    };
+                                                    formDataRef.current.glovo = next;
+                                                    return next;
+                                                });
+                                            }}
+                                            className="w-8 h-4 text-[10px] font-mono text-center bg-white/50 border border-[#FBC02D]/30 rounded focus:bg-white focus:border-[#FBC02D] outline-none text-[#5D4037]"
+                                            tabIndex={-1}
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="space-y-2 relative z-10 flex-1">
@@ -823,16 +1032,22 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                         onChange={(e) => {
                                             const valStr = e.target.value;
                                             const val = parseFloat(valStr) || 0;
-                                            // Auto-calc Breakdown (90% Imp HT, 10% Exo)
-                                            const imp = (val * 0.90) / 1.2;
-                                            const exo = val * 0.10;
+
+                                            // Auto-calc Breakdown using resolved rates (Snapshot or Current)
+                                            const imp = (val * pImp) / 1.2;
+                                            const exo = val * pExo;
 
                                             setGlovo(prev => {
                                                 const next = {
                                                     ...prev,
                                                     brut: valStr,
                                                     brutImp: imp.toFixed(2),
-                                                    brutExo: exo.toFixed(2)
+                                                    brutExo: exo.toFixed(2),
+                                                    // PERSIST SNAPSHOTS from explicit inputs
+                                                    usageCommissionHT: rates.commHT,
+                                                    usageCommissionTTC: rates.commTTC,
+                                                    usageTaxablePercentage: rates.imp,
+                                                    usageExoneratedPercentage: rates.exo
                                                 };
                                                 formDataRef.current.glovo = next; // SYNC UPDATE
                                                 return next;
@@ -846,7 +1061,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     {/* Side-by-Side Layout for Imp/Exo */}
                                     <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-[#F9E79F]/50">
                                         <div className="space-y-1">
-                                            <span className="text-[9px] font-bold text-[#8D6E63] uppercase opacity-70">Imp. HT (90%)</span>
+                                            <span className="text-[9px] font-bold text-[#8D6E63] uppercase opacity-70">Imp. HT ({Math.round(pImp * 100)}%)</span>
                                             <input
                                                 value={glovo.brutImp}
                                                 tabIndex={-1} // NO TAB
@@ -855,7 +1070,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                             />
                                         </div>
                                         <div className="space-y-1">
-                                            <span className="text-[9px] font-bold text-[#8D6E63] uppercase opacity-70">Exo (10%)</span>
+                                            <span className="text-[9px] font-bold text-[#8D6E63] uppercase opacity-70">Exo ({Math.round(pExo * 100)}%)</span>
                                             <input
                                                 value={glovo.brutExo}
                                                 tabIndex={-1} // NO TAB
