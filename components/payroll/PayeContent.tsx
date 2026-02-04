@@ -5,13 +5,15 @@ import {
     Search, Plus, X, Pencil, Trash2, Calendar, FileText, Download, Filter,
     MoreHorizontal, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Check, AlertCircle, TrendingUp, TrendingDown,
     Save, UserPlus, CreditCard, Clock, Activity, Briefcase, Hash, Phone, MapPin,
-    Calendar as CalendarIcon, Heart, Baby, LogOut, Users, Minus, User, DollarSign, Mail, Building2, UserCircle, Calculator, Edit3, Table, ArrowRight, Cake, Banknote, Gift, RefreshCw, Lock
+    Calendar as CalendarIcon, Heart, Baby, LogOut, Users, Minus, User, DollarSign, Mail, Building2, UserCircle, Calculator, Edit3, Table, ArrowRight, Cake, Banknote, Gift, RefreshCw, Lock, Unlock
 } from "lucide-react";
 import { cn, formatPhoneNumber } from "@/lib/utils";
 import {
     getEmployees,
     saveEmployee,
-    deleteEmployee
+    deleteEmployee,
+    closePayrollMonth,
+    unclosePayrollMonth
 } from "@/lib/data-service";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { DateInput } from "@/components/ui/DateInput";
@@ -32,13 +34,14 @@ interface PayeContentProps {
     defaultViewMode?: "JOURNAL" | "BASE";
 }
 
-const PayrollInput = ({ value, onChange, onIncrement, onDecrement, className, isCurrency = false }: {
+const PayrollInput = ({ value, onChange, onIncrement, onDecrement, className, isCurrency = false, disabled = false }: {
     value: number;
     onChange: (val: number) => void;
     onIncrement?: () => void;
     onDecrement?: () => void;
     className?: string;
     isCurrency?: boolean;
+    disabled?: boolean;
 }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [localValue, setLocalValue] = useState("");
@@ -112,8 +115,9 @@ const PayrollInput = ({ value, onChange, onIncrement, onDecrement, className, is
                 onBlur={handleBlur}
                 onChange={(e) => setLocalValue(e.target.value)}
                 onKeyDown={handleKeyDown}
+                disabled={disabled}
             />
-            {(onIncrement || onDecrement) && (
+            {(!disabled && (onIncrement || onDecrement)) && (
                 <div className="absolute right-0 flex flex-col opacity-0 group-hover/input:opacity-100 transition-opacity translate-x-1">
                     <button
                         onClick={(e) => { e.stopPropagation(); onIncrement?.(); }}
@@ -260,13 +264,14 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
     const chartData = useMemo(() => {
         if (!selectedEmployee) return [];
-        const hist = (selectedEmployee.history || []).map(h => {
+        const hist = (selectedEmployee.history || []).map((h, idx) => {
             const amount = Number(h.amount);
             const bonus = Number((h as any).undeclaredBonus ?? (h as any).bonus ?? 0);
             return {
                 ...h,
                 amount: amount, // This will be the net salary
-                total: amount + bonus // This will be the total global
+                total: amount + bonus, // This will be the total global
+                originalIndex: idx // Track original index for editing/deleting
             };
         });
 
@@ -282,8 +287,9 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             const base = {
                 date: selectedEmployee.contract?.hireDate || sortedHist[0].date,
                 amount: sortedHist[0].amount, // Keep original amount for display
-                total: firstTotal, // Use total for chart
-                type: "EMBAUCHE"
+                total: sortedHist[0].amount, // Use base amount for chart start (assuming 0 bonus initially)
+                type: "EMBAUCHE",
+                originalIndex: -1 // Synthetic event cannot be edited/deleted directly as a history item
             };
 
             if (base.date === sortedHist[0].date) return sortedHist;
@@ -293,8 +299,9 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         const base = {
             date: selectedEmployee.contract?.hireDate || "",
             amount: selectedEmployee.contract?.baseSalary || 5000,
-            total: selectedEmployee.contract?.baseSalary || 5000, // Also set total for consistency
-            type: "EMBAUCHE"
+            total: selectedEmployee.contract?.baseSalary || 5000,
+            type: "EMBAUCHE",
+            originalIndex: -1
         };
         return [base];
     }, [selectedEmployee]);
@@ -357,11 +364,11 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             if (e.defaultPrevented) return;
 
             // Ignorer si focus dans un input, textarea, select ou bouton
-            const isInputActive = ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(document.activeElement?.tagName || "");
-            if (isInputActive) return;
+            const targetTagName = (e.target as HTMLElement).tagName;
+            const isInputActive = ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(targetTagName);
 
-            // Navigation Gauche/Droite pour changer de vue (JOURNAL / BASE)
-            if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            // Navigation Gauche/Droite pour changer de vue (JOURNAL / BASE) - Bloqué si input actif
+            if (!isInputActive && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
                 const views: ("JOURNAL" | "BASE")[] = ["JOURNAL", "BASE"];
                 const currentIndex = views.indexOf(viewMode);
                 let newIndex = currentIndex;
@@ -379,33 +386,39 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                 return;
             }
 
-            // Navigation Haut/Bas pour le sidebar (uniquement en mode BASE)
-            if (viewMode === "BASE" && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-                if (filteredEmployees.length === 0) return;
+            // Navigation Haut/Bas pour le sidebar (BASE) ou le journal (JOURNAL)
+            if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                // Allow navigation in inputs, but not textareas (multiline)
+                if (targetTagName === "TEXTAREA") return;
+
+                const list = viewMode === "JOURNAL" ? sortedEmployees : filteredEmployees;
+                if (list.length === 0) return;
+
                 e.preventDefault();
 
-                const currentIndex = filteredEmployees.findIndex(emp => emp.id === selectedEmployeeId);
+                const currentIndex = list.findIndex(emp => emp.id === selectedEmployeeId);
                 let newIndex = currentIndex;
 
                 if (currentIndex === -1) {
-                    setSelectedEmployeeId(filteredEmployees[0].id);
+                    setSelectedEmployeeId(list[0].id);
                     return;
                 }
 
                 if (e.key === "ArrowUp") {
                     newIndex = Math.max(0, currentIndex - 1);
                 } else {
-                    newIndex = Math.min(filteredEmployees.length - 1, currentIndex + 1);
+                    newIndex = Math.min(list.length - 1, currentIndex + 1);
                 }
 
                 if (newIndex !== currentIndex) {
-                    setSelectedEmployeeId(filteredEmployees[newIndex].id);
+                    setSelectedEmployeeId(list[newIndex].id);
                 }
             }
         };
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [viewMode, filteredEmployees, selectedEmployeeId]);
 
     // Auto-scroll sidebar list
@@ -421,6 +434,33 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
     }, [selectedEmployeeId, filteredEmployees, viewMode]);
 
     // --- ACTIONS ---
+    const handleDeleteHistory = async (index: number) => {
+        if (!selectedEmployee || !selectedEmployee.history) return;
+
+        // Confirm before deleting
+        if (!confirm("Voulez-vous vraiment supprimer cet événement de l'historique ?")) return;
+
+        const updatedHistory = [...selectedEmployee.history];
+        updatedHistory.splice(index, 1);
+
+        const updatedEmployee = {
+            ...selectedEmployee,
+            history: updatedHistory
+        };
+
+        // If we deleted the latest event, we might need to sync baseSalary from the new latest event
+        // But for safety, we just update history and let the user manually fix salary if needed, 
+        // OR we could auto-rollback. For now, just update history.
+
+        // Auto-rollback baseSalary if the deleted event was the latest
+        // This is complex because 'latest' depends on date sorting. The 'index' passed here 
+        // should be the index in the original 'selectedEmployee.history' array.
+
+        setEmployees(employees.map(e => e.id === updatedEmployee.id ? updatedEmployee : e));
+        setSelectedEmployeeId(updatedEmployee.id);
+        await saveEmployee(updatedEmployee);
+    };
+
     const handleSaveEmployee = async () => {
         if (!selectedEmployee) return;
         await saveEmployee(selectedEmployee);
@@ -484,10 +524,24 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             latestBonus = sortedHistory[0]?.undeclaredBonus || 0;
         }
 
-        return emp.monthlyData?.[currentMonth] || {
-            jours: 26,
+        // Read with Year Key (Migration friendly)
+        const key = `${currentMonth}_${currentYear}`;
+        const legacyKey = currentMonth;
+
+        // Default Jours rule: 0 starting 2026, 26 before.
+        const defaultJours = currentYear >= 2026 ? 0 : 26;
+
+        // Auto-calculate Prorated Bonus for default state
+        let defaultPRegul = latestBonus;
+        if (latestBonus > 0) {
+            const prorated = defaultJours < 26 ? (latestBonus * defaultJours / 26) : latestBonus;
+            defaultPRegul = Math.round(prorated * 100) / 100;
+        }
+
+        return emp.monthlyData?.[key] || emp.monthlyData?.[legacyKey] || {
+            jours: defaultJours,
             hSup: 0,
-            pRegul: latestBonus,
+            pRegul: defaultPRegul,
             pOccas: 0,
             virement: 0,
             avances: 0,
@@ -506,18 +560,20 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         const data = getMonthlyData(emp);
         const base = emp.contract?.baseSalary || 0;
         const dailyRate = base / 26;
+        const hourlyRate = dailyRate / 8;
         const proratedBase = dailyRate * data.jours;
         // Formula: Prorated Base + H.Sup + Regul + Occas - Avances - Deduction - Virement
-        return proratedBase + (data.hSup * 50) + data.pRegul + data.pOccas - data.avances - data.monthlyDeduction - data.virement;
+        return proratedBase + (data.hSup * hourlyRate) + data.pRegul + data.pOccas - data.avances - data.monthlyDeduction - data.virement;
     };
 
     const calculateCompta = (emp: StaffMember) => {
         const data = getMonthlyData(emp);
         const base = emp.contract?.baseSalary || 0;
         const dailyRate = base / 26;
+        const hourlyRate = dailyRate / 8;
         const proratedBase = dailyRate * data.jours;
         // Brut Global = Base Proratisé + HSup + Regul + Occas
-        const brut = proratedBase + (data.hSup * 50) + (data.pRegul || 0) + (data.pOccas || 0);
+        const brut = proratedBase + (data.hSup * hourlyRate) + (data.pRegul || 0) + (data.pOccas || 0);
 
         // Standard Social Charges (Maroc)
         const cnssBase = Math.min(brut, 6000);
@@ -572,6 +628,44 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         });
     }, [employees, currentMonth, currentYear]);
 
+    // --- CLOSING LOGIC ---
+    const isMonthClosed = useMemo(() => {
+        const key = `${currentMonth}_${currentYear}`;
+        return employees.some(e => e.monthlyData?.[key]?.isClosed);
+    }, [employees, currentMonth, currentYear]);
+
+    const handleCloseMonthToggle = async () => {
+        const key = `${currentMonth}_${currentYear}`;
+        if (isMonthClosed) {
+            if (confirm("Attention: La réouverture du mois supprimera les transactions financières générées. Voulez-vous continuer ?")) {
+                await unclosePayrollMonth(key);
+                // Refresh
+                const emps = await getEmployees();
+                setEmployees(emps);
+            }
+        } else {
+            if (confirm(`Confirmez-vous la clôture de ${currentMonth} ${currentYear} ?\n\n- Les paiements seront verrouillés.\n- Les retenues sur prêt seront appliquées sur la dette.\n- Les transactions financières (Banque/Caisse/Coffre) seront générées.\n- Le mois suivant sera initialisé.`)) {
+                // Calculate Next Month Key
+                const currentIdx = MONTHS.indexOf(currentMonth);
+                let nextMonthName = "";
+                let nextYearVal = currentYear;
+
+                if (currentIdx === 11) {
+                    nextMonthName = MONTHS[0];
+                    nextYearVal = currentYear + 1;
+                } else {
+                    nextMonthName = MONTHS[currentIdx + 1];
+                }
+                const nextKey = `${nextMonthName}_${nextYearVal}`;
+
+                await closePayrollMonth(key, nextKey, employees, totals);
+                // Refresh
+                const emps = await getEmployees();
+                setEmployees(emps);
+            }
+        }
+    };
+
     const getYearSuffix = (dateStr?: string) => {
         if (!dateStr) return "00";
         return dateStr.split('-')[0].slice(-2);
@@ -593,21 +687,58 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             updatedHistory = [...(selectedEmployee.history || [])];
             updatedHistory[editingHistoryIndex] = newHistory;
         } else {
-            updatedHistory = [...(selectedEmployee.history || []), newHistory];
+            // Check if we need to secure the "EMBAUCHE" state before adding the first augmentation
+            const currentHistory = selectedEmployee.history || [];
+            const hasEmbauche = currentHistory.some(h => h.type === "EMBAUCHE");
+
+            if (!hasEmbauche && currentHistory.length === 0) {
+                // Create Snapshot of the current state as "EMBAUCHE"
+                const snapshotEmbauche = {
+                    date: selectedEmployee.contract?.hireDate || new Date().toISOString().split('T')[0],
+                    amount: selectedEmployee.contract?.baseSalary || 0,
+                    bonus: 0,
+                    undeclaredBonus: 0,
+                    type: "EMBAUCHE",
+                    year: (selectedEmployee.contract?.hireDate || new Date().toISOString()).split('-')[0]
+                };
+                updatedHistory = [snapshotEmbauche, newHistory];
+            } else {
+                updatedHistory = [...currentHistory, newHistory];
+            }
         }
 
         // Find the chronologically latest event in the updated history to sync baseSalary
         const latestEvent = [...updatedHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+        const latestBonus = latestEvent?.undeclaredBonus || 0;
+
+        // Current Month Key
+        const currentKey = `${currentMonth}_${currentYear}`;
 
         if (latestEvent) {
             setEmployees(prev => prev.map(emp => {
                 if (emp.id === selectedEmployee.id) {
+                    // Update Monthly Data to reflect new Bonus immediately
+                    const currentMData = emp.monthlyData?.[currentKey] || getMonthlyData(emp); // Use helper to get defaults if missing
+                    let newMData = { ...currentMData };
+
+                    // Only update if month is NOT closed
+                    if (!currentMData.isClosed) {
+                        const days = currentMData.jours;
+                        // Prorata rule
+                        const prorated = days < 26 ? (latestBonus * days / 26) : latestBonus;
+                        newMData.pRegul = Math.round(prorated * 100) / 100;
+                    }
+
                     return {
                         ...emp,
                         history: updatedHistory,
                         contract: {
                             ...emp.contract,
                             baseSalary: latestEvent.amount
+                        },
+                        monthlyData: {
+                            ...emp.monthlyData,
+                            [currentKey]: newMData
                         }
                     };
                 }
@@ -680,13 +811,20 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                     }
                 }
 
-                return {
+                const key = `${currentMonth}_${currentYear}`;
+
+                const updatedEmp = {
                     ...emp,
                     monthlyData: {
                         ...emp.monthlyData,
-                        [currentMonth]: { ...currentData, ...updates }
+                        [key]: { ...currentData, ...updates }
                     }
                 };
+
+                // Persist immediately
+                saveEmployee(updatedEmp).catch(err => console.error("Auto-save failed:", err));
+
+                return updatedEmp;
             }
             return emp;
         }));
@@ -763,7 +901,14 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                         </div>
                     </div>
 
-                    <div className="relative" ref={datePickerRef}>
+                    <div className="relative flex items-center gap-2" ref={datePickerRef}>
+                        <button
+                            onClick={handlePrevMonth}
+                            className="p-2 rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:shadow-sm transition-all shadow-sm"
+                        >
+                            <ChevronLeft className="w-4 h-4" />
+                        </button>
+
                         <button
                             onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
                             className={cn(
@@ -778,7 +923,14 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                 </span>
                                 <div className={cn("h-0.5 w-10 bg-blue-600 rounded-full transition-all", isDatePickerOpen ? "w-16" : "w-10")} />
                             </div>
-                            <ChevronRight className={cn("w-4 h-4 text-slate-400 transition-transform", isDatePickerOpen ? "rotate-90 text-blue-600" : "rotate-0")} />
+                            <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform", isDatePickerOpen ? "rotate-180 text-blue-600" : "rotate-0")} />
+                        </button>
+
+                        <button
+                            onClick={handleNextMonth}
+                            className="p-2 rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:shadow-sm transition-all shadow-sm"
+                        >
+                            <ChevronRight className="w-4 h-4" />
                         </button>
 
                         {/* Smart Popover */}
@@ -822,9 +974,17 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                             <RefreshCw className="w-3.5 h-3.5" />
                             Reset Futurs
                         </button>
-                        <button className="flex items-center gap-2 px-8 py-2.5 rounded-2xl bg-[#2D3748] text-white font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-xl shadow-slate-200/50">
-                            <Lock className="w-3.5 h-3.5" />
-                            Clôturer Mois
+                        <button
+                            onClick={handleCloseMonthToggle}
+                            className={cn(
+                                "flex items-center gap-2 px-8 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-slate-200/50",
+                                isMonthClosed
+                                    ? "bg-slate-800 hover:bg-slate-700 text-orange-500"
+                                    : "bg-[#2D3748] hover:bg-slate-700 text-white"
+                            )}
+                        >
+                            {isMonthClosed ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                            {isMonthClosed ? "Réouvrir Mois" : "Clôturer Mois"}
                         </button>
                     </div>
                 </div>
@@ -841,16 +1001,16 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                 {journalSubView === "SAISIE" ? (
                                     <div className="bg-[#2C3E50] text-[#7F8C8D] h-10 flex items-center px-4 shrink-0 font-black text-[10px] uppercase tracking-widest border-b border-slate-700">
                                         <div className="w-[3.5%] text-white">Matr</div>
-                                        <div className="w-[13.5%] text-white">Salarié</div>
+                                        <div className="w-[13.5%] text-white border-r border-[#34495E]">Salarié</div>
                                         <div className="w-[7.5%] text-center text-[#2ECC71]">Net Cible</div>
-                                        <div className="w-[10%] text-center text-white">Mois / Année</div>
+                                        <div className="w-[10%] text-center text-white border-r border-[#34495E]">Mois / Année</div>
                                         <div className="w-[7%] text-center text-white">Jours</div>
                                         <div className="w-[7%] text-center text-white">H. Sup</div>
                                         <div className="w-[8%] text-center text-white">P. Régul</div>
-                                        <div className="w-[8%] text-center text-white">P. Occas</div>
+                                        <div className="w-[8%] text-center text-white border-r border-[#34495E]">P. Occas</div>
                                         <div className="w-[7%] text-center text-[#F39C12]">Virement</div>
                                         <div className="w-[7%] text-center text-[#F39C12]">Avances</div>
-                                        <div className="w-[8%] text-center text-[#F39C12]">Retenue Prêt</div>
+                                        <div className="w-[8%] text-center text-[#F39C12] border-r border-[#34495E]">Retenue Prêt</div>
                                         <div className="w-[8%] text-right text-white">Net à Payer</div>
                                         <div className="w-[5%] text-center text-[#2ECC71]">Payé</div>
                                     </div>
@@ -880,7 +1040,14 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         if (journalSubView === "COMPTABLE" && emp.declarationStatus === "ND") return null;
 
                                         return (
-                                            <div key={emp.id} className="flex items-center h-11 px-4 hover:bg-slate-50 transition-colors group">
+                                            <div
+                                                key={emp.id}
+                                                onClick={() => setSelectedEmployeeId(emp.id)}
+                                                className={cn(
+                                                    "flex items-center h-9 px-4 transition-colors group cursor-pointer relative",
+                                                    selectedEmployeeId === emp.id ? "bg-slate-200 ring-1 ring-inset ring-[#2C3E50] z-10" : "hover:bg-slate-50"
+                                                )}
+                                            >
                                                 {journalSubView === "SAISIE" ? (
                                                     <>
                                                         {/* Matr */}
@@ -893,9 +1060,21 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         {/* Salarié */}
-                                                        <div className="w-[13.5%] flex items-center pr-2 h-full">
-                                                            <div className="text-[12px] font-black text-slate-800 leading-none truncate">
-                                                                <span className="uppercase">{emp.lastName}</span> <span className="capitalize">{emp.firstName.toLowerCase()}</span>
+                                                        <div className="w-[13.5%] flex items-center pr-2 h-full border-r border-[#2C3E50]/20">
+                                                            <div className="flex items-center min-w-0">
+                                                                <div className="text-[12px] font-black text-slate-800 leading-none truncate">
+                                                                    <span className="uppercase">{emp.lastName}</span> <span className="capitalize">{emp.firstName.toLowerCase()}</span>
+                                                                </div>
+                                                                {emp.declarationStatus === "ND" && (
+                                                                    <span className={cn(
+                                                                        "text-[8px] font-black uppercase tracking-widest px-1 py-px rounded-[3px] border leading-none ml-2 shrink-0",
+                                                                        emp.gender === "F"
+                                                                            ? "bg-red-50 text-red-600 border-red-100"
+                                                                            : "bg-blue-50 text-blue-600 border-blue-100"
+                                                                    )}>
+                                                                        ND
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                         </div>
 
@@ -904,7 +1083,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         {/* Mois / Année */}
-                                                        <div className="w-[10%] text-center text-[12px] font-black text-black uppercase tracking-tight">
+                                                        <div className="w-[10%] text-center text-[12px] font-black text-black uppercase tracking-tight border-r border-[#2C3E50]/20 h-full flex items-center justify-center">
                                                             {currentMonth.substring(0, 3)} {currentYear}
                                                         </div>
 
@@ -914,9 +1093,10 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                 <PayrollInput
                                                                     value={mData.jours}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'jours', v)}
-                                                                    onIncrement={() => updateMonthlyValue(emp.id, 'jours', Math.min(31, mData.jours + 0.5))}
+                                                                    onIncrement={() => updateMonthlyValue(emp.id, 'jours', mData.jours + 0.5)}
                                                                     onDecrement={() => updateMonthlyValue(emp.id, 'jours', Math.max(0, mData.jours - 0.5))}
                                                                     className={cn("w-12", mData.jours !== 26 ? "text-green-600 font-black" : "text-black")}
+                                                                    disabled={isMonthClosed}
                                                                 />
                                                             </div>
                                                         </div>
@@ -927,9 +1107,10 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                 <PayrollInput
                                                                     value={mData.hSup}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'hSup', v)}
-                                                                    onIncrement={() => updateMonthlyValue(emp.id, 'hSup', mData.hSup + 2)}
-                                                                    onDecrement={() => updateMonthlyValue(emp.id, 'hSup', Math.max(0, mData.hSup - 2))}
+                                                                    onIncrement={() => updateMonthlyValue(emp.id, 'hSup', mData.hSup + 1)}
+                                                                    onDecrement={() => updateMonthlyValue(emp.id, 'hSup', Math.max(0, mData.hSup - 1))}
                                                                     className={cn("w-10", mData.hSup !== 0 ? "text-green-600 font-black" : "text-black")}
+                                                                    disabled={isMonthClosed}
                                                                 />
                                                             </div>
                                                         </div>
@@ -942,18 +1123,20 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'pRegul', v)}
                                                                     isCurrency={true}
                                                                     className={cn(mData.pRegul ? "text-green-600 font-black" : "text-black")}
+                                                                    disabled={isMonthClosed}
                                                                 />
                                                             </div>
                                                         </div>
 
                                                         {/* P. Occas */}
-                                                        <div className="w-[8%] flex justify-center">
+                                                        <div className="w-[8%] flex justify-center border-r border-[#2C3E50]/20 h-full items-center">
                                                             <div className="w-full max-w-[70px]">
                                                                 <PayrollInput
                                                                     value={mData.pOccas || 0}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'pOccas', v)}
                                                                     isCurrency={true}
                                                                     className={cn(mData.pOccas ? "text-green-600 font-black" : "text-black")}
+                                                                    disabled={isMonthClosed}
                                                                 />
                                                             </div>
                                                         </div>
@@ -966,6 +1149,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'virement', v)}
                                                                     isCurrency={true}
                                                                     className="text-[#F39C12]"
+                                                                    disabled={isMonthClosed}
                                                                 />
                                                             </div>
                                                         </div>
@@ -978,23 +1162,33 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'avances', v)}
                                                                     isCurrency={true}
                                                                     className="text-[#F39C12]"
+                                                                    disabled={isMonthClosed}
                                                                 />
                                                             </div>
                                                         </div>
 
                                                         {/* Retenue Prêt */}
-                                                        <div className="w-[8%] flex flex-col items-center justify-center">
+                                                        <div className="w-[8%] flex flex-col items-center justify-center border-r border-[#2C3E50]/20 h-full py-0.5">
                                                             <div className="w-full max-w-[70px]">
                                                                 <PayrollInput
                                                                     value={mData.monthlyDeduction || 0}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'monthlyDeduction', v)}
                                                                     isCurrency={true}
                                                                     className="text-[#F39C12]"
+                                                                    disabled={isMonthClosed}
                                                                 />
                                                             </div>
-                                                            <div className="text-[9px] font-bold text-red-500 mt-0.5">
-                                                                {((emp.creditInfo?.remaining || 0) - (mData.monthlyDeduction || 0)).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="opacity-70">Dh</span>
-                                                            </div>
+                                                            {(() => {
+                                                                const projected = isMonthClosed
+                                                                    ? (emp.creditInfo?.remaining || 0)
+                                                                    : ((emp.creditInfo?.remaining || 0) - (mData.monthlyDeduction || 0));
+
+                                                                return projected > 0 && (
+                                                                    <div className="text-[9px] font-bold bg-orange-500 text-white px-1.5 py-px rounded mt-0.5 shadow-sm">
+                                                                        {projected.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="opacity-70 text-[8px]">Dh</span>
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </div>
 
                                                         {/* Net à Payer */}
@@ -1010,10 +1204,13 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                 onClick={() => updateMonthlyValue(emp.id, 'isPaid', !mData.isPaid)}
                                                                 className={cn(
                                                                     "w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all",
-                                                                    mData.isPaid
-                                                                        ? "bg-green-500 border-green-500 text-white"
-                                                                        : "border-slate-200 hover:border-green-400 group-hover:bg-slate-50"
+                                                                    isMonthClosed
+                                                                        ? "opacity-50 cursor-not-allowed " + (mData.isPaid ? "bg-green-500 border-green-500 text-white" : "border-slate-200")
+                                                                        : mData.isPaid
+                                                                            ? "bg-green-500 border-green-500 text-white"
+                                                                            : "border-slate-200 hover:border-green-400 group-hover:bg-slate-50"
                                                                 )}
+                                                                disabled={isMonthClosed}
                                                             >
                                                                 {mData.isPaid && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                                                             </button>
@@ -1335,38 +1532,6 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                             </div>
                                                             <div className="flex items-center justify-between mt-0.5">
                                                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{emp.role}</span>
-                                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    <button
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setSelectedEmployeeId(emp.id);
-                                                                            setIsEditing(true);
-                                                                        }}
-                                                                        className={cn(
-                                                                            "p-1 rounded-md transition-all border",
-                                                                            isSelected && isEditing
-                                                                                ? cn(
-                                                                                    "bg-white shadow-sm scale-110",
-                                                                                    emp.gender === "F" ? "text-red-600 border-red-100" : "text-blue-600 border-blue-100"
-                                                                                )
-                                                                                : "text-slate-300 hover:text-slate-400 border-transparent hover:bg-white hover:border-slate-100"
-                                                                        )}
-                                                                    >
-                                                                        <Edit3 className="w-3 h-3" />
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setSelectedEmployeeId(emp.id);
-                                                                            if (confirm(`Êtes-vous sûr de vouloir supprimer définitivement ${emp.lastName} ${emp.firstName} ?`)) {
-                                                                                handleDeleteEmployee();
-                                                                            }
-                                                                        }}
-                                                                        className="p-1 rounded-md text-slate-300 hover:text-red-600 border border-transparent hover:bg-white hover:border-red-100 transition-all"
-                                                                    >
-                                                                        <Trash2 className="w-3 h-3" />
-                                                                    </button>
-                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1423,6 +1588,21 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                         className="text-4xl font-bold text-slate-400 capitalize bg-white border border-slate-200 rounded-xl px-4 py-1 focus:outline-none focus:ring-4 focus:ring-blue-50 w-[300px]"
                                                                         placeholder="Prénom"
                                                                     />
+
+                                                                    <div className="ml-auto flex items-center gap-2">
+                                                                        {/* Save Button - Mouse Gray Style (Active) */}
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleSaveEmployee();
+                                                                                setIsEditing(false);
+                                                                            }}
+                                                                            className="h-10 px-6 rounded-xl bg-slate-800 text-white text-[11px] font-black uppercase tracking-widest hover:bg-slate-900 transition-all shadow-lg shadow-slate-200 flex items-center gap-2"
+                                                                        >
+                                                                            <Save className="w-4 h-4" />
+                                                                            Enregistrer
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-[12px] font-black tracking-widest text-slate-300 uppercase shrink-0 ml-1">Matricule:</span>
@@ -1435,9 +1615,40 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                             </div>
                                                         ) : (
                                                             <div className="flex flex-col">
-                                                                <h2 className="text-4xl font-black text-slate-800 tracking-tighter uppercase whitespace-nowrap">
-                                                                    {selectedEmployee.lastName} <span className="text-slate-400 font-bold capitalize">{selectedEmployee.firstName}</span>
-                                                                </h2>
+                                                                <div className="flex items-center gap-4">
+                                                                    <h2 className="text-4xl font-black text-slate-800 tracking-tighter uppercase whitespace-nowrap">
+                                                                        {selectedEmployee.lastName} <span className="text-slate-400 font-bold capitalize">{selectedEmployee.firstName}</span>
+                                                                    </h2>
+
+                                                                    <div className="ml-auto flex items-center gap-3">
+                                                                        {/* Delete Employee Button - Red Contrast Style */}
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                if (confirm(`Êtes-vous sûr de vouloir supprimer définitivement ${selectedEmployee.lastName} ${selectedEmployee.firstName} ?`)) {
+                                                                                    handleDeleteEmployee();
+                                                                                }
+                                                                            }}
+                                                                            className="h-8 px-4 rounded-xl bg-white text-red-500 text-[11px] font-black uppercase tracking-widest border border-red-200 hover:bg-red-600 hover:text-white transition-all shadow-sm flex items-center gap-2 group"
+                                                                            title="Supprimer l'employé"
+                                                                        >
+                                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                                            <span className="hidden group-hover:inline">Supprimer</span>
+                                                                        </button>
+
+                                                                        {/* Edit Button - Mouse Gray Style */}
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setIsEditing(true);
+                                                                            }}
+                                                                            className="h-8 px-4 rounded-xl bg-slate-500 text-white text-[11px] font-black uppercase tracking-widest hover:bg-slate-600 transition-all shadow-sm flex items-center gap-2"
+                                                                        >
+                                                                            <Edit3 className="w-3.5 h-3.5" />
+                                                                            Modifier
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
                                                                 <div className="flex items-center gap-2 mt-1">
                                                                     <span className="text-[12px] font-black tracking-widest text-slate-300 uppercase shrink-0 ml-1">Matricule:</span>
                                                                     <span className="text-[12px] font-black tracking-widest text-slate-400 uppercase">{selectedEmployee.matricule || `M00${selectedEmployee.id}`}</span>
@@ -1543,22 +1754,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                 </div>
                                                 {isEditing && (
                                                     <div className="flex items-center gap-3 ml-auto animate-in fade-in slide-in-from-right-4 duration-300">
-                                                        <button
-                                                            onClick={() => setIsEditing(false)}
-                                                            className="px-6 py-2.5 rounded-xl text-slate-400 font-black text-[11px] uppercase tracking-widest hover:bg-slate-50 transition-all border border-slate-100"
-                                                        >
-                                                            Annuler
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                handleSaveEmployee();
-                                                                setIsEditing(false);
-                                                            }}
-                                                            className="px-8 py-2.5 rounded-xl bg-blue-600 text-white font-black text-[11px] uppercase tracking-widest shadow-lg shadow-blue-100 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
-                                                        >
-                                                            <Save className="w-3.5 h-3.5" />
-                                                            Enregistrer
-                                                        </button>
+                                                        {/* Old buttons removed as requested */}
                                                     </div>
                                                 )}
                                             </div>
@@ -2086,10 +2282,11 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
                                                                 {/* Reverse chronological list from chartData */}
                                                                 {chartData.slice().reverse().map((event, idx) => {
-                                                                    const realIndex = chartData.length - 1 - idx;
+                                                                    const realIndex = (event as any).originalIndex;
                                                                     const isLatest = idx === 0;
                                                                     const yearSuffix = getYearSuffix(event.date);
-                                                                    const isEditingThis = editingHistoryIndex === realIndex;
+                                                                    const isEditingThis = editingHistoryIndex !== null && editingHistoryIndex === realIndex;
+                                                                    const isSynthetic = realIndex === -1;
 
                                                                     return (
                                                                         <div
@@ -2248,7 +2445,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                     </div>
 
                                                                                     {/* Edit Button (Overlay) */}
-                                                                                    {isEditing && (
+                                                                                    {isEditing && !isSynthetic && (
                                                                                         <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all scale-90 group-hover:scale-100">
                                                                                             <button
                                                                                                 onClick={(e) => {
@@ -2258,6 +2455,15 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                                 className="p-1.5 rounded-lg bg-white text-blue-600 hover:bg-blue-600 hover:text-white shadow-lg border border-slate-100 transition-colors"
                                                                                             >
                                                                                                 <Pencil className="w-3.5 h-3.5" />
+                                                                                            </button>
+                                                                                            <button
+                                                                                                onClick={(e) => {
+                                                                                                    e.stopPropagation();
+                                                                                                    handleDeleteHistory(realIndex);
+                                                                                                }}
+                                                                                                className="p-1.5 rounded-lg bg-white text-red-500 hover:bg-red-500 hover:text-white shadow-lg border border-slate-100 transition-colors"
+                                                                                            >
+                                                                                                <Trash2 className="w-3.5 h-3.5" />
                                                                                             </button>
                                                                                         </div>
                                                                                     )}
@@ -2283,9 +2489,10 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                 </div>
                             </div>
                         </div>
-                    )}
-                </div>
-            </div>
-        </div>
+                    )
+                    }
+                </div >
+            </div >
+        </div >
     );
 }

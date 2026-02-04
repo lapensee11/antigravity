@@ -295,6 +295,7 @@ export interface StaffMember {
         avances: number;
         monthlyDeduction: number;
         isPaid?: boolean;
+        isClosed?: boolean;
     }>;
 }
 

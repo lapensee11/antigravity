@@ -283,6 +283,166 @@ export async function getDatabaseRegistry() {
     };
 }
 
+// PAYROLL CLOSING
+export async function closePayrollMonth(monthKey: string, nextMonthKey: string, employees: StaffMember[], totals: any): Promise<{ success: true }> {
+    await db.transaction('rw', [db.employees, db.transactions], async () => {
+        // 1. Update Employees (Lock Month + Update Loans + Initialize Next Month)
+        for (const emp of employees) {
+            const mData = emp.monthlyData?.[monthKey];
+            if (!mData) continue;
+
+            const loanDeduction = mData.monthlyDeduction || 0;
+            const newRemaining = (emp.creditInfo?.remaining || 0) - loanDeduction;
+            const newPayments = (emp.creditInfo?.payments || 0) + loanDeduction;
+
+            // Prepare Next Month Data
+            let nextMData = emp.monthlyData?.[nextMonthKey] || {};
+
+            // 1. Jours = 26 (Default)
+            // 2. Virement = Same as previous
+            // 3. Deduction = Same as previous (capped by remaining)
+            // 4. pRegul = Latest Bonus from history
+
+            // Get Latest Bonus
+            let latestBonus = 0;
+            if (emp.history && emp.history.length > 0) {
+                const sortedHistory = [...emp.history].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                latestBonus = sortedHistory[0]?.undeclaredBonus || 0;
+            }
+
+            // Calculate Deduction for next month
+            let nextDeduction = loanDeduction;
+            if (newRemaining < nextDeduction) {
+                nextDeduction = newRemaining; // Cap at remaining
+            }
+
+            // Init Next Month
+            nextMData = {
+                ...nextMData,
+                jours: 26,
+                hSup: 0,
+                pRegul: latestBonus,
+                pOccas: 0,
+                virement: mData.virement || 0, // Carry over virement pref
+                monthlyDeduction: nextDeduction,
+                avances: 0,
+                isPaid: false,
+                isClosed: false
+            };
+
+            const updatedEmp = {
+                ...emp,
+                monthlyData: {
+                    ...emp.monthlyData,
+                    [monthKey]: { ...mData, isClosed: true },
+                    [nextMonthKey]: nextMData
+                },
+                creditInfo: {
+                    ...emp.creditInfo,
+                    remaining: newRemaining,
+                    payments: newPayments
+                }
+            };
+            await db.employees.put(updatedEmp);
+        }
+
+        // 2. Generate Transactions
+        const timestamp = new Date().toISOString();
+        const generateId = () => Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+
+        // A. Banque (Virements)
+        if (totals.virement > 0) {
+            await db.transactions.put({
+                id: generateId(),
+                date: timestamp,
+                label: `Virements Salaires ${monthKey}`,
+                amount: totals.virement,
+                type: 'Depense',
+                category: 'Salaires & Charges',
+                account: 'Banque',
+                isReconciled: false
+            });
+        }
+
+        // B. Caisse (Espèces Déclaré) -> Salaire Net Compta - Virements
+        const caisseAmount = Math.max(0, totals.salaireNet - totals.virement);
+        if (caisseAmount > 0) {
+            await db.transactions.put({
+                id: generateId(),
+                date: timestamp,
+                label: `Salaires Espèces (Déclaré) ${monthKey}`,
+                amount: caisseAmount,
+                type: 'Depense',
+                category: 'Salaires & Charges',
+                account: 'Caisse',
+                isReconciled: false
+            });
+        }
+
+        // C. Coffre (Non Déclaré) -> (Net Payer + Avances + Retenus + Virements) - Salaire Net Compta
+        const realTotal = totals.netPayer + totals.avances + totals.retenuePret + totals.virement;
+        const coffreAmount = Math.max(0, realTotal - totals.salaireNet);
+        if (coffreAmount > 0) {
+            await db.transactions.put({
+                id: generateId(),
+                date: timestamp,
+                label: `Complément Salaires (Non Déclaré) ${monthKey}`,
+                amount: coffreAmount,
+                type: 'Depense',
+                category: 'Salaires & Charges',
+                account: 'Coffre',
+                isReconciled: false
+            });
+        }
+    });
+
+    return { success: true };
+}
+
+export async function unclosePayrollMonth(monthKey: string): Promise<{ success: true }> {
+    await db.transaction('rw', [db.employees, db.transactions], async () => {
+        // 1. Revert Employees (Unlock Month + Revert Loans)
+        const employees = await db.employees.toArray();
+        for (const emp of employees) {
+            const mData = emp.monthlyData?.[monthKey];
+            if (!mData || !mData.isClosed) continue;
+
+            const loanDeduction = mData.monthlyDeduction || 0;
+            const newRemaining = (emp.creditInfo?.remaining || 0) + loanDeduction; // Add back debt
+            const newPayments = (emp.creditInfo?.payments || 0) - loanDeduction; // Remove payment
+
+            const updatedEmp = {
+                ...emp,
+                monthlyData: {
+                    ...emp.monthlyData,
+                    [monthKey]: { ...mData, isClosed: false }
+                },
+                creditInfo: {
+                    ...emp.creditInfo,
+                    remaining: newRemaining,
+                    payments: newPayments
+                }
+            };
+            await db.employees.put(updatedEmp);
+        }
+
+        // 2. Delete Transactions
+        // Find transactions with specific labels for this month
+        const allTx = await db.transactions.toArray();
+        const txToDelete = allTx.filter(tx =>
+        (tx.label === `Virements Salaires ${monthKey}` ||
+            tx.label === `Salaires Espèces (Déclaré) ${monthKey}` ||
+            tx.label === `Complément Salaires (Non Déclaré) ${monthKey}`)
+        );
+
+        for (const tx of txToDelete) {
+            await db.transactions.delete(tx.id);
+        }
+    });
+
+    return { success: true };
+}
+
 // GLOBAL UNIT MANAGEMENT
 export type UnitType = 'achat' | 'pivot' | 'production';
 
