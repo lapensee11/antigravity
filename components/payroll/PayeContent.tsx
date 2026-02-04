@@ -255,12 +255,22 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
     }, [selectedEmployee]);
 
     const sortedEmployees = useMemo(() => {
-        return [...employees].sort((a, b) => {
+        const monthIndex = MONTHS.indexOf(currentMonth);
+        const currentPeriodEnd = new Date(currentYear, monthIndex + 1, 0); // Last day of month
+
+        return employees.filter(emp => {
+            // Filter by Hire Date: Employee must be hired on or before the current period
+            if (emp.contract?.hireDate) {
+                const hireDate = new Date(emp.contract.hireDate);
+                if (hireDate > currentPeriodEnd) return false;
+            }
+            return true;
+        }).sort((a, b) => {
             const matrA = a.matricule || `M00${a.id}`;
             const matrB = b.matricule || `M00${b.id}`;
             return matrA.localeCompare(matrB, undefined, { numeric: true, sensitivity: 'base' });
         });
-    }, [employees]);
+    }, [employees, currentMonth, currentYear]);
 
     const chartData = useMemo(() => {
         if (!selectedEmployee) return [];
