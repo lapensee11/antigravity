@@ -28,13 +28,16 @@ import {
     ResponsiveContainer
 } from "recharts";
 import { StaffMember } from "@/lib/types";
+import * as XLSX from 'xlsx-js-style';
+
+
 
 interface PayeContentProps {
     initialEmployees?: StaffMember[];
     defaultViewMode?: "JOURNAL" | "BASE";
 }
 
-const PayrollInput = ({ value, onChange, onIncrement, onDecrement, className, isCurrency = false, disabled = false }: {
+const PayrollInput = ({ value, onChange, onIncrement, onDecrement, className, isCurrency = false, disabled = false, id, onKeyDown }: {
     value: number;
     onChange: (val: number) => void;
     onIncrement?: () => void;
@@ -42,6 +45,8 @@ const PayrollInput = ({ value, onChange, onIncrement, onDecrement, className, is
     className?: string;
     isCurrency?: boolean;
     disabled?: boolean;
+    id?: string;
+    onKeyDown?: (e: React.KeyboardEvent) => void;
 }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [localValue, setLocalValue] = useState("");
@@ -72,6 +77,8 @@ const PayrollInput = ({ value, onChange, onIncrement, onDecrement, className, is
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (onKeyDown) onKeyDown(e);
+
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
         if (e.key === 'Escape') {
             const formattedValue = isCurrency
@@ -101,6 +108,7 @@ const PayrollInput = ({ value, onChange, onIncrement, onDecrement, className, is
     return (
         <div className="relative flex items-center group/input min-w-[50px]">
             <input
+                id={id}
                 type="text"
                 value={displayValue}
                 className={cn(
@@ -397,6 +405,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             }
 
             // Navigation Haut/Bas pour le sidebar (BASE) ou le journal (JOURNAL)
+            // Navigation Haut/Bas pour le sidebar (BASE) ou le journal (JOURNAL)
             if (e.key === "ArrowUp" || e.key === "ArrowDown") {
                 // Allow navigation in inputs, but not textareas (multiline)
                 if (targetTagName === "TEXTAREA") return;
@@ -423,6 +432,12 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                 if (newIndex !== currentIndex) {
                     setSelectedEmployeeId(list[newIndex].id);
                 }
+            }
+
+            // Global Tab -> Jump to "Jours" of selected employee
+            if (e.key === "Tab" && !isInputActive && selectedEmployeeId && viewMode === "JOURNAL") {
+                e.preventDefault();
+                document.getElementById(`input-jours-${selectedEmployeeId}`)?.focus();
             }
         };
 
@@ -576,43 +591,219 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         return proratedBase + (data.hSup * hourlyRate) + data.pRegul + data.pOccas - data.avances - data.monthlyDeduction - data.virement;
     };
 
+    const getSeniorityRate = (emp: StaffMember) => {
+        if (!emp.contract?.hireDate) return 0;
+        const start = new Date(emp.contract.hireDate);
+        const end = emp.contract?.exitDate && emp.contract.exitDate !== "-" ? new Date(emp.contract.exitDate) : new Date();
+
+        let years = end.getFullYear() - start.getFullYear();
+        if (end.getMonth() < start.getMonth() || (end.getMonth() === start.getMonth() && end.getDate() < start.getDate())) {
+            years--;
+        }
+
+        if (years >= 25) return 0.25;
+        if (years >= 20) return 0.20;
+        if (years >= 12) return 0.15;
+        if (years >= 5) return 0.10;
+        if (years >= 2) return 0.05;
+        return 0;
+    };
+
+    const calculateIR = (netImposable: number, childrenCount: number, situationFamiliale: string) => {
+        // Moroccan IR Scale 2025 (Monthly)
+        let rate = 0;
+        let deduction = 0;
+
+        if (netImposable <= 3333.33) { rate = 0; deduction = 0; }
+        else if (netImposable <= 5000) { rate = 0.10; deduction = 333.33; }
+        else if (netImposable <= 6666.67) { rate = 0.20; deduction = 833.33; }
+        else if (netImposable <= 8333.33) { rate = 0.30; deduction = 1500; }
+        else if (netImposable <= 15000) { rate = 0.34; deduction = 1833.33; }
+        else { rate = 0.37; deduction = 2283.33; }
+
+        let irBrut = Math.max(0, (netImposable * rate) - deduction);
+
+        // Family Relief 2025: 41.67 MAD per dependent (Spouse + Children), max 6 dependents
+        const dependents = (situationFamiliale === 'Marié' || situationFamiliale === 'Marié(e)') ? 1 : 0;
+        const totalDependents = dependents + Math.min(childrenCount, dependents ? 5 : 6);
+        const familyRelief = totalDependents * 41.67;
+
+        return Math.max(0, irBrut - familyRelief);
+    };
+
+
+    const getForwardAccountingNet = (gross: number, emp: StaffMember) => {
+        const cnssBase = Math.min(gross, 6000);
+        const cnss = cnssBase * 0.0448;
+        const amo = gross * 0.0226;
+
+        const fraisPro = Math.min(gross * 0.20, 2500);
+        const netImposable = Math.max(0, gross - cnss - amo - fraisPro);
+        const ir = calculateIR(netImposable, emp.childrenCount || 0, emp.situationFamiliale || "");
+
+        return gross - cnss - amo - ir;
+    };
+
+    const solveGrossFromNet = (targetNet: number, emp: StaffMember) => {
+        if (targetNet <= 0) return 0;
+
+        let low = targetNet;
+        let high = targetNet * 2; // Safe upper bound for Moroccan taxes
+        let iterations = 0;
+
+        while (high - low > 0.01 && iterations < 50) {
+            let mid = (low + high) / 2;
+            let net = getForwardAccountingNet(mid, emp);
+            if (net < targetNet) low = mid;
+            else high = mid;
+            iterations++;
+        }
+        return (low + high) / 2;
+    };
+
     const calculateCompta = (emp: StaffMember) => {
         const data = getMonthlyData(emp);
-        const base = emp.contract?.baseSalary || 0;
-        const dailyRate = base / 26;
-        const hourlyRate = dailyRate / 8;
-        const proratedBase = dailyRate * data.jours;
-        // Brut Global = Base Proratisé + HSup + Regul + Occas
-        const brut = proratedBase + (data.hSup * hourlyRate) + (data.pRegul || 0) + (data.pOccas || 0);
+        const baseTarget = emp.contract?.baseSalary || 0;
+        const referenceDays = data.jours; // Use actual days from Saisie
+        const totalHours = referenceDays * 8;
 
-        // Standard Social Charges (Maroc)
-        const cnssBase = Math.min(brut, 6000);
-        const cnss = cnssBase * 0.0448; // 4.48%
-        const amo = brut * 0.0226;      // 2.26%
+        // 1. Solve for Gross that gives this Net (prorated by days)
+        const targetNetForDays = (baseTarget * referenceDays) / 26;
+        const totalGross = solveGrossFromNet(targetNetForDays, emp);
 
-        // Fiscal Base Calculation (Simplified)
-        // Frais Pro: 20% capped at 2500
-        const fraisPro = Math.min(brut * 0.20, 2500);
-        const netImposable = Math.max(0, brut - cnss - amo - fraisPro);
+        // 2. Breakdown that Gross into Base and Seniority
+        const seniorityRate = getSeniorityRate(emp);
+        const accountingBase = totalGross / (1 + seniorityRate);
+        const seniorityAmount = totalGross - accountingBase;
 
-        // IR Placeholder (Requires specific scale)
-        const ir = 0;
+        // 3. Recalculate components for display
+        const cnssBase = Math.min(totalGross, 6000);
+        const cnss = cnssBase * 0.0448;
+        const amo = totalGross * 0.0226;
+        const fraisPro = Math.min(totalGross * 0.20, 2500);
+        const netImposable = Math.max(0, totalGross - cnss - amo - fraisPro);
+        const ir = calculateIR(netImposable, emp.childrenCount || 0, emp.situationFamiliale || "");
 
-        // Salaire Net (Net Social)
-        const salaireNet = brut - cnss - amo - ir;
+        const hourlyRate = totalHours > 0 ? accountingBase / totalHours : 0;
 
         return {
-            brut,
-            baseImposable: brut,
+            brut: totalGross,
+            baseImposable: totalGross,
             netImposable,
             cnss,
             amo,
             ir,
-            salaireNet
+            salaireNet: totalGross - cnss - amo - ir,
+            accountingBase,
+            seniorityAmount,
+            seniorityRate,
+            hours: totalHours,
+            days: referenceDays,
+            hourlyRate
         };
+
+
+    };
+
+    const handleExportExcel = () => {
+        const dataToExport = sortedEmployees.map(emp => {
+            const mData = getMonthlyData(emp);
+            const netAtPay = calculateNet(emp);
+            const compta = calculateCompta(emp);
+
+            if (journalSubView === "SAISIE") {
+                return {
+                    "Matricule": emp.matricule || `M00${emp.id}`,
+                    "Salarié": `${emp.lastName.toUpperCase()} ${emp.firstName}`,
+                    "Net Cible": emp.contract?.baseSalary || 0,
+                    "Jours": mData.jours,
+                    "H. Sup": mData.hSup,
+                    "P. Régul": mData.pRegul || 0,
+                    "P. Occas": mData.pOccas || 0,
+                    "Virement": mData.virement || 0,
+                    "Avances": mData.avances || 0,
+                    "Retenue Prêt": mData.monthlyDeduction || 0,
+                    "Net à Payer": netAtPay
+                };
+            } else {
+                if (emp.declarationStatus === "ND") return null;
+                return {
+                    "Matricule": emp.matricule || `M00${emp.id}`,
+                    "Salarié": `${emp.lastName.toUpperCase()} ${emp.firstName}`,
+                    "Net Cible": emp.contract?.baseSalary || 0,
+                    "Nb Jours": compta.days,
+                    "Heures": Math.round(compta.hours),
+                    "Taux H": compta.hourlyRate,
+                    "Ancienneté": compta.seniorityAmount,
+                    "Brut": compta.brut,
+                    "Brut Imp.": compta.baseImposable,
+                    "Net Imp.": compta.netImposable,
+                    "CNSS": compta.cnss,
+                    "AMO": compta.amo,
+                    "IR": compta.ir,
+                    "Salaire Net": compta.salaireNet
+                };
+            }
+        }).filter(Boolean);
+
+        const ws: any = XLSX.utils.json_to_sheet(dataToExport as any[]);
+
+        // Define Column Widths and Styles
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+        const colWidths: any[] = [];
+
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const header = ws[XLSX.utils.encode_col(C) + 1]?.v;
+            // Wider columns for Salarié and Monetary fields
+            if (header === "Salarié") colWidths.push({ wch: 30 });
+            else if (["Net Cible", "Net à Payer", "Salaire Net", "Ancienneté", "Brut", "Brut Imp.", "Net Imp."].includes(header)) colWidths.push({ wch: 15 });
+            else colWidths.push({ wch: 10 });
+
+            for (let R = range.s.r; R <= range.e.r; ++R) {
+                const address = XLSX.utils.encode_col(C) + (R + 1);
+                const cell = ws[address];
+                if (!cell) continue;
+
+                // Base style
+                cell.s = {
+                    font: { name: "Arial", sz: 12 },
+                    alignment: { vertical: "center", horizontal: "center" }
+                };
+
+                // Header Style (Ligne 1)
+                if (R === 0) {
+                    cell.s.font = { bold: true, color: { rgb: "FF0000" }, sz: 14 };
+                } else {
+                    // Monetary fields detection
+                    const isMonetary = ["Net Cible", "P. Régul", "P. Occas", "Virement", "Avances", "Retenue Prêt", "Net à Payer",
+                        "Ancienneté", "Brut", "Brut Imp.", "Net Imp.", "CNSS", "AMO", "IR", "Salaire Net"].includes(header);
+
+                    if (isMonetary) {
+                        cell.s.alignment.horizontal = "right";
+                        cell.z = '#,##0.00';
+                    }
+
+                    // Special for Salaire Net
+                    if (header === "Salaire Net") {
+                        cell.s.font = { bold: true, color: { rgb: "0000FF" } };
+                    }
+                }
+            }
+        }
+
+        ws['!cols'] = colWidths;
+
+        const wb = XLSX.utils.book_new();
+
+
+        XLSX.utils.book_append_sheet(wb, ws, journalSubView);
+
+        const fileName = `Journal_Paye_${journalSubView}_${currentMonth}_${currentYear}.xlsx`;
+        XLSX.writeFile(wb, fileName);
     };
 
     const totals = useMemo(() => {
+
         return employees.reduce((acc, emp) => {
             const mData = getMonthlyData(emp);
             const net = calculateNet(emp);
@@ -996,7 +1187,16 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                             {isMonthClosed ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                             {isMonthClosed ? "Réouvrir Mois" : "Clôturer Mois"}
                         </button>
+
+                        <button
+                            onClick={handleExportExcel}
+                            className="flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 hover:text-blue-600 hover:border-blue-100 transition-all shadow-sm"
+                        >
+                            <Download className="w-3.5 h-3.5" />
+                            Excel
+                        </button>
                     </div>
+
                 </div>
 
                 {/* === MAIN CONTENT AREA === */}
@@ -1009,7 +1209,8 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                 {/* Table Header */}
                                 {/* Table Header */}
                                 {journalSubView === "SAISIE" ? (
-                                    <div className="bg-[#2C3E50] text-[#7F8C8D] h-10 flex items-center px-4 shrink-0 font-black text-[10px] uppercase tracking-widest border-b border-slate-700">
+                                    <div className="bg-[#2C3E50] text-[#7F8C8D] h-12 flex items-center px-4 shrink-0 font-black text-[12px] uppercase tracking-wider border-b border-slate-700">
+
                                         <div className="w-[3.5%] text-white">Matr</div>
                                         <div className="w-[13.5%] text-white border-r border-[#34495E]">Salarié</div>
                                         <div className="w-[7.5%] text-center text-[#2ECC71]">Net Cible</div>
@@ -1025,17 +1226,22 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         <div className="w-[5%] text-center text-[#2ECC71]">Payé</div>
                                     </div>
                                 ) : (
-                                    <div className="bg-[#A67C00] text-white h-10 flex items-stretch px-4 shrink-0 font-black text-[9px] uppercase tracking-widest border-b border-[#8C6900]">
+                                    <div className="bg-[#A67C00] text-white h-12 flex items-stretch px-4 shrink-0 font-black text-[11px] uppercase tracking-wider border-b border-[#8C6900]">
+
                                         <div className="w-[5%] flex items-center">Matr.</div>
-                                        <div className="w-[22%] flex items-center">Salarié</div>
-                                        <div className="w-[9%] flex items-center justify-center">Net Cible</div>
-                                        <div className="w-[6%] flex items-center justify-center">Nb Jours</div>
-                                        <div className="w-[8%] flex items-center justify-center">Brut</div>
-                                        <div className="w-[9%] flex items-center justify-center">Brut Imp.</div>
-                                        <div className="w-[9%] flex items-center justify-center">Net Imp.</div>
-                                        <div className="w-[7%] flex items-center justify-center">CNSS</div>
-                                        <div className="w-[7%] flex items-center justify-center">AMO</div>
-                                        <div className="w-[7%] flex items-center justify-center">IR</div>
+                                        <div className="w-[14%] flex items-center border-r border-[#8C6900]">Salarié</div>
+                                        <div className="w-[8%] flex items-center justify-center">Net Cible</div>
+                                        <div className="w-[5%] flex items-center justify-center">Nb Jours</div>
+                                        <div className="w-[5%] flex items-center justify-center">Heures</div>
+                                        <div className="w-[5%] flex items-center justify-center border-r border-[#8C6900]/30">Taux H</div>
+                                        <div className="w-[6%] flex items-center justify-center">Ancien.</div>
+                                        <div className="w-[7%] flex items-center justify-center">Brut</div>
+                                        <div className="w-[8%] flex items-center justify-center">Brut Imp.</div>
+                                        <div className="w-[8%] flex items-center justify-center border-r border-[#8C6900]/30">Net Imp.</div>
+                                        <div className="w-[6%] flex items-center justify-center">CNSS</div>
+                                        <div className="w-[6%] flex items-center justify-center">AMO</div>
+                                        <div className="w-[6%] flex items-center justify-center border-r border-[#8C6900]/30">IR</div>
+
                                         <div className="w-[11%] flex items-center justify-end pr-4">Salaire Net</div>
                                     </div>
                                 )}
@@ -1055,9 +1261,10 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                 onClick={() => setSelectedEmployeeId(emp.id)}
                                                 className={cn(
                                                     "flex items-center h-9 px-4 transition-colors group cursor-pointer relative",
-                                                    selectedEmployeeId === emp.id ? "bg-slate-200 ring-1 ring-inset ring-[#2C3E50] z-10" : "hover:bg-slate-50"
+                                                    selectedEmployeeId === emp.id ? "bg-slate-200 ring-1 ring-inset ring-[#2C3E50] z-10" : ""
                                                 )}
                                             >
+
                                                 {journalSubView === "SAISIE" ? (
                                                     <>
                                                         {/* Matr */}
@@ -1070,7 +1277,8 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         {/* Salarié */}
-                                                        <div className="w-[13.5%] flex items-center pr-2 h-full border-r border-[#2C3E50]/20">
+                                                        <div className="w-[10%] flex items-center pr-2 h-full border-r border-[#2C3E50]/20">
+
                                                             <div className="flex items-center min-w-0">
                                                                 <div className="text-[12px] font-black text-slate-800 leading-none truncate">
                                                                     <span className="uppercase">{emp.lastName}</span> <span className="capitalize">{emp.firstName.toLowerCase()}</span>
@@ -1101,10 +1309,17 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         <div className="w-[7%] flex justify-center">
                                                             <div className="flex items-center transition-all w-full max-w-[60px]">
                                                                 <PayrollInput
+                                                                    id={`input-jours-${emp.id}`}
                                                                     value={mData.jours}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'jours', v)}
                                                                     onIncrement={() => updateMonthlyValue(emp.id, 'jours', mData.jours + 0.5)}
                                                                     onDecrement={() => updateMonthlyValue(emp.id, 'jours', Math.max(0, mData.jours - 0.5))}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === "Tab" && !e.shiftKey) {
+                                                                            e.preventDefault();
+                                                                            document.getElementById(`input-hsup-${emp.id}`)?.focus();
+                                                                        }
+                                                                    }}
                                                                     className={cn("w-12", mData.jours !== 26 ? "text-green-600 font-black" : "text-black")}
                                                                     disabled={isMonthClosed}
                                                                 />
@@ -1115,10 +1330,17 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         <div className="w-[7%] flex justify-center">
                                                             <div className="flex items-center transition-all w-full max-w-[60px]">
                                                                 <PayrollInput
+                                                                    id={`input-hsup-${emp.id}`}
                                                                     value={mData.hSup}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'hSup', v)}
                                                                     onIncrement={() => updateMonthlyValue(emp.id, 'hSup', mData.hSup + 1)}
                                                                     onDecrement={() => updateMonthlyValue(emp.id, 'hSup', Math.max(0, mData.hSup - 1))}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === "Tab" && !e.shiftKey) {
+                                                                            e.preventDefault();
+                                                                            document.getElementById(`input-avances-${emp.id}`)?.focus();
+                                                                        }
+                                                                    }}
                                                                     className={cn("w-10", mData.hSup !== 0 ? "text-green-600 font-black" : "text-black")}
                                                                     disabled={isMonthClosed}
                                                                 />
@@ -1168,9 +1390,16 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         <div className="w-[8%] flex justify-center">
                                                             <div className="w-full max-w-[70px]">
                                                                 <PayrollInput
+                                                                    id={`input-avances-${emp.id}`}
                                                                     value={mData.avances || 0}
                                                                     onChange={(v) => updateMonthlyValue(emp.id, 'avances', v)}
                                                                     isCurrency={true}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === "Tab" && !e.shiftKey) {
+                                                                            e.preventDefault();
+                                                                            document.getElementById(`input-jours-${emp.id}`)?.focus();
+                                                                        }
+                                                                    }}
                                                                     className="text-[#F39C12]"
                                                                     disabled={isMonthClosed}
                                                                 />
@@ -1227,7 +1456,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
                                                     </>
                                                 ) : (
-                                                    <div className="flex items-stretch h-16 w-full px-4 hover:bg-[#FFFBF0] transition-colors">
+                                                    <div className="flex items-stretch h-16 w-full px-4 transition-colors">
                                                         {/* Matr */}
                                                         <div className="w-[5%] flex items-center gap-1.5 h-full">
                                                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{emp.matricule || `M00${emp.id}`}</span>
@@ -1238,7 +1467,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         {/* Salarié */}
-                                                        <div className="w-[22%] flex items-center gap-3 pr-2 h-full">
+                                                        <div className="w-[14%] flex items-center gap-3 pr-2 h-full border-r border-[#A67C00]/40">
                                                             <div className="w-8 h-8 rounded-full bg-[#FDF6E3] text-[#A67C00] border border-[#F0E6D2] flex items-center justify-center font-black text-[11px] shrink-0">
                                                                 {emp.lastName[0]}{emp.firstName[0]}
                                                             </div>
@@ -1250,49 +1479,68 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         {/* Net Cible */}
-                                                        <div className="w-[9%] flex items-center justify-center text-[12px] font-bold text-slate-600">
+                                                        <div className="w-[8%] flex items-center justify-center text-[12px] font-bold text-slate-600">
                                                             {(emp.contract?.baseSalary || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
 
                                                         {/* Jours */}
-                                                        <div className="w-[6%] flex items-center justify-center text-[12px] font-bold text-slate-800">
-                                                            {mData.jours}
+                                                        <div className="w-[5%] flex items-center justify-center text-[12px] font-bold text-slate-800">
+                                                            {calculateCompta(emp).days}
+                                                        </div>
+
+                                                        {/* Heures */}
+                                                        <div className="w-[5%] flex items-center justify-center text-[12px] font-bold text-slate-600">
+                                                            {Math.round(calculateCompta(emp).hours)}
+                                                        </div>
+
+                                                        {/* Taux H */}
+                                                        <div className="w-[5%] flex items-center justify-center text-[12px] font-bold text-slate-600 border-r border-[#A67C00]/60 h-full">
+                                                            {calculateCompta(emp).hourlyRate.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+
+
+                                                        {/* Ancienneté */}
+                                                        <div className="w-[6%] flex items-center justify-center text-[12px] font-bold text-blue-600">
+                                                            {calculateCompta(emp).seniorityAmount.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
 
                                                         {/* Brut */}
-                                                        <div className="w-[8%] flex items-center justify-center text-[11px] font-bold text-slate-500">
+                                                        <div className="w-[7%] flex items-center justify-center text-[11px] font-bold text-slate-500">
                                                             {calculateCompta(emp).brut.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
 
-                                                        {/* Bru Imp */}
-                                                        <div className="w-[9%] flex items-center justify-center text-[11px] font-bold text-slate-400">
+                                                        {/* Brut Imp */}
+                                                        <div className="w-[8%] flex items-center justify-center text-[11px] font-bold text-slate-400">
                                                             {calculateCompta(emp).baseImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
 
                                                         {/* Net Imp */}
-                                                        <div className="w-[9%] flex items-center justify-center text-[11px] font-bold text-slate-400">
+                                                        <div className="w-[8%] flex items-center justify-center text-[11px] font-bold text-slate-400 border-r border-[#A67C00]/60 h-full">
                                                             {calculateCompta(emp).netImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
 
+
                                                         {/* CNSS */}
-                                                        <div className="w-[7%] flex items-center justify-center text-[11px] font-bold text-slate-400">
+                                                        <div className="w-[6%] flex items-center justify-center text-[11px] font-bold text-slate-400">
                                                             {calculateCompta(emp).cnss.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
 
                                                         {/* AMO */}
-                                                        <div className="w-[7%] flex items-center justify-center text-[11px] font-bold text-slate-400">
+                                                        <div className="w-[6%] flex items-center justify-center text-[11px] font-bold text-slate-400">
                                                             {calculateCompta(emp).amo.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
 
                                                         {/* IR */}
-                                                        <div className="w-[7%] flex items-center justify-center text-[11px] font-bold text-slate-400">
+                                                        <div className="w-[6%] flex items-center justify-center text-[11px] font-bold text-slate-400 border-r border-[#A67C00]/60 h-full">
                                                             {calculateCompta(emp).ir.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
+
 
                                                         {/* Salaire Net */}
                                                         <div className="w-[11%] flex items-center justify-end pr-4 text-[13px] font-black text-[#A67C00]">
                                                             {calculateCompta(emp).salaireNet.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[9px] opacity-70">Dh</span>
                                                         </div>
+
                                                     </div>
                                                 )}
                                             </div>
