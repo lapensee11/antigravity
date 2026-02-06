@@ -15,6 +15,7 @@ export default function DashboardPage() {
             // In a real app, these would be calculated more thoroughly
             setData({
                 revenue: stats.totalSales,
+                prevRevenue: stats.prevTotalSales,
                 materialCost: stats.pendingAmount,
                 grossMargin: stats.totalSales - (stats.pendingAmount * 0.4), // Simulated
                 marginRate: 60,

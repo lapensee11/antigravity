@@ -9,6 +9,7 @@ import { Search, ChevronDown, Check, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getArticles, saveArticle, deleteArticle, getInvoices } from "@/lib/data-service";
 import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
+import { Database, Trash2 } from "lucide-react";
 
 interface ArticlesContentProps {
     initialArticles: Article[];
@@ -268,12 +269,96 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                                     </button>
                                 )}
                             </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                    onClick={async () => {
+                                        const validFamilies = new Set(initialFamilies.filter(f => f.typeId === "1" || f.typeId === "2").map(f => f.id));
+                                        const validSubs = new Set(initialSubFamilies.filter(s => validFamilies.has(s.familyId)).map(s => s.id));
+
+                                        const toDelete = articles.filter(a =>
+                                            a.id === 'a1' ||
+                                            a.id === 'a2' ||
+                                            !validSubs.has(a.subFamilyId)
+                                        );
+
+                                        if (toDelete.length === 0) {
+                                            alert("Aucun ancien article à purger.");
+                                            return;
+                                        }
+
+                                        if (confirm(`Purger ${toDelete.length} articles anciens (Production, Vente et Démos) ?\n\nCela ne gardera que vos nouveaux imports.`)) {
+                                            let count = 0;
+                                            for (const art of toDelete) {
+                                                await deleteArticle(art.id);
+                                                count++;
+                                            }
+                                            alert(`${count} articles purgés avec succès.`);
+                                            window.location.reload();
+                                        }
+                                    }}
+                                    title="Purger les anciens articles"
+                                    className="w-10 h-10 bg-red-50 text-red-500 border border-red-100 rounded-xl flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                                >
+                                    <Trash2 className="w-5 h-5" />
+                                </button>
+                                <button
+                                    onClick={handleCreateNew}
+                                    className="w-10 h-10 bg-white border border-blue-200 text-blue-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 hover:scale-105 active:scale-95 transition-all"
+                                    title="Ajouter un article"
+                                >
+                                    <Plus className="w-6 h-6" />
+                                </button>
+                            </div>
                             <button
-                                onClick={handleCreateNew}
-                                className="w-10 h-10 bg-white border border-blue-200 text-blue-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 hover:scale-105 active:scale-95 transition-all"
-                                title="Ajouter un article"
+                                onClick={async () => {
+                                    const testData = [
+                                        // Batch 4 (Produits Laitiers) - Latest Capture Only
+                                        // FA031 - Lait
+                                        { name: "Lait", code: "PA031-01", unitAchat: "1/2 l", contenace: 0.5, unitPivot: "Litre", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA031" },
+                                        { name: "Lben", code: "PA031-02", unitAchat: "1/2 l", contenace: 0.5, unitPivot: "Litre", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA031" },
+                                        { name: "Lait en Poudre", code: "PA031-03", unitAchat: "Sac", contenace: 25, unitPivot: "Kg", vatRate: 7, accountingNature: "Achats de Matière Première", subFamilyId: "FA031" },
+                                        { name: "Lait Concentré Sucré", code: "PA031-04", unitAchat: "Boite", contenace: 0.75, unitPivot: "Kg", vatRate: 0, accountingNature: "Achats de Matière Première", subFamilyId: "FA031" },
+                                        // FA032 - Crème
+                                        { name: "Crème Fraîche Pâtissière", code: "PA032-01", unitAchat: "Box", contenace: 10, unitPivot: "Litres", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA032" },
+                                        { name: "Crème Cuisine", code: "PA032-02", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 0, accountingNature: "Achats de Matière Première", subFamilyId: "FA032" },
+                                        { name: "Crème Végétale", code: "PA032-03", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA032" },
+                                        { name: "Yaourt Nature", code: "PA032-04", unitAchat: "Unité", contenace: 0.11, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA032" },
+                                        // FA033 - Beurre
+                                        { name: "Beurre New Zeland", code: "PA033-01", unitAchat: "Carton", contenace: 25, unitPivot: "Kg", vatRate: 14, accountingNature: "Achats de Matière Première", subFamilyId: "FA033" },
+                                        { name: "Beurre Irish", code: "PA033-02", unitAchat: "Carton", contenace: 25, unitPivot: "Kg", vatRate: 14, accountingNature: "Achats de Matière Première", subFamilyId: "FA033" },
+                                        { name: "Beurre Inde", code: "PA033-03", unitAchat: "Carton", contenace: 25, unitPivot: "Kg", vatRate: 14, accountingNature: "Achats de Matière Première", subFamilyId: "FA033" },
+                                        { name: "Mimetic", code: "PA033-04", unitAchat: "Carton", contenace: 10, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA033" },
+                                        { name: "Margarine", code: "PA033-05", unitAchat: "Carton", contenace: 10, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA033" },
+                                        // FA034 - Fromage
+                                        { name: "Edam", code: "PA034-01", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
+                                        { name: "Mozzarella Cuite", code: "PA034-02", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
+                                        { name: "Mozzarella Fraîche", code: "PA034-03", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
+                                        { name: "Fromage Toast", code: "PA034-04", unitAchat: "Carton", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
+                                        { name: "Recotta", code: "PA034-05", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
+                                        { name: "Jebli", code: "PA034-06", unitAchat: "Pot", contenace: 0.39, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
+                                        { name: "Crème Cheese", code: "PA034-07", unitAchat: "Pot", contenace: 2, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
+                                        { name: "Mascarpone", code: "PA034-08", unitAchat: "Pot", contenace: 0.5, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
+                                        { name: "Fromage Blanc", code: "PA034-09", unitAchat: "Carton", contenace: 10, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" }
+                                    ];
+
+                                    if (confirm(`Importer ${testData.length} articles de test ?`)) {
+                                        for (const item of testData) {
+                                            const art: Article = {
+                                                id: `ART-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                                                ...item,
+                                                unitProduction: item.unitPivot,
+                                                coeffProd: 1,
+                                                lastPivotPrice: 0,
+                                            };
+                                            await saveArticle(art);
+                                        }
+                                        window.location.reload();
+                                    }
+                                }}
+                                className="w-10 h-10 bg-white border border-slate-200 text-slate-400 rounded-xl flex items-center justify-center shrink-0 hover:bg-slate-50 transition-all"
+                                title="Essai Test Import"
                             >
-                                <Plus className="w-6 h-6" />
+                                <Database className="w-5 h-5" />
                             </button>
                         </div>
                         <div className="relative z-20" ref={dropdownRef}>
@@ -394,6 +479,20 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                                 <p className="text-sm">Aucun résultat</p>
                             </div>
                         )}
+                    </div>
+
+                    {/* FOOTER - TOTAL COUNT */}
+                    <div className="p-4 border-t border-slate-200 bg-white/50 backdrop-blur-sm flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Base de données</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-100 shadow-sm">
+                            <span className="text-sm font-black text-blue-600 leading-none">
+                                {filteredArticles.length} <span className="text-[10px] text-blue-300 font-bold mx-0.5">/</span> {articles.length}
+                            </span>
+                            <span className="text-[10px] font-bold text-blue-400 uppercase leading-none">Articles</span>
+                        </div>
                     </div>
                 </div>
                 <div className="flex-1 bg-white h-full relative z-10 flex flex-col">

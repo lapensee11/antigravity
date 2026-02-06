@@ -4,7 +4,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { FinanceJournal } from "@/components/finance/FinanceJournal";
 import { Transaction } from "@/lib/types";
 import { useState, useMemo } from "react";
-import { Wallet, Landmark, Archive, Search, Calendar, Plus } from "lucide-react";
+import { Wallet, Landmark, Archive, Search, Calendar, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { saveTransaction, deleteTransaction } from "@/lib/data-service";
 
@@ -57,7 +57,7 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
         }
 
         return true;
-    });
+    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const totalCredit = filteredTransactions.filter(t => t.type === "Recette").reduce((acc, t) => acc + t.amount, 0);
     const totalDebit = filteredTransactions.filter(t => t.type === "Depense").reduce((acc, t) => acc + t.amount, 0);
@@ -271,8 +271,16 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
                                     placeholder="Rechercher une opération..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full h-full pl-12 pr-4 bg-transparent border-none rounded-2xl text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:ring-0 relative z-20"
+                                    className="w-full h-full pl-12 pr-12 bg-transparent border-none rounded-2xl text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:ring-0 relative z-20"
                                 />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery("")}
+                                        className="absolute right-4 top-1/2 -translate-y-1/2 p-1.5 hover:bg-slate-100 rounded-full text-slate-400 hover:text-red-500 transition-all z-30"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                )}
                             </div>
                             <button
                                 onClick={() => setIsAddingNew(true)}

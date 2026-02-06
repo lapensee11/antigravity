@@ -175,7 +175,14 @@ export async function getSalesData(): Promise<Record<string, { real?: any; decla
 }
 
 export async function saveSalesData(id: string, real?: any, declared?: any): Promise<{ success: true }> {
-    await db.salesData.put({ id, real, declared });
+    const existing = await db.salesData.get({ id });
+
+    // Merge: Use new value if provided, otherwise keep existing
+    await db.salesData.put({
+        id,
+        real: real !== undefined ? real : existing?.real,
+        declared: declared !== undefined ? declared : existing?.declared
+    });
     return { success: true };
 }
 
@@ -223,16 +230,50 @@ export async function deletePartner(id: string): Promise<{ success: true }> {
 // DASHBOARD ANALYTICS
 export async function getDashboardStats() {
     const now = new Date();
-    const currentMonthPrefix = now.toISOString().substring(0, 7); // YYYY-MM
+    const currentDay = now.getDate();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth(); // 0-indexed
 
-    // 1. Sales Calculation (Current Month)
+    const currentMonthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+
+    // Calculate Previous Month Prefix
+    const prevMonthDate = new Date(currentYear, currentMonth - 1, 1);
+    const prevMonthPrefix = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
+
+    // 1. Sales Calculation
     const salesTable = await db.salesData.toArray();
-    let totalSales = 0;
+    let totalSales = 0; // Current Month Real
+    let prevTotalSales = 0; // Prev Month Real (Same Period)
+
+    // Daily series for comparison graph
+    const dailyComparisonMap: Record<number, { current: number, prev: number }> = {};
+    for (let d = 1; d <= 31; d++) dailyComparisonMap[d] = { current: 0, prev: 0 };
+
     salesTable.forEach(day => {
-        if (day.id.startsWith(currentMonthPrefix) && day.declared?.calculated?.ttc) {
-            totalSales += parseFloat(day.declared.calculated.ttc) || 0;
+        const dayParts = day.id.split('-');
+        if (dayParts.length !== 3) return;
+        const dayNum = parseInt(dayParts[2]);
+
+        // Current Month
+        if (day.id.startsWith(currentMonthPrefix) && day.real?.calculated?.ttc) {
+            const val = parseFloat(day.real.calculated.ttc) || 0;
+            totalSales += val;
+            dailyComparisonMap[dayNum].current = val;
+        }
+
+        // Previous Month
+        if (day.id.startsWith(prevMonthPrefix) && day.real?.calculated?.ttc) {
+            const val = parseFloat(day.real.calculated.ttc) || 0;
+            if (dayNum <= currentDay) {
+                prevTotalSales += val;
+            }
+            dailyComparisonMap[dayNum].prev = val;
         }
     });
+
+    const dailyComparison = Object.keys(dailyComparisonMap)
+        .map(d => ({ day: parseInt(d), ...dailyComparisonMap[parseInt(d)] }))
+        .sort((a, b) => a.day - b.day);
 
     // 2. Pending Invoices (Total TTC)
     const invoices = await db.invoices.toArray();
@@ -260,6 +301,8 @@ export async function getDashboardStats() {
 
     return {
         totalSales,
+        prevTotalSales,
+        dailyComparison,
         pendingCount: pendingInvoices.length,
         pendingAmount: totalPendingAmount,
         articleCount,

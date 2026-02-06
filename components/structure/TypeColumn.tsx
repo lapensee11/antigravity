@@ -58,7 +58,9 @@ export function TypeColumn({
         setFocusedFamilyId?.(id);
     };
 
-    const myFamilies = families.filter(f => f.typeId === structureType.id);
+    const myFamilies = families
+        .filter(f => f.typeId === structureType.id)
+        .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' }));
 
     return (
         <div className="flex flex-col h-[700px] bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden">
@@ -89,7 +91,9 @@ export function TypeColumn({
                 {myFamilies.map(family => {
                     const isExpanded = expandedFamilies.has(family.id);
                     const isFocused = family.id === focusedFamilyId;
-                    const mySubs = subFamilies.filter(s => s.familyId === family.id);
+                    const mySubs = subFamilies
+                        .filter(s => s.familyId === family.id)
+                        .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' }));
 
                     return (
                         <div

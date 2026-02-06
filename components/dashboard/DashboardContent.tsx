@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 interface DashboardProps {
     data: {
         revenue: number;
+        prevRevenue: number;
         materialCost: number;
         grossMargin: number;
         marginRate: number;
@@ -37,13 +38,16 @@ export function DashboardContent({ data }: DashboardProps) {
 
     const cards = [
         {
-            title: "Chiffre d'Affaires",
+            title: "Ventes (Mois)",
             value: `${data.revenue.toLocaleString()} DH`,
-            change: "+12%",
-            trend: "up",
+            change: data.prevRevenue > 0
+                ? `${(((data.revenue - data.prevRevenue) / data.prevRevenue) * 100).toFixed(1)}%`
+                : "N/A",
+            trend: data.revenue >= data.prevRevenue ? "up" : "down",
             icon: DollarSign,
             color: "text-blue-600",
-            bg: "bg-blue-50"
+            bg: "bg-blue-50",
+            subValue: `Précédent: ${data.prevRevenue.toLocaleString()} DH`
         },
         {
             title: "Marge Brute",
@@ -100,9 +104,9 @@ export function DashboardContent({ data }: DashboardProps) {
                         </motion.p>
                     </div>
                     <div className="flex gap-4">
-                        <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-2 text-slate-600 font-bold">
+                        <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-2 text-slate-600 font-bold capitalize">
                             <Calendar className="w-5 h-5 text-blue-500" />
-                            <span>Janvier 2026</span>
+                            <span>{new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</span>
                         </div>
                     </div>
                 </div>
@@ -135,6 +139,11 @@ export function DashboardContent({ data }: DashboardProps) {
                                 <div className="relative z-10">
                                     <h3 className="text-slate-500 font-medium text-sm mb-1">{card.title}</h3>
                                     <p className="text-3xl font-extrabold text-slate-800 tracking-tight">{card.value}</p>
+                                    {(card as any).subValue && (
+                                        <p className="text-[10px] text-slate-400 mt-1 font-bold italic">
+                                            {(card as any).subValue}
+                                        </p>
+                                    )}
                                 </div>
                             </GlassCard>
                         </motion.div>

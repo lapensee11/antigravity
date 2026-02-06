@@ -8,14 +8,17 @@ import { useState, useEffect, Suspense, useRef, useMemo, useCallback } from "rea
 import { useSearchParams } from "next/navigation";
 import { Calendar, TrendingUp, ShieldCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { saveSalesData, getSalesData, getPartners } from "@/lib/data-service";
-import { Partner } from "@/lib/types";
+import { saveSalesData, getSalesData, getPartners, saveTransaction, getTransactions } from "@/lib/data-service";
+import { Partner, Transaction, AccountType } from "@/lib/types";
 
 // Define the shape of saved data for a day
 interface DayData {
     status?: 'draft' | 'synced';
     lastSyncAt?: string;
-    bankEntryId?: string; // ID of the bank transaction
+    cmiEntryId?: string; // ID of the CMI bank transaction
+    chqEntryId?: string; // ID of the Chq bank transaction
+    caisseEntryId?: string; // ID of the Caisse transaction
+    coffreEntryId?: string; // ID of the Coffre transaction
     sales: Record<string, string>;
     supplements: { traiteurs: string; caisse: string };
     payments: { nbCmi: string; mtCmi: string; nbChq: string; mtChq: string; especes: string };
@@ -48,73 +51,68 @@ interface DayData {
     };
 }
 
-// Helper to bridge to Finance Module via LocalStorage
-const syncToBank = (data: DayData, date: string, amount: number) => {
+// Helper to bridge to Finance Module
+const syncToFinance = async (
+    date: string,
+    amount: number,
+    existingId: string | undefined,
+    config: { label: string; account: AccountType; tier: string; pieceNumber: string; isCmi?: boolean }
+) => {
     try {
-        const STORAGE_KEY = "finance_transactions";
-        const stored = window.localStorage.getItem(STORAGE_KEY);
-        let transactions: any[] = stored ? JSON.parse(stored) : [];
+        const transactions = await getTransactions();
+        let finalAmount = amount;
 
-        // Calculation: 1% Comm HT + 10% TVA on Comm
-        // Formula: Comm = Amount * 0.01; TVA = Comm * 0.10;
-        const commHT = amount * 0.01;
-        const tvaComm = commHT * 0.10;
-        const totalDeduct = commHT + tvaComm;
-        const netBank = amount - totalDeduct;
+        // Deduction logic only for CMI
+        if (config.isCmi) {
+            const commHT = amount * 0.01;
+            const tvaComm = commHT * 0.10;
+            const totalDeduct = commHT + tvaComm;
+            finalAmount = amount - totalDeduct;
+        }
 
-        const label = `Enc. CMI ${new Date(date).toLocaleDateString('fr-FR')}`;
-
-        // ROBUST SYNC: Step 1 - Resolve ID
-        let existingId = data.bankEntryId;
-
-        // Step 2 - Fallback: Search by Date/Tier if ID not provided or not found
-        if (!existingId || !transactions.find(t => t.id === existingId)) {
+        // Search for existing transaction if no ID provided
+        let resolvedId = existingId;
+        if (!resolvedId || !transactions.find(t => t.id === resolvedId)) {
             const duplicate = transactions.find(t =>
-                t.date === date &&
-                (t.tier === "CMI" || t.label.includes("Enc. CMI")) &&
-                !t.isReconciled // Optional: Don't overwrite reconciled if we found a duplicate that is reconciled? 
-                // Actually, if it's reconciled we should catch it below.
+                t.date.startsWith(date) &&
+                t.account === config.account &&
+                t.tier === config.tier &&
+                t.label.includes(config.label.split(' ')[0]) && // Matches Prefix like "Enc." or "Ventes"
+                !t.isReconciled
             );
             if (duplicate) {
-                existingId = duplicate.id;
+                resolvedId = duplicate.id;
             }
         }
 
-        // Check Reconciliation on the resolved ID
-        if (existingId) {
-            const existing = transactions.find(t => t.id === existingId);
+        // Check Reconciliation
+        if (resolvedId) {
+            const existing = transactions.find(t => t.id === resolvedId);
             if (existing && existing.isReconciled) {
-                return { success: false, error: "L'écriture bancaire est déjà rapprochée pour cette date." };
+                return { success: false, error: `L'écriture ${config.label} est déjà rapprochée.` };
             }
         }
 
         // Create or Update Transaction
-        const newTx = {
-            id: existingId || `tx-cmi-${Date.now()}`,
+        const newTx: Transaction = {
+            id: resolvedId || `tx-${config.account.toLowerCase()}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
             date: date,
-            label: label,
-            amount: parseFloat(netBank.toFixed(2)),
+            label: config.label,
+            amount: parseFloat(finalAmount.toFixed(2)),
             type: "Recette",
             category: "Vente",
-            account: "Banque",
-            tier: "CMI",
-            pieceNumber: "AUTO-CMI",
-            isReconciled: false // Always reset reconciled status on update? Or keep it? 
-            // If we are here, it's NOT reconciled (checked above).
+            account: config.account,
+            tier: config.tier,
+            pieceNumber: config.pieceNumber,
+            isReconciled: false
         };
 
-        if (existingId) {
-            transactions = transactions.map(t => t.id === existingId ? { ...t, ...newTx } : t);
-        } else {
-            transactions.unshift(newTx);
-        }
-
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions));
+        await saveTransaction(newTx);
         return { success: true, txId: newTx.id };
 
     } catch (e) {
-        console.error("Bank Sync Error:", e);
-        return { success: false, error: "Erreur de synchronisation bancaire." };
+        console.error("Finance Sync Error:", e);
+        return { success: false, error: "Erreur de synchronisation finance." };
     }
 };
 
@@ -302,7 +300,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
     }, [searchParams]);
 
     // Handle Save from Modal
-    const handleSave = useCallback((data: DayData, isDraft: boolean, targetDate?: string) => {
+    const handleSave = useCallback(async (data: DayData, isDraft: boolean, targetDate?: string) => {
         if (!modalType) return;
 
         // Use the explicitly passed date (safest) or fallback to selectedDate
@@ -320,24 +318,73 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
             updatedData.status = 'synced';
             updatedData.lastSyncAt = now;
 
-            // BANK LOGIC (CMI) - ONLY FOR REAL DATA
-            const mtCmi = parseFloat(data.payments.mtCmi) || 0;
-            if (modalType === "Real" && mtCmi > 0) {
-                // Call Sync Helper
-                const result = syncToBank(updatedData, dateKey, mtCmi);
+            // BANK & FINANCE LOGIC - ONLY FOR REAL DATA
+            if (modalType === "Real") {
+                const dateLabel = new Date(dateKey).toLocaleDateString('fr-FR');
 
-                if (!result.success) {
-                    alert(`Erreur: ${result.error}`);
-                    return; // Abort sync
+                // 1. Compute Declared Data (needed for Esp (D) / Caisse)
+
+                // Fetch existing for calculation
+                const dataTable = await getSalesData();
+                const existingDayRecord = dataTable[dateKey] || {};
+                const existingDeclared = existingDayRecord.declared || {} as DayData;
+                const newDeclaredData = calculateDeclaredFromReal(updatedData, existingDeclared, partners);
+
+                // Amounts
+                const mtCmi = parseFloat(data.payments.mtCmi) || 0;
+                const mtChq = parseFloat(data.payments.mtChq) || 0;
+                const mtEspD = parseFloat(newDeclaredData.calculated.esp) || 0; // Esp (D) -> Caisse
+                const mtEspReal = parseFloat(updatedData.calculated.esp) || 0;
+                const mtCoffre = mtEspReal - mtEspD; // Remainder -> Coffre
+
+                // A. Sync CMI (Banque)
+                if (mtCmi > 0) {
+                    const res = await syncToFinance(dateKey, mtCmi, updatedData.cmiEntryId, {
+                        label: `Enc. CMI ${dateLabel}`,
+                        account: "Banque",
+                        tier: "CMI",
+                        pieceNumber: "AUTO-CMI",
+                        isCmi: true
+                    });
+                    if (res.success && res.txId) updatedData.cmiEntryId = res.txId;
                 }
 
-                if (result.txId) {
-                    updatedData.bankEntryId = result.txId;
+                // B. Sync Chèques (Banque)
+                if (mtChq > 0) {
+                    const res = await syncToFinance(dateKey, mtChq, updatedData.chqEntryId, {
+                        label: `Enc. Chq ${dateLabel}`,
+                        account: "Banque",
+                        tier: "CLIENTS",
+                        pieceNumber: "AUTO-CHQ"
+                    });
+                    if (res.success && res.txId) updatedData.chqEntryId = res.txId;
+                }
+
+                // C. Sync Esp (D) (Caisse)
+                if (mtEspD > 0) {
+                    const res = await syncToFinance(dateKey, mtEspD, updatedData.caisseEntryId, {
+                        label: `Ventes Esp (D) ${dateLabel}`,
+                        account: "Caisse",
+                        tier: "COMPTOIR",
+                        pieceNumber: "AUTO-ESP-D"
+                    });
+                    if (res.success && res.txId) updatedData.caisseEntryId = res.txId;
+                }
+
+                // D. Sync Coffre (Coffre)
+                if (mtCoffre !== 0) {
+                    const res = await syncToFinance(dateKey, mtCoffre, updatedData.coffreEntryId, {
+                        label: `Vers. Coffre ${dateLabel}`,
+                        account: "Coffre",
+                        tier: "INTERNE",
+                        pieceNumber: "AUTO-COFFRE"
+                    });
+                    if (res.success && res.txId) updatedData.coffreEntryId = res.txId;
                 }
             }
         }
 
-        // 2. Perform optimistic update
+        // 2. Perform optimistic update (now uses updatedData with all ids)
         setSalesData(prev => {
             const existingDay = prev[dateKey] || {};
             const existingDeclared = existingDay.declared || {} as DayData;
@@ -360,7 +407,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
 
             // 3. Save to SQLite
             if (modalType === "Real") saveSalesData(dateKey, updatedData, newDeclaredData);
-            else saveSalesData(dateKey, undefined, newDeclaredData);
+            else saveSalesData(dateKey, existingDay.real, updatedData);
 
             return newState;
         });
@@ -380,7 +427,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
             const updatedDeclared = calculateDeclaredFromReal(dayReal, updatedDeclaredBase, partners);
 
             // Save to SQLite
-            saveSalesData(dateKey, undefined, updatedDeclared);
+            saveSalesData(dateKey, dayReal, updatedDeclared);
 
             return {
                 ...prev,
@@ -862,7 +909,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                     </div>
                 </div>
 
-                <div className="flex-1 min-h-0 px-0 pb-6">
+                <div className="flex-1 min-h-0 px-6 pb-6">
                     {/* JOURNAL STYLE TABLE MATCHING PAYE - PETIT ARRONDI & CLEAN LOOK */}
                     <div className="flex-1 bg-white rounded-2xl border border-slate-200 flex flex-col overflow-hidden h-full relative z-0 shadow-sm">
 
@@ -875,7 +922,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                     <tr>
                                         {/* Date - Left Aligned with Strong Border */}
                                         <th className={cn(
-                                            "px-3 py-3 border-r text-left min-w-[140px] z-30 transition-colors duration-300",
+                                            "px-3 py-3 border-r text-left min-w-[125px] z-30 transition-colors duration-300",
                                             viewMode === "Compta" ? "bg-[#451a03] border-amber-900" : "bg-[#1E293B] border-[#334155]"
                                         )}>Date</th>
 
@@ -883,31 +930,31 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                         {viewMode === "Compta" ? (
                                             <>
                                                 {/* 1: Exo */}
-                                                <th className="px-3 py-3 text-right text-amber-200/70 min-w-[90px]">Exo</th>
+                                                <th className="px-3 py-3 text-right text-amber-200/70 min-w-[80px]">Exo</th>
                                                 {/* 2: Dont Glovo (Exo) */}
-                                                <th className="px-3 py-3 text-right text-yellow-400 font-bold min-w-[100px]">Dont Glovo</th>
+                                                <th className="px-3 py-3 text-right text-yellow-400 font-bold min-w-[90px]">Dont Glovo</th>
                                                 {/* 3: Imp. HT */}
-                                                <th className="px-3 py-3 text-right text-amber-200/70 min-w-[90px]">Imp. HT</th>
+                                                <th className="px-3 py-3 text-right text-amber-200/70 min-w-[80px]">Imp. HT</th>
                                                 {/* 4: Dont Glovo (Imp) */}
-                                                <th className="px-3 py-3 text-right text-yellow-400 font-bold min-w-[100px]">Dont Glovo</th>
+                                                <th className="px-3 py-3 text-right text-yellow-400 font-bold min-w-[90px]">Dont Glovo</th>
                                                 {/* 5: Total HT */}
-                                                <th className="px-3 py-3 text-right text-amber-100 min-w-[100px]">Total HT</th>
+                                                <th className="px-3 py-3 text-right text-amber-100 min-w-[90px]">Total HT</th>
                                                 {/* 6: Total TTC */}
-                                                <th className="px-3 py-3 text-right text-slate-300 font-extrabold min-w-[100px] border-r-2 border-[#451a03]">Total TTC</th>
+                                                <th className="px-3 py-3 text-right text-slate-300 font-extrabold min-w-[90px] border-r-2 border-[#451a03]">Total TTC</th>
                                                 {/* 7: CMI */}
-                                                <th className="px-3 py-3 text-right text-emerald-400 min-w-[80px]">CMI</th>
+                                                <th className="px-3 py-3 text-right text-emerald-400 min-w-[70px]">CMI</th>
                                                 {/* 8: Chèques */}
-                                                <th className="px-3 py-3 text-right text-emerald-400 min-w-[80px]">Chèques</th>
+                                                <th className="px-3 py-3 text-right text-emerald-400 min-w-[70px]">Chèques</th>
                                                 {/* 8b: Espèces (D) */}
-                                                <th className="px-3 py-3 text-right text-orange-400 font-bold min-w-[90px]">Espèces (D)</th>
+                                                <th className="px-3 py-3 text-right text-orange-400 font-bold min-w-[85px]">Espèces (D)</th>
                                                 {/* 9: Glovo Brut */}
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-20 min-w-[80px]">Glv Brut</th>
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-16 min-w-[70px]">Glv Brut</th>
                                                 {/* 10: Incid */}
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-20 min-w-[70px]">Incid</th>
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-16 min-w-[60px]">Incid</th>
                                                 {/* 11: Cash */}
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-20 min-w-[70px]">Cash</th>
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-16 min-w-[60px]">Cash</th>
                                                 {/* 12: Glovo Net */}
-                                                <th className="px-3 py-3 text-right text-yellow-400 font-extrabold min-w-[100px] border-r-2 border-[#451a03]">Glovo Net</th>
+                                                <th className="px-3 py-3 text-right text-yellow-400 font-extrabold min-w-[90px] border-r-2 border-[#451a03]">Glovo Net</th>
                                             </>
                                         ) : (
                                             <>
@@ -918,15 +965,14 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                 <th className="px-3 py-3 text-right text-emerald-400">CMI</th>
                                                 <th className="px-3 py-3 text-right text-emerald-400">Chèques</th>
                                                 <th className="px-3 py-3 text-right font-black text-emerald-400">Espèces</th>
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-20">Glv Brut</th>
-                                                {/* ... */}
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-20">Incid</th>
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-20">Cash</th>
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-16">Glv Brut</th>
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-16">Incid</th>
+                                                <th className="px-2 py-3 text-right text-yellow-400 w-16">Cash</th>
                                                 <th className="px-3 py-3 text-right text-yellow-400 font-extrabold border-r-2 border-[#1E293B]">Glovo Net</th>
                                                 <th className="px-3 py-3 text-right text-orange-400 font-bold">TTC (D)</th>
                                                 <th className="px-3 py-3 text-right text-orange-400 font-bold">D-Cash</th>
                                                 <th className="px-3 py-3 text-right text-orange-400 font-bold">Esp (D)</th>
-                                                <th className="px-2 py-3 text-center text-orange-400 w-24">Coeff</th>
+                                                <th className="px-2 py-3 text-center text-orange-400 w-16">Coeff</th>
                                             </>
                                         )}
                                     </tr>
@@ -948,13 +994,10 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                             className={cn(
                                                 "transition-all duration-100 group cursor-pointer border-b border-slate-50",
                                                 focusedRowIndex === i
-                                                    ? cn(
-                                                        "relative z-10",
-                                                        viewMode === "Compta"
-                                                            ? "bg-gradient-to-r from-amber-950/90 to-amber-900/90"
-                                                            : "bg-gradient-to-r from-[#1E293B] to-[#334155]"
-                                                    )
+                                                    ? "relative z-10 bg-slate-100 outline outline-2 outline-[#0F172A] -outline-offset-2"
                                                     : "hover:bg-slate-50"
+
+
                                             )}
                                         >
                                             <td className="px-3 py-2 text-xs font-bold text-slate-700 whitespace-nowrap relative border-r-[2px] border-[#1E293B] text-left">
@@ -977,8 +1020,8 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                     {!row.status && <div className="w-3 h-3 bg-transparent flex-shrink-0" />}
 
                                                     <span className={cn(
-                                                        "uppercase tracking-tight font-mono truncate text-xs",
-                                                        focusedRowIndex === i ? "text-white font-black" : "text-slate-600"
+                                                        "uppercase tracking-tight font-mono truncate text-xs text-slate-600 font-bold"
+
                                                     )}>
                                                         {row.dateStr}
                                                     </span>
@@ -988,79 +1031,81 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                             {/* REORDERED COMPTA CELLS (12 fields) vs SAISIE CELLS */}
                                             {viewMode === "Compta" ? (
                                                 <>
-                                                    {/* 1: Exo */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-slate-200" : "text-slate-500")}>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-slate-900" : "text-slate-500")}>
                                                         {parseFloat(row.compta.exo) !== 0 ? row.compta.exo : "-"}
                                                     </td>
                                                     {/* 2: Dont Glovo (Exo) */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-yellow-200" : "text-yellow-600")}>{(row as any).compta.glovoExo}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-yellow-700 font-black" : "text-yellow-600")}>{(row as any).compta.glovoExo}</td>
                                                     {/* 3: Imp. HT */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-slate-200" : "text-slate-500")}>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-slate-900" : "text-slate-500")}>
                                                         {parseFloat(row.compta.impHt) !== 0 ? row.compta.impHt : "-"}
                                                     </td>
                                                     {/* 4: Dont Glovo (Imp) */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-yellow-200" : "text-yellow-600")}>{(row as any).compta.glovoImp}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-yellow-700 font-black" : "text-yellow-600")}>{(row as any).compta.glovoImp}</td>
                                                     {/* 5: Total HT */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-slate-100" : "text-slate-500")}>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-slate-900" : "text-slate-500")}>
                                                         {parseFloat(row.compta.totHt) !== 0 ? row.compta.totHt : "-"}
                                                     </td>
                                                     {/* 6: Total TTC */}
-                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight min-w-[100px] border-r-2 border-[#451a03]", focusedRowIndex === i ? "text-white" : "text-slate-500")}>{row.compta.ttc}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight min-w-[90px] border-r-2 border-[#451a03]", focusedRowIndex === i ? "text-slate-950" : "text-slate-500")}>{row.compta.ttc}</td>
+
                                                     {/* 7: CMI */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[70px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
                                                     {/* 8: Chèques */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[70px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
                                                     {/* 8b: Espèces (D) */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredEsp !== "0.00" ? row.declaredEsp : "-"}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[85px]", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredEsp !== "0.00" ? row.declaredEsp : "-"}</td>
                                                     {/* 9: Glovo Brut */}
-                                                    <td className="px-2 py-1 text-right w-20 min-w-[80px] font-mono text-xs font-bold">
-                                                        <span className={focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600"}>
+                                                    <td className="px-2 py-1 text-right w-16 min-w-[70px] font-mono text-xs font-bold">
+                                                        <span className={focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600"}>
                                                             {parseFloat(salesData[row.isoKey]?.real?.glovo?.brut || "0").toFixed(2)}
                                                         </span>
                                                     </td>
                                                     {/* 10: Incid */}
-                                                    <td className="px-2 py-1 text-right w-20 min-w-[70px] font-mono text-xs font-bold">
-                                                        <span className={focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600"}>
+                                                    <td className="px-2 py-1 text-right w-16 min-w-[60px] font-mono text-xs font-bold">
+                                                        <span className={focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600"}>
                                                             {parseFloat(salesData[row.isoKey]?.real?.glovo?.incid || "0").toFixed(2)}
                                                         </span>
                                                     </td>
                                                     {/* 11: Cash */}
-                                                    <td className="px-2 py-1 text-right w-20 min-w-[70px] font-mono text-xs font-bold">
-                                                        <span className={focusedRowIndex === i ? "text-yellow-300" : "text-yellow-700"}>
+                                                    <td className="px-2 py-1 text-right w-16 min-w-[60px] font-mono text-xs font-bold">
+                                                        <span className={focusedRowIndex === i ? "text-yellow-800" : "text-yellow-700"}>
                                                             {parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0").toFixed(2)}
                                                         </span>
                                                     </td>
                                                     {/* 12: Glovo Net */}
-                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-[2px] border-[#451a03] min-w-[100px]", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600")}>
+                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-[2px] border-[#451a03] min-w-[90px]", focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600")}>
                                                         {parseFloat(row.glovo || "0").toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </td>
+
                                                 </>
                                             ) : (
                                                 <>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-200" : "text-slate-500")}>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-900 font-black" : "text-slate-500")}>
                                                         {row.exo !== "0.00" ? row.exo : "-"}
                                                     </td>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-200" : "text-slate-500")}>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-900 font-black" : "text-slate-500")}>
                                                         {row.impHt !== "0.00" ? row.impHt : "-"}
                                                     </td>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-100" : "text-slate-500")}>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-900 font-black" : "text-slate-500")}>
                                                         {row.totHt !== "0.00" ? row.totHt : "-"}
                                                     </td>
 
                                                     <td className={cn(
                                                         "px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-2 border-[#1E293B]",
-                                                        focusedRowIndex === i ? "text-white" : "text-slate-500"
+                                                        focusedRowIndex === i ? "text-slate-950 font-black" : "text-slate-500"
                                                     )}>
                                                         {row.ttc}
                                                     </td>
 
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-700" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-700" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
 
-                                                    <td className={cn("px-3 py-2 text-right font-black text-xs border-r-[2px] border-[#1E293B] font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-300 bg-emerald-900/20" : "text-emerald-600 bg-slate-50/50")}>{row.esp}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-black text-xs border-r-[2px] border-[#1E293B] font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-700" : "text-emerald-600")}>{row.esp}</td>
+
 
                                                     {/* GLOVO ROW CELLS - UNIFIED YELLOW */}
-                                                    <td className="px-2 py-1 text-right group/cell w-20">
+                                                    <td className="px-2 py-1 text-right group/cell w-16">
                                                         <input
                                                             type="text"
                                                             value={focusedRowIndex === i ? (salesData[row.isoKey]?.real?.glovo?.brut || "") : parseFloat(salesData[row.isoKey]?.real?.glovo?.brut || "0").toFixed(2)}
@@ -1071,11 +1116,11 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                             onChange={(e) => handleGlovoUpdate(row.isoKey, 'brut', e.target.value)}
                                                             className={cn(
                                                                 "w-full h-7 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
-                                                                focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600 hover:bg-slate-50"
+                                                                focusedRowIndex === i ? "text-yellow-700 hover:bg-slate-200" : "text-yellow-600 hover:bg-slate-50"
                                                             )}
                                                         />
                                                     </td>
-                                                    <td className="px-2 py-1 text-right group/cell w-20">
+                                                    <td className="px-2 py-1 text-right group/cell w-16">
                                                         <input
                                                             type="text"
                                                             value={focusedRowIndex === i ? (salesData[row.isoKey]?.real?.glovo?.incid || "") : parseFloat(salesData[row.isoKey]?.real?.glovo?.incid || "0").toFixed(2)}
@@ -1086,11 +1131,11 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                             onChange={(e) => handleGlovoUpdate(row.isoKey, 'incid', e.target.value)}
                                                             className={cn(
                                                                 "w-full h-7 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
-                                                                focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600 hover:bg-slate-50"
+                                                                focusedRowIndex === i ? "text-yellow-700 hover:bg-slate-200" : "text-yellow-600 hover:bg-slate-50"
                                                             )}
                                                         />
                                                     </td>
-                                                    <td className="px-2 py-1 text-right group/cell w-20">
+                                                    <td className="px-2 py-1 text-right group/cell w-16">
                                                         <input
                                                             type="text"
                                                             value={focusedRowIndex === i ? (salesData[row.isoKey]?.real?.glovo?.cash || "") : parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0").toFixed(2)}
@@ -1101,20 +1146,22 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                             onChange={(e) => handleGlovoUpdate(row.isoKey, 'cash', e.target.value)}
                                                             className={cn(
                                                                 "w-full h-7 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
-                                                                focusedRowIndex === i ? "text-yellow-300" : "text-yellow-700 hover:bg-slate-50"
+                                                                focusedRowIndex === i ? "text-yellow-800 hover:bg-slate-200" : "text-yellow-700 hover:bg-slate-50"
                                                             )}
                                                         />
                                                     </td>
-                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-2 border-[#1E293B]", focusedRowIndex === i ? "text-yellow-300" : "text-yellow-600")}>
+                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-2 border-[#1E293B]", focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600")}>
+
                                                         {parseFloat(row.glovo || "0").toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </td>
 
                                                     {/* DECLARED ROW CELLS - Removed in Compta */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredTTC}</td>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-700" : "text-orange-600")}>{row.declaredTTC}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-700" : "text-orange-600")}>
                                                         {((parseFloat(row.declaredEsp) || 0) - (parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0") || 0)).toFixed(2)}
                                                     </td>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredEsp}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-700" : "text-orange-600")}>{row.declaredEsp}</td>
+
 
                                                     <td className="px-2 py-1 text-center" onClick={(e) => e.stopPropagation()}>
                                                         <div className="relative flex items-center justify-center w-full group/input gap-1">
@@ -1135,7 +1182,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                                 <ChevronLeft className="w-4 h-4" />
                                                             </button>
 
-                                                            <div className="relative flex items-center h-8 px-1 min-w-[50px] justify-center">
+                                                            <div className="relative flex items-center h-8 px-1 min-w-[40px] justify-center">
                                                                 <input
                                                                     type="text"
                                                                     value={row.coeffImp}
@@ -1152,8 +1199,9 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                                     }}
                                                                     className={cn(
                                                                         "w-full text-center bg-transparent border-none text-xs font-black py-0 pl-1 pr-0 focus:ring-0 focus:outline-none font-mono tracking-tight",
-                                                                        focusedRowIndex === i ? "text-orange-300" : "text-orange-500"
+                                                                        focusedRowIndex === i ? "text-orange-700" : "text-orange-500"
                                                                     )}
+
                                                                 />
                                                             </div>
 
