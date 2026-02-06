@@ -19,9 +19,12 @@ interface ArticleEditorProps {
     forceEditTrigger?: number; // New prop to trigger edit from parent
 }
 
-export function ArticleEditor({ article, existingArticles = [], invoices = [], onSave, onDelete, forceEditTrigger }: ArticleEditorProps) {
+export function ArticleEditor({ article, existingArticles = [], invoices = [], onSave, onDelete }: ArticleEditorProps) {
     const [formData, setFormData] = useState<Partial<Article>>({});
-    const [isEditing, setIsEditing] = useState(false);
+    // We keep isEditing as true for most cases now, or simply rely on it being always active
+    const [isEditing, setIsEditing] = useState(true);
+    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const prevArticleIdRef = useRef<string | null>(null);
 
     const [families, setFamilies] = useState<Family[]>([]);
     const [subFamilies, setSubFamilies] = useState<SubFamily[]>([]);
@@ -71,13 +74,6 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
         load();
     }, []);
 
-    // Watch for external edit trigger
-    useEffect(() => {
-        if (forceEditTrigger) {
-            setIsEditing(true);
-        }
-    }, [forceEditTrigger]);
-
     // Local state for Family selection (allows changing family before sub-family)
     const [selectedFamilyId, setSelectedFamilyId] = useState<string>("");
 
@@ -98,38 +94,33 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
 
     useEffect(() => {
         if (article) {
-            setFormData(prev => {
-                // If it's a new article and has no valid code yet (or generic temp code), generate one
-                // But we must be careful not to overwrite if user manually edited it? 
-                // For "New" articles, we want to auto-gen.
-                const isNew = article.id.startsWith("temp_");
-                if (isNew && (!article.code || article.code === "" || article.code.startsWith("ART-"))) {
-                    // Generate initial code based on current subFamily
-                    const nextCode = generateNextCode(article.subFamilyId || "");
-                    return { ...article, code: nextCode };
+            // Only overwrite formData if the article ID has changed
+            // This prevents losing focus or resetting state while typing (auto-saving)
+            if (article.id !== prevArticleIdRef.current) {
+                setFormData(prev => {
+                    const isNew = article.id.startsWith("temp_");
+                    if (isNew && (!article.code || article.code === "" || article.code.startsWith("ART-"))) {
+                        const nextCode = generateNextCode(article.subFamilyId || "");
+                        return { ...article, code: nextCode };
+                    }
+                    return article;
+                });
+
+                // Sync family selector
+                if (article.subFamilyId) {
+                    const sub = subFamilies.find(s => s.id === article.subFamilyId);
+                    if (sub) setSelectedFamilyId(sub.familyId);
+                } else {
+                    setSelectedFamilyId("");
                 }
-                return article;
-            });
 
-            // Check if it's a temporary "new" article
-            // Start in edit mode only for brand new temporary articles
-            const isNew = article.id.startsWith("temp_") || article.id.startsWith("new_");
-            setIsEditing(isNew);
-
-            // Sync family selector
-            if (article.subFamilyId) {
-                const sub = subFamilies.find(s => s.id === article.subFamilyId);
-                if (sub) setSelectedFamilyId(sub.familyId);
-            } else {
-                setSelectedFamilyId("");
+                prevArticleIdRef.current = article.id;
             }
-
         } else {
-            // Should not happen
             setFormData({});
-            setIsEditing(false);
+            prevArticleIdRef.current = null;
         }
-    }, [article, existingArticles]); // Add existingArticles dependency if needed, but mainly on article change
+    }, [article, subFamilies]); // subFamilies dependency is important for the first load
 
     // Auto-fill accounting code from SubFamily default if missing
     // This handles initial load (when subFamilies are fetched) and when opening an article without a code.
@@ -142,23 +133,75 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
         }
     }, [formData.subFamilyId, formData.accountingCode, subFamilies]);
 
+    // Fallback: Resolve accountingCode from accountingNature if missing
+    useEffect(() => {
+        if (!formData.accountingCode && formData.accountingNature && accountingAccounts.length > 0) {
+            const nature = formData.accountingNature.toLowerCase().trim();
+
+            // 1. Try exact code match (if it looks like a code, e.g., "6121")
+            const exactCodeMatch = accountingAccounts.find(acc => acc.code === nature);
+            if (exactCodeMatch) {
+                const newCode = exactCodeMatch.code + "00";
+                setFormData(prev => ({ ...prev, accountingCode: newCode }));
+                triggerAutoSave({ ...formData, accountingCode: newCode });
+                return;
+            }
+
+            // 2. Try fuzzy label match
+            const fuzzyMatch = accountingAccounts.find(acc => {
+                const label = acc.label.toLowerCase();
+                return label.includes(nature) || nature.includes(label) ||
+                    (nature.includes("matière") && label.includes("matières")) ||
+                    (nature.includes("matières") && label.includes("matière"));
+            });
+
+            if (fuzzyMatch) {
+                const newCode = fuzzyMatch.code + "00";
+                setFormData(prev => ({ ...prev, accountingCode: newCode }));
+                triggerAutoSave({ ...formData, accountingCode: newCode });
+            }
+        }
+    }, [formData.accountingNature, formData.accountingCode, accountingAccounts]);
+
+    const triggerAutoSave = (data: Partial<Article>) => {
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+        saveTimeoutRef.current = setTimeout(() => {
+            if (data.name && data.subFamilyId) {
+                onSave(data as Article);
+            }
+        }, 500);
+    };
+
+    const handleNutritionalChange = (nutriField: string, value: number) => {
+        setFormData(prev => {
+            const newData = {
+                ...prev,
+                nutritionalInfo: {
+                    ...(prev.nutritionalInfo || {}),
+                    [nutriField]: value
+                }
+            };
+            triggerAutoSave(newData);
+            return newData;
+        });
+    };
+
     const handleChange = (field: keyof Article, value: any) => {
         setFormData(prev => {
             const newData = { ...prev, [field]: value };
 
             if (field === "subFamilyId") {
-                // If SubFamily changes AND it's a new article, re-generate code
                 if (prev.id?.startsWith("temp_") || prev.id === undefined) {
                     newData.code = generateNextCode(value as string);
                 }
-
-                // Auto-fill accounting code
                 const sub = subFamilies.find(s => s.id === value);
                 if (sub?.accountingCode) {
                     newData.accountingCode = sub.accountingCode;
                 }
             }
 
+            triggerAutoSave(newData);
             return newData;
         });
     };
@@ -170,28 +213,10 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
         }
     };
 
+    // Manual save is gone, but we keep this for validation if needed internally
     const handleSave = () => {
-        // Validation: Name and SubFamily are required. Code is auto-generated.
         if (formData.name && formData.subFamilyId) {
             onSave(formData as Article);
-            setIsEditing(false);
-        } else {
-            // Basic feedback
-            alert("Veuillez renseigner le nom et la catégorie de l'article.");
-        }
-    };
-
-    const toggleEdit = () => {
-        if (isEditing) {
-            setIsEditing(false);
-            setIsAddingVat(false);
-            if (article) {
-                setFormData(article);
-                const sub = subFamilies.find(s => s.id === article.subFamilyId);
-                if (sub) setSelectedFamilyId(sub.familyId);
-            }
-        } else {
-            setIsEditing(true);
         }
     };
 
@@ -233,6 +258,13 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
 
     // Icon (Placeholder logic based on family?)
     const typeName = family ? families.find(f => f.id === family.id)?.typeId === "1" ? "ACHAT" : "FONCT." : "";
+
+    // Filter families to only show types 1 (Achats) and 2 (Fonctionnement)
+    const filteredFamilies = useMemo(() => {
+        return families
+            .filter(f => f.typeId === "1" || f.typeId === "2")
+            .sort((a, b) => a.code.localeCompare(b.code));
+    }, [families]);
 
     // Filtered SubFamilies based on selected Family
     const filteredSubFamilies = useMemo(() => {
@@ -376,7 +408,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             className="bg-slate-50 border border-slate-200 text-xs font-bold text-slate-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
                                         >
                                             <option value="">Sélectionner Famille</option>
-                                            {families.map(f => (
+                                            {filteredFamilies.map(f => (
                                                 <option key={f.id} value={f.id}>{f.name}</option>
                                             ))}
                                         </select>
@@ -416,31 +448,17 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
 
                         {/* Buttons Control */}
                         <div className="flex gap-2 w-full mt-2">
-                            {isEditing ? (
-                                <GlassButton
-                                    ref={saveRef}
-                                    variant="secondary"
-                                    onClick={handleSave}
-                                    className="flex-1 bg-white border border-green-200 text-green-600 hover:bg-green-50 shadow-sm font-bold uppercase tracking-wider text-[10px]"
-                                >
-                                    <Save className="w-4 h-4 mr-2" /> Enregistrer
-                                </GlassButton>
-                            ) : (
-                                <GlassButton
-                                    variant="secondary"
-                                    onClick={() => setIsEditing(true)}
-                                    className="flex-1 bg-white border border-blue-200 text-blue-600 hover:bg-blue-50 shadow-sm font-bold uppercase tracking-wider text-[10px]"
-                                >
-                                    <Pencil className="w-4 h-4 mr-2" /> Modifier
-                                </GlassButton>
-                            )}
+                            <div className="flex-1 bg-blue-50/50 border border-blue-100 rounded-xl px-4 py-2 flex items-center justify-center gap-2 shadow-sm">
+                                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Enregistrement auto.</span>
+                            </div>
 
                             <button
                                 onClick={handleDelete}
-                                className="w-10 h-10 bg-white border border-red-200 text-red-500 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-red-500/5 hover:bg-red-50 hover:shadow-red-500/10 active:scale-95 transition-all"
-                                title="Supprimer"
+                                className="w-10 h-10 bg-white border border-red-100 text-red-500 rounded-xl flex items-center justify-center shrink-0 shadow-sm hover:bg-red-500 hover:text-white transition-all group"
+                                title="Supprimer cet article"
                             >
-                                <Trash2 className="w-5 h-5 text-red-600" />
+                                <Trash2 className="w-5 h-5" />
                             </button>
                         </div>
                     </div>
@@ -714,7 +732,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             <input
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.calories || ""}
-                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...(prev.nutritionalInfo || {}), calories: parseFloat(e.target.value) } }))}
+                                                onChange={(e) => handleNutritionalChange("calories", parseFloat(e.target.value))}
                                                 className="w-20 text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>
@@ -724,7 +742,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             <input
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.water || ""}
-                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...(prev.nutritionalInfo || {}), water: parseFloat(e.target.value) } }))}
+                                                onChange={(e) => handleNutritionalChange("water", parseFloat(e.target.value))}
                                                 className="w-20 text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>
@@ -742,13 +760,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                 <input
                                                     type="number"
                                                     value={(formData.nutritionalInfo as any)?.[field.key] || ""}
-                                                    onChange={(e) => setFormData(prev => ({
-                                                        ...prev,
-                                                        nutritionalInfo: {
-                                                            ...(prev.nutritionalInfo || {}),
-                                                            [field.key]: parseFloat(e.target.value)
-                                                        }
-                                                    }))}
+                                                    onChange={(e) => handleNutritionalChange(field.key, parseFloat(e.target.value))}
                                                     className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                 />
                                             </div>
@@ -766,7 +778,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                 <input
                                                     type="number"
                                                     value={(formData.nutritionalInfo as any)?.carbs || ""}
-                                                    onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...(prev.nutritionalInfo || {}), carbs: parseFloat(e.target.value) } }))}
+                                                    onChange={(e) => handleNutritionalChange("carbs", parseFloat(e.target.value))}
                                                     className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                 />
                                             </div>
@@ -786,13 +798,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                     <input
                                                         type="number"
                                                         value={(formData.nutritionalInfo as any)?.[field.key] || ""}
-                                                        onChange={(e) => setFormData(prev => ({
-                                                            ...prev,
-                                                            nutritionalInfo: {
-                                                                ...(prev.nutritionalInfo || {}),
-                                                                [field.key]: parseFloat(e.target.value)
-                                                            }
-                                                        }))}
+                                                        onChange={(e) => handleNutritionalChange(field.key, parseFloat(e.target.value))}
                                                         className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[10px] font-bold text-slate-800 outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                     />
                                                 </div>
@@ -807,7 +813,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             <input
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.ig || ""}
-                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...(prev.nutritionalInfo || {}), ig: parseFloat(e.target.value) } }))}
+                                                onChange={(e) => handleNutritionalChange("ig", parseFloat(e.target.value))}
                                                 className="w-16 text-center bg-slate-50 border border-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-bold focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>
@@ -816,7 +822,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             <input
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.cg || ""}
-                                                onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: { ...(prev.nutritionalInfo || {}), cg: parseFloat(e.target.value) } }))}
+                                                onChange={(e) => handleNutritionalChange("cg", parseFloat(e.target.value))}
                                                 className="w-16 text-center bg-slate-50 border border-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-bold focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>

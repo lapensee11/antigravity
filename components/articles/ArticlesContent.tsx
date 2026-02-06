@@ -5,9 +5,9 @@ import { ArticleEditor } from "@/components/articles/ArticleEditor";
 import { Article, Invoice } from "@/lib/types";
 import { initialFamilies, initialSubFamilies } from "@/lib/data";
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Search, ChevronDown, Check, Plus, X } from "lucide-react";
+import { Search, ChevronDown, Check, Plus, X, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getArticles, saveArticle, deleteArticle, getInvoices } from "@/lib/data-service";
+import { getArticles, saveArticle, deleteArticle, getInvoices, getFamilies, getSubFamilies, saveSubFamily } from "@/lib/data-service";
 import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
 import { Database, Trash2 } from "lucide-react";
 
@@ -19,17 +19,23 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
     const [articles, setArticles] = useState<Article[]>(initialArticles);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
-    const [editTrigger, setEditTrigger] = useState(0);
+
+    const [families, setFamilies] = useState(initialFamilies);
+    const [subFamilies, setSubFamilies] = useState(initialSubFamilies);
 
     // --- RUNTIME LOAD ---
     useEffect(() => {
         const loadData = async () => {
-            const [liveArticles, liveInvoices] = await Promise.all([
+            const [liveArticles, liveInvoices, liveFamilies, liveSubFamilies] = await Promise.all([
                 getArticles(),
-                getInvoices()
+                getInvoices(),
+                getFamilies(),
+                getSubFamilies()
             ]);
             setArticles(liveArticles || []);
             setInvoices(liveInvoices || []);
+            if (liveFamilies?.length) setFamilies(liveFamilies);
+            if (liveSubFamilies?.length) setSubFamilies(liveSubFamilies);
         };
         loadData();
     }, []);
@@ -63,13 +69,41 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
         }
     };
 
+    const handleReconcile = async () => {
+        if (!confirm("Voulez-vous synchroniser tous les articles avec la structure actuelle ?\n\nCela corrigera les familles et sous-familles en fonction des codes d'articles.")) return;
+
+        const [liveArticles, liveSubFamilies] = await Promise.all([
+            getArticles(),
+            getSubFamilies()
+        ]);
+
+        let correctedCount = 0;
+        for (const art of liveArticles) {
+            // Re-detect sub-family from code if mismatch or missing
+            const codePrefix = art.code.split('-')[0].replace('P', 'F'); // PA086 -> FA086
+            const matchingSub = liveSubFamilies.find(s => s.code === codePrefix);
+
+            if (matchingSub && art.subFamilyId !== matchingSub.id) {
+                await saveArticle({ ...art, subFamilyId: matchingSub.id });
+                correctedCount++;
+            }
+        }
+
+        if (correctedCount > 0) {
+            alert(`${correctedCount} articles ont été ré-attribués à la bonne famille.`);
+            window.location.reload();
+        } else {
+            alert("Tous les articles sont déjà parfaitement alignés avec la structure.");
+        }
+    };
+
     const handleCreateNew = () => {
         const randomCode = `ART-${Math.floor(1000 + Math.random() * 9000)}`;
         setSelectedArticle({
             id: `temp_${Date.now()}`,
             name: "",
             code: randomCode,
-            subFamilyId: initialSubFamilies[0]?.id || "",
+            subFamilyId: subFamilies[0]?.id || "",
             unitAchat: "",
             unitPivot: "",
             unitProduction: "",
@@ -85,14 +119,19 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
     const [selectedSubFamilyId, setSelectedSubFamilyId] = useState<string | null>(null);
 
     const availableFamilies = useMemo(() => {
-        if (selectedType === "TOUS") return initialFamilies.filter(f => f.typeId === "1" || f.typeId === "2");
-        return initialFamilies.filter(f => f.typeId === selectedType);
-    }, [selectedType]);
+        let filtered = families;
+        if (selectedType !== "TOUS") {
+            filtered = families.filter(f => f.typeId === selectedType);
+        } else {
+            filtered = families.filter(f => f.typeId === "1" || f.typeId === "2");
+        }
+        return filtered.sort((a, b) => a.code.localeCompare(b.code));
+    }, [selectedType, families]);
 
     const availableSubFamilies = useMemo(() => {
         const familyIds = new Set(availableFamilies.map(f => f.id));
-        return initialSubFamilies.filter(s => familyIds.has(s.familyId));
-    }, [availableFamilies]);
+        return subFamilies.filter(s => familyIds.has(s.familyId));
+    }, [availableFamilies, subFamilies]);
 
     const [isFamilyOpen, setIsFamilyOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -109,7 +148,7 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
 
     const getSelectionLabel = () => {
         if (!selectedSubFamilyId) return "Toutes Familles";
-        const sub = initialSubFamilies.find(s => s.id === selectedSubFamilyId);
+        const sub = subFamilies.find(s => s.id === selectedSubFamilyId);
         if (sub) return sub.name;
         return "Toutes Familles";
     }
@@ -117,12 +156,12 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
     const filteredArticles = useMemo(() => {
         let filtered = articles;
         if (selectedType !== "TOUS") {
-            const typeFamilies = new Set(initialFamilies.filter(f => f.typeId === selectedType).map(f => f.id));
-            const typeSubs = new Set(initialSubFamilies.filter(s => typeFamilies.has(s.familyId)).map(s => s.id));
+            const typeFamilies = new Set(families.filter(f => f.typeId === selectedType).map(f => f.id));
+            const typeSubs = new Set(subFamilies.filter(s => typeFamilies.has(s.familyId)).map(s => s.id));
             filtered = filtered.filter(a => typeSubs.has(a.subFamilyId));
         } else {
-            const validFamilies = new Set(initialFamilies.filter(f => f.typeId === "1" || f.typeId === "2").map(f => f.id));
-            const validSubs = new Set(initialSubFamilies.filter(s => validFamilies.has(s.familyId)).map(s => s.id));
+            const validFamilies = new Set(families.filter(f => f.typeId === "1" || f.typeId === "2").map(f => f.id));
+            const validSubs = new Set(subFamilies.filter(s => validFamilies.has(s.familyId)).map(s => s.id));
             filtered = filtered.filter(a => validSubs.has(a.subFamilyId));
         }
         if (searchQuery) {
@@ -160,7 +199,7 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
             if (isInputActive) return;
             if (e.key === "Enter") {
                 e.preventDefault();
-                if (selectedArticle) setEditTrigger(Date.now());
+                // We no longer trigger edit mode as it's always active
                 return;
             }
             if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
@@ -271,6 +310,13 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                                 <button
+                                    onClick={handleReconcile}
+                                    className="w-10 h-10 bg-blue-50 text-blue-500 border border-blue-100 rounded-xl flex items-center justify-center hover:bg-blue-500 hover:text-white transition-all shadow-sm"
+                                    title="Réconcilier avec la Structure"
+                                >
+                                    <Layers className="w-5 h-5" />
+                                </button>
+                                <button
                                     onClick={async () => {
                                         const validFamilies = new Set(initialFamilies.filter(f => f.typeId === "1" || f.typeId === "2").map(f => f.id));
                                         const validSubs = new Set(initialSubFamilies.filter(s => validFamilies.has(s.familyId)).map(s => s.id));
@@ -312,43 +358,50 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                             <button
                                 onClick={async () => {
                                     const testData = [
-                                        // Batch 4 (Produits Laitiers) - Latest Capture Only
-                                        // FA031 - Lait
-                                        { name: "Lait", code: "PA031-01", unitAchat: "1/2 l", contenace: 0.5, unitPivot: "Litre", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA031" },
-                                        { name: "Lben", code: "PA031-02", unitAchat: "1/2 l", contenace: 0.5, unitPivot: "Litre", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA031" },
-                                        { name: "Lait en Poudre", code: "PA031-03", unitAchat: "Sac", contenace: 25, unitPivot: "Kg", vatRate: 7, accountingNature: "Achats de Matière Première", subFamilyId: "FA031" },
-                                        { name: "Lait Concentré Sucré", code: "PA031-04", unitAchat: "Boite", contenace: 0.75, unitPivot: "Kg", vatRate: 0, accountingNature: "Achats de Matière Première", subFamilyId: "FA031" },
-                                        // FA032 - Crème
-                                        { name: "Crème Fraîche Pâtissière", code: "PA032-01", unitAchat: "Box", contenace: 10, unitPivot: "Litres", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA032" },
-                                        { name: "Crème Cuisine", code: "PA032-02", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 0, accountingNature: "Achats de Matière Première", subFamilyId: "FA032" },
-                                        { name: "Crème Végétale", code: "PA032-03", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA032" },
-                                        { name: "Yaourt Nature", code: "PA032-04", unitAchat: "Unité", contenace: 0.11, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA032" },
-                                        // FA033 - Beurre
-                                        { name: "Beurre New Zeland", code: "PA033-01", unitAchat: "Carton", contenace: 25, unitPivot: "Kg", vatRate: 14, accountingNature: "Achats de Matière Première", subFamilyId: "FA033" },
-                                        { name: "Beurre Irish", code: "PA033-02", unitAchat: "Carton", contenace: 25, unitPivot: "Kg", vatRate: 14, accountingNature: "Achats de Matière Première", subFamilyId: "FA033" },
-                                        { name: "Beurre Inde", code: "PA033-03", unitAchat: "Carton", contenace: 25, unitPivot: "Kg", vatRate: 14, accountingNature: "Achats de Matière Première", subFamilyId: "FA033" },
-                                        { name: "Mimetic", code: "PA033-04", unitAchat: "Carton", contenace: 10, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA033" },
-                                        { name: "Margarine", code: "PA033-05", unitAchat: "Carton", contenace: 10, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA033" },
-                                        // FA034 - Fromage
-                                        { name: "Edam", code: "PA034-01", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
-                                        { name: "Mozzarella Cuite", code: "PA034-02", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
-                                        { name: "Mozzarella Fraîche", code: "PA034-03", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
-                                        { name: "Fromage Toast", code: "PA034-04", unitAchat: "Carton", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
-                                        { name: "Recotta", code: "PA034-05", unitAchat: "Kg", contenace: 1, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
-                                        { name: "Jebli", code: "PA034-06", unitAchat: "Pot", contenace: 0.39, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
-                                        { name: "Crème Cheese", code: "PA034-07", unitAchat: "Pot", contenace: 2, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
-                                        { name: "Mascarpone", code: "PA034-08", unitAchat: "Pot", contenace: 0.5, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" },
-                                        { name: "Fromage Blanc", code: "PA034-09", unitAchat: "Carton", contenace: 10, unitPivot: "Kg", vatRate: 20, accountingNature: "Achats de Matière Première", subFamilyId: "FA034" }
+                                        // Batch 11 (Fournitures Diverses)
+                                        // FA086 - Fournitures Diverses
+                                        { name: "Papier Cuisson", code: "PA086-01", unitAchat: "Boite", contenace: 100, unitPivot: "Feuilles", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Tourtière Diam 28", code: "PA086-02", unitAchat: "Carton", contenace: 100, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Tulipes MM", code: "PA086-03", unitAchat: "Carton", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Caissettes Fondant", code: "PA086-04", unitAchat: "Carton", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Caissettes N° 60*25", code: "PA086-05", unitAchat: "Carton", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Caissettes N° 3", code: "PA086-06", unitAchat: "Carton", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Feuille Polypro 15*12", code: "PA086-07", unitAchat: "Paquet", contenace: 100, unitPivot: "Feuilles", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Poches Jetables", code: "PA086-08", unitAchat: "Paquet", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Papier Aluminium", code: "PA086-11", unitAchat: "Rouleau", contenace: 1, unitPivot: "Mètres", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Ficelle Bordeaux", code: "PA086-21", unitAchat: "Bobine", contenace: 1, unitPivot: "Mètres", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Scotch", code: "PA086-22", unitAchat: "Rouleau", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Gants Jetables", code: "PA086-23", unitAchat: "Boite", contenace: 100, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Cuillères", code: "PA086-24", unitAchat: "Paquet", contenace: 100, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Rouleau caisse", code: "PA086-25", unitAchat: "Rouleau", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Bougies 1 an", code: "PA086-31", unitAchat: "Boite", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Bougies 10 ans", code: "PA086-32", unitAchat: "Boite", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Support de Bougies", code: "PA086-33", unitAchat: "Boite", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Fèves", code: "PA086-34", unitAchat: "Paquet", contenace: 100, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Couronnes", code: "PA086-35", unitAchat: "Paquet", contenace: 100, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
+                                        { name: "Sujets Noel", code: "PA086-36", unitAchat: "Boite", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" }
                                     ];
 
-                                    if (confirm(`Importer ${testData.length} articles de test ?`)) {
+                                    if (confirm(`Importer / Fusionner ${testData.length} articles ?`)) {
+                                        const [existingArticles, liveSubFamilies] = await Promise.all([
+                                            getArticles(),
+                                            getSubFamilies()
+                                        ]);
+
                                         for (const item of testData) {
+                                            const existing = existingArticles.find(a => a.code === item.code);
+
+                                            // Resolve real subFamilyId from Code (Smarter Import)
+                                            const codePrefix = item.code.split('-')[0].replace('P', 'F');
+                                            const matchingSub = liveSubFamilies.find(s => s.code === codePrefix || s.id === item.subFamilyId);
+
                                             const art: Article = {
-                                                id: `ART-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                                                id: existing?.id || `ART-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                                                 ...item,
+                                                subFamilyId: matchingSub?.id || item.subFamilyId,
                                                 unitProduction: item.unitPivot,
                                                 coeffProd: 1,
-                                                lastPivotPrice: 0,
+                                                lastPivotPrice: existing?.lastPivotPrice || 0,
                                             };
                                             await saveArticle(art);
                                         }
@@ -428,7 +481,10 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                             )}
                         </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar border-t border-slate-200">
+                    <div
+                        ref={sidebarListRef}
+                        className="flex-1 overflow-y-auto custom-scrollbar border-t border-slate-200"
+                    >
                         {filteredArticles.map(article => {
                             const sub = initialSubFamilies.find(s => s.id === article.subFamilyId);
                             const family = sub ? initialFamilies.find(f => f.id === sub.familyId) : null;
@@ -502,7 +558,6 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                                 article={selectedArticle}
                                 existingArticles={articles}
                                 invoices={invoices}
-                                forceEditTrigger={editTrigger}
                                 onSave={handleSave}
                                 onDelete={handleDelete}
                             />

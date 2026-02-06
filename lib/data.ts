@@ -81,6 +81,7 @@ export const initialSubFamilies: SubFamily[] = [
     { id: "FA083", name: "Eau / Electricité", code: "FA083", familyId: "FA08" },
     { id: "FA084", name: "Téléphone", code: "FA084", familyId: "FA08" },
     { id: "FA085", name: "Gasoil (Voitures)", code: "FA085", familyId: "FA08" },
+    { id: "FA086", name: "Fournitures Diverses", code: "FA086", familyId: "FA08" },
     { id: "FA091", name: "Produits de Ménage", code: "FA091", familyId: "FA09" },
     { id: "FA092", name: "Service Hygiène", code: "FA092", familyId: "FA09" },
     { id: "FA093", name: "Tenues de Personnel", code: "FA093", familyId: "FA09" },
