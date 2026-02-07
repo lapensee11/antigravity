@@ -41,9 +41,11 @@ export interface Article {
     lastPivotPrice?: number;
     priceHistory?: { date: string; price: number }[]; // History
     vatRate: number; // %
+    /** @deprecated Use accountingCode instead */
     accountingNature?: string;
+    /** @deprecated Use accountingCode instead */
     accountingAccount?: string; // Legacy/String field
-    accountingCode?: string; // New Link to AccountingAccount
+    accountingCode?: string; // New Link to AccountingAccount (The source of truth)
     nutritionalInfo?: {
         calories?: number; // Energie
         water?: number; // Eau

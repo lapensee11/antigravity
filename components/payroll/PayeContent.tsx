@@ -15,6 +15,7 @@ import {
     closePayrollMonth,
     unclosePayrollMonth
 } from "@/lib/data-service";
+import { useEmployees, useEmployeeMutation } from "@/lib/hooks/use-data";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { DateInput } from "@/components/ui/DateInput";
 import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
@@ -147,7 +148,17 @@ const PayrollInput = ({ value, onChange, onIncrement, onDecrement, className, is
 
 export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL" }: PayeContentProps) {
     // --- ÉTATS ---
-    const [employees, setEmployees] = useState<StaffMember[]>(initialEmployees);
+    const { data: employees = [], refetch, isLoading } = useEmployees();
+    const [localEmployees, setLocalEmployees] = useState<StaffMember[]>([]);
+
+    const employeeMutation = useEmployeeMutation();
+
+    // Sync local state when query data changes
+    useEffect(() => {
+        if (employees.length > 0) {
+            setLocalEmployees(employees);
+        }
+    }, [employees]);
     const [viewMode, setViewMode] = useState<"JOURNAL" | "BASE">(defaultViewMode);
     const [journalSubView, setJournalSubView] = useState<"SAISIE" | "COMPTABLE">("SAISIE");
     const [currentMonth, setCurrentMonth] = useState("FÉVRIER");
@@ -159,6 +170,29 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         "JANVIER", "FÉVRIER", "MARS", "AVRIL", "MAI", "JUIN",
         "JUILLET", "AOÛT", "SEPTEMBRE", "OCTOBRE", "NOVEMBRE", "DÉCEMBRE"
     ];
+
+    // Pour Base Personnel
+    const [searchQuery, setSearchQuery] = useState("");
+    const [filterStatus, setFilterStatus] = useState<"TOUS" | "ACTIFS" | "INACTIFS">("ACTIFS");
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
+    const [isEditing, setIsEditing] = useState(false);
+    const [activeDetailTab, setActiveDetailTab] = useState<"profile" | "contract" | "salary">("profile");
+
+    // History Edit State
+    const [newHistoryType, setNewHistoryType] = useState("AUGMENTATION");
+    const [newHistoryDate, setNewHistoryDate] = useState("");
+    const [newHistoryAmount, setNewHistoryAmount] = useState<number>(0);
+    const [newHistoryBonus, setNewHistoryBonus] = useState<number>(0);
+    const [newHistoryUndeclaredBonus, setNewHistoryUndeclaredBonus] = useState<number>(0);
+    const [editingHistoryIndex, setEditingHistoryIndex] = useState<number | null>(null);
+    const [isAddingNewHistory, setIsAddingNewHistory] = useState<boolean>(false);
+
+    // Auto-select first employee if none selected
+    useEffect(() => {
+        if (employees.length > 0 && !selectedEmployeeId) {
+            setSelectedEmployeeId(employees[0].id);
+        }
+    }, [employees, selectedEmployeeId]);
 
     const handlePrevMonth = () => {
         const idx = MONTHS.indexOf(currentMonth);
@@ -193,38 +227,9 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [isDatePickerOpen]);
 
-    // Pour Base Personnel
-    const [searchQuery, setSearchQuery] = useState("");
-    const [filterStatus, setFilterStatus] = useState<"TOUS" | "ACTIFS" | "INACTIFS">("ACTIFS");
-    const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
-    const [isEditing, setIsEditing] = useState(false);
-    const [activeDetailTab, setActiveDetailTab] = useState<"profile" | "contract" | "salary">("profile");
-
-    // History Edit State
-    const [newHistoryType, setNewHistoryType] = useState("AUGMENTATION");
-    const [newHistoryDate, setNewHistoryDate] = useState("");
-    const [newHistoryAmount, setNewHistoryAmount] = useState<number>(0);
-    const [newHistoryBonus, setNewHistoryBonus] = useState<number>(0);
-    const [newHistoryUndeclaredBonus, setNewHistoryUndeclaredBonus] = useState<number>(0);
-    const [editingHistoryIndex, setEditingHistoryIndex] = useState<number | null>(null);
-    const [isAddingNewHistory, setIsAddingNewHistory] = useState<boolean>(false);
-
-    // Runtime Load
-    useEffect(() => {
-        const load = async () => {
-            const emps = await getEmployees();
-            setEmployees(emps);
-            if (emps.length > 0 && !selectedEmployeeId) {
-                setSelectedEmployeeId(emps[0].id);
-            }
-        };
-        load();
-    }, []);
-
-    // --- LOGIQUE FILTRE ---
     // --- LOGIQUE FILTRE ---
     const filteredEmployees = useMemo(() => {
-        return employees.filter(emp => {
+        return localEmployees.filter(emp => {
             const matchesSearch =
                 emp.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 emp.lastName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -241,11 +246,11 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             const matrB = b.matricule || `M00${b.id}`;
             return matrA.localeCompare(matrB, undefined, { numeric: true, sensitivity: 'base' });
         });
-    }, [employees, searchQuery, filterStatus]);
+    }, [localEmployees, searchQuery, filterStatus]);
 
     const selectedEmployee = useMemo(() =>
-        employees.find(e => e.id === selectedEmployeeId) || null
-        , [employees, selectedEmployeeId]);
+        localEmployees.find(e => e.id === selectedEmployeeId) || null
+        , [localEmployees, selectedEmployeeId]);
 
     const theme = useMemo(() => {
         const isFemale = selectedEmployee?.gender === "F";
@@ -266,7 +271,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         const monthIndex = MONTHS.indexOf(currentMonth);
         const currentPeriodEnd = new Date(currentYear, monthIndex + 1, 0); // Last day of month
 
-        return employees.filter(emp => {
+        return localEmployees.filter(emp => {
             // Filter by Hire Date: Employee must be hired on or before the current period
             if (emp.contract?.hireDate) {
                 const hireDate = new Date(emp.contract.hireDate);
@@ -278,7 +283,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             const matrB = b.matricule || `M00${b.id}`;
             return matrA.localeCompare(matrB, undefined, { numeric: true, sensitivity: 'base' });
         });
-    }, [employees, currentMonth, currentYear]);
+    }, [localEmployees, currentMonth, currentYear]);
 
     const chartData = useMemo(() => {
         if (!selectedEmployee) return [];
@@ -468,22 +473,29 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         const updatedHistory = [...selectedEmployee.history];
         updatedHistory.splice(index, 1);
 
+        // SYNC BASE SALARY: Find the new latest event in the updated history
+        const latestEvent = [...updatedHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+
         const updatedEmployee = {
             ...selectedEmployee,
-            history: updatedHistory
+            history: updatedHistory,
+            contract: {
+                ...selectedEmployee.contract,
+                // If we have events, pick the latest amount, otherwise keep current (or rollback if we track initial)
+                baseSalary: latestEvent ? latestEvent.amount : selectedEmployee.contract.baseSalary
+            }
         };
 
-        // If we deleted the latest event, we might need to sync baseSalary from the new latest event
-        // But for safety, we just update history and let the user manually fix salary if needed, 
-        // OR we could auto-rollback. For now, just update history.
+        // Update local state first for instant UI response
+        setLocalEmployees(prev => prev.map(e => e.id === updatedEmployee.id ? updatedEmployee : e));
 
-        // Auto-rollback baseSalary if the deleted event was the latest
-        // This is complex because 'latest' depends on date sorting. The 'index' passed here 
-        // should be the index in the original 'selectedEmployee.history' array.
-
-        setEmployees(employees.map(e => e.id === updatedEmployee.id ? updatedEmployee : e));
-        setSelectedEmployeeId(updatedEmployee.id);
-        await saveEmployee(updatedEmployee);
+        // Persist and refetch
+        try {
+            await employeeMutation.mutateAsync(updatedEmployee);
+        } catch (err) {
+            console.error("Failed to delete history event:", err);
+            // Revert local state if needed (optional but good practice)
+        }
     };
 
     const handleSaveEmployee = async () => {
@@ -524,7 +536,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                 remaining: 0
             }
         };
-        setEmployees(prev => [...prev, newEmployee]);
+        setLocalEmployees(prev => [...prev, newEmployee]);
         setSelectedEmployeeId(newId);
         setIsEditing(true);
     };
@@ -534,7 +546,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         if (confirm("Supprimer cet employé ?")) {
             await deleteEmployee(selectedEmployeeId);
             const newEmployees = employees.filter(e => e.id !== selectedEmployeeId);
-            setEmployees(newEmployees);
+            setLocalEmployees(newEmployees);
             if (newEmployees.length > 0) setSelectedEmployeeId(newEmployees[0].id);
             else setSelectedEmployeeId(null);
         }
@@ -804,7 +816,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
     const totals = useMemo(() => {
 
-        return employees.reduce((acc, emp) => {
+        return localEmployees.reduce((acc, emp) => {
             const mData = getMonthlyData(emp);
             const net = calculateNet(emp);
             const compta = calculateCompta(emp);
@@ -827,13 +839,13 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             netCible: 0, virement: 0, avances: 0, retenuePret: 0, netPayer: 0,
             brut: 0, brutImposable: 0, netImposable: 0, cnss: 0, amo: 0, ir: 0, salaireNet: 0
         });
-    }, [employees, currentMonth, currentYear]);
+    }, [localEmployees, currentMonth, currentYear]);
 
     // --- CLOSING LOGIC ---
     const isMonthClosed = useMemo(() => {
         const key = `${currentMonth}_${currentYear}`;
-        return employees.some(e => e.monthlyData?.[key]?.isClosed);
-    }, [employees, currentMonth, currentYear]);
+        return localEmployees.some(e => e.monthlyData?.[key]?.isClosed);
+    }, [localEmployees, currentMonth, currentYear]);
 
     const handleCloseMonthToggle = async () => {
         const key = `${currentMonth}_${currentYear}`;
@@ -842,7 +854,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                 await unclosePayrollMonth(key);
                 // Refresh
                 const emps = await getEmployees();
-                setEmployees(emps);
+                setLocalEmployees(emps);
             }
         } else {
             if (confirm(`Confirmez-vous la clôture de ${currentMonth} ${currentYear} ?\n\n- Les paiements seront verrouillés.\n- Les retenues sur prêt seront appliquées sur la dette.\n- Les transactions financières (Banque/Caisse/Coffre) seront générées.\n- Le mois suivant sera initialisé.`)) {
@@ -859,10 +871,10 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                 }
                 const nextKey = `${nextMonthName}_${nextYearVal}`;
 
-                await closePayrollMonth(key, nextKey, employees, totals);
+                await closePayrollMonth(key, nextKey, localEmployees, totals);
                 // Refresh
                 const emps = await getEmployees();
-                setEmployees(emps);
+                setLocalEmployees(emps);
             }
         }
     };
@@ -872,18 +884,18 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         return dateStr.split('-')[0].slice(-2);
     };
 
-    const handleAddHistory = () => {
+    const handleAddHistory = async () => {
         if (!selectedEmployee || !newHistoryDate) return;
         const newHistory = {
             date: newHistoryDate,
-            amount: newHistoryAmount,
-            bonus: newHistoryBonus,
-            undeclaredBonus: newHistoryUndeclaredBonus,
+            amount: Number(newHistoryAmount),
+            bonus: Number(newHistoryBonus),
+            undeclaredBonus: Number(newHistoryUndeclaredBonus),
             type: newHistoryType,
             year: newHistoryDate.split('-')[0],
         };
 
-        let updatedHistory;
+        let updatedHistory: any[];
         if (editingHistoryIndex !== null) {
             updatedHistory = [...(selectedEmployee.history || [])];
             updatedHistory[editingHistoryIndex] = newHistory;
@@ -915,38 +927,38 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         // Current Month Key
         const currentKey = `${currentMonth}_${currentYear}`;
 
-        if (latestEvent) {
-            setEmployees(prev => prev.map(emp => {
-                if (emp.id === selectedEmployee.id) {
-                    // Update Monthly Data to reflect new Bonus immediately
-                    const currentMData = emp.monthlyData?.[currentKey] || getMonthlyData(emp); // Use helper to get defaults if missing
-                    let newMData = { ...currentMData };
+        const currentMData = selectedEmployee.monthlyData?.[currentKey] || getMonthlyData(selectedEmployee);
+        let newMData = { ...currentMData };
 
-                    // Only update if month is NOT closed
-                    if (!currentMData.isClosed) {
-                        const days = currentMData.jours;
-                        // Prorata rule
-                        const prorated = days < 26 ? (latestBonus * days / 26) : latestBonus;
-                        newMData.pRegul = Math.round(prorated * 100) / 100;
-                    }
+        // Only update if month is NOT closed
+        if (!currentMData.isClosed && latestEvent) {
+            const days = currentMData.jours;
+            // Prorata rule
+            const prorated = days < 26 ? (latestBonus * days / 26) : latestBonus;
+            newMData.pRegul = Math.round(prorated * 100) / 100;
+        }
 
-                    return {
-                        ...emp,
-                        history: updatedHistory,
-                        contract: {
-                            ...emp.contract,
-                            baseSalary: latestEvent.amount
-                        },
-                        monthlyData: {
-                            ...emp.monthlyData,
-                            [currentKey]: newMData
-                        }
-                    };
-                }
-                return emp;
-            }));
-        } else {
-            handleEmployeeChange(selectedEmployee.id, 'history', updatedHistory);
+        const updatedEmployee = {
+            ...selectedEmployee,
+            history: updatedHistory,
+            contract: {
+                ...selectedEmployee.contract,
+                baseSalary: latestEvent ? latestEvent.amount : selectedEmployee.contract?.baseSalary
+            },
+            monthlyData: {
+                ...selectedEmployee.monthlyData,
+                [currentKey]: newMData
+            }
+        };
+
+        // Update local state
+        setLocalEmployees(prev => prev.map(emp => emp.id === updatedEmployee.id ? updatedEmployee : emp));
+
+        // Persist
+        try {
+            await employeeMutation.mutateAsync(updatedEmployee);
+        } catch (err) {
+            console.error("Failed to add/update history event:", err);
         }
 
         // Reset form
@@ -990,7 +1002,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
     };
 
     const updateMonthlyValue = (empId: number, field: string, value: any) => {
-        setEmployees(prev => prev.map(emp => {
+        setLocalEmployees(prev => prev.map(emp => {
             if (emp.id === empId) {
                 const currentData = getMonthlyData(emp);
                 let updates: any = { [field]: value };
@@ -1022,8 +1034,8 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                     }
                 };
 
-                // Persist immediately
-                saveEmployee(updatedEmp).catch(err => console.error("Auto-save failed:", err));
+                // Persist immediately using mutation
+                employeeMutation.mutateAsync(updatedEmp).catch(err => console.error("Auto-save failed:", err));
 
                 return updatedEmp;
             }
@@ -1032,7 +1044,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
     };
 
     const handleEmployeeChange = (empId: number, path: string, value: any) => {
-        setEmployees(prev => prev.map(emp => {
+        setLocalEmployees(prev => prev.map(emp => {
             if (emp.id === empId) {
                 const newEmp = { ...emp };
                 let formattedValue = value;

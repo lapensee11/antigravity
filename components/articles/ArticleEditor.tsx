@@ -3,12 +3,11 @@ import { Save, Trash2, Pencil, Check, X, Plus, Tag, Layers, Hash, Shield } from 
 import { useState, useEffect, useMemo } from "react";
 import { usePersistedState } from "@/lib/hooks/use-persisted-state";
 import { cn } from "@/lib/utils";
-import { getFamilies, getSubFamilies, getAccountingNatures, getTiers } from "@/lib/data-service";
 import { useRef } from "react";
 import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
 import { UnitSelector } from "@/components/ui/UnitSelector";
 import { AccountingAccount } from "@/lib/types";
-import { getAccountingAccounts } from "@/lib/data-service";
+import { useFamilies, useSubFamilies, useAccountingAccounts, useTiers } from "@/lib/hooks/use-data";
 
 interface ArticleEditorProps {
     article?: Article | null;
@@ -26,11 +25,12 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const prevArticleIdRef = useRef<string | null>(null);
 
-    const [families, setFamilies] = useState<Family[]>([]);
-    const [subFamilies, setSubFamilies] = useState<SubFamily[]>([]);
-    const [accountingNatures, setAccountingNatures] = useState<{ id: string, name: string }[]>([]);
-    const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([]);
-    const [tiers, setTiers] = useState<Tier[]>([]);
+    // Data Hooks (Replaces local state & useEffect)
+    const { data: families = [] } = useFamilies();
+    const { data: subFamilies = [] } = useSubFamilies();
+    const { data: accountingAccounts = [] } = useAccountingAccounts();
+    const { data: tiers = [] } = useTiers();
+
     const [availableVatRates, setAvailableVatRates] = usePersistedState<number[]>("article_vat_rates", [0, 7, 10, 14, 20]);
     const [isAddingVat, setIsAddingVat] = useState(false);
     const [newVatInput, setNewVatInput] = useState("");
@@ -52,27 +52,11 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     const coeffRef = useRef<HTMLInputElement>(null);
     const unitProdRef = useRef<HTMLSelectElement>(null);
     const vatRefs = useRef<(HTMLButtonElement | null)[]>([]);
-    const natureRef = useRef<HTMLSelectElement>(null);
+    // const natureRef removed
     const accountRef = useRef<HTMLInputElement>(null);
     const saveRef = useRef<HTMLButtonElement>(null);
 
-    useEffect(() => {
-        const load = async () => {
-            const [f, s, n, a, t] = await Promise.all([
-                getFamilies(),
-                getSubFamilies(),
-                getAccountingNatures(),
-                getAccountingAccounts(),
-                getTiers()
-            ]);
-            setFamilies(f);
-            setSubFamilies(s);
-            setAccountingNatures(n);
-            setAccountingAccounts(a);
-            setTiers(t);
-        };
-        load();
-    }, []);
+    // useEffect load removed - Data managed by React Query
 
     // Local state for Family selection (allows changing family before sub-family)
     const [selectedFamilyId, setSelectedFamilyId] = useState<string>("");
@@ -327,8 +311,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                     // Focus first VAT button
                     vatRefs.current[0]?.focus();
                     break;
-                case "vat": natureRef.current?.focus(); break;
-                case "nature": accountRef.current?.focus(); break;
+                case "vat": accountRef.current?.focus(); break;
                 case "account": saveRef.current?.focus(); break;
             }
         }

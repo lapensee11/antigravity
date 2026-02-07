@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { deleteUnitGlobal } from "@/lib/data-service";
 import { UnitSelector } from "@/components/ui/UnitSelector";
 import { AccountingAccount } from "@/lib/types";
-import { getAccountingAccounts } from "@/lib/data-service";
+import { useAccountingAccounts, useArticles, usePartners, useTiers } from "@/lib/hooks/use-data";
 
 interface InvoiceEditorProps {
     invoice?: Invoice | null;
@@ -21,9 +21,7 @@ interface InvoiceEditorProps {
     onUpdate?: (invoice: Invoice) => void;
     onCreateNew?: () => void;
     onDuplicate?: (isEmpty: boolean) => void;
-    suppliers?: { id: string; name: string; code: string }[];
     onGenerateNumber?: (name: string) => string;
-    articles?: any[];
     onExit?: () => void;
 }
 
@@ -77,8 +75,17 @@ const DecimalInput = forwardRef<HTMLInputElement, any>(({ value, onChange, class
 });
 DecimalInput.displayName = "DecimalInput";
 
-export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onCreateNew, onDuplicate, suppliers = [], onGenerateNumber, articles = [], onExit }: InvoiceEditorProps) {
+export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onCreateNew, onDuplicate, onGenerateNumber, onExit }: InvoiceEditorProps) {
     const [formData, setFormData] = useState<Partial<Invoice>>({});
+
+    // Data Hooks
+    const { data: accountingAccounts = [] } = useAccountingAccounts();
+    const { data: articles = [] } = useArticles();
+    const { data: partners = [] } = usePartners();
+    const { data: tiers = [] } = useTiers();
+
+    // Filter Suppliers from Tiers
+    const suppliers = tiers.filter(t => t.type === 'Fournisseur').map(t => ({ id: t.id, name: t.name, code: t.code }));
 
     // Autocomplete State
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -91,12 +98,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
     const [filteredArticles, setFilteredArticles] = useState<any[]>([]);
     const [articleFocusIndex, setArticleFocusIndex] = useState(-1);
 
-    // Accounting State
-    const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([]);
-
-    useEffect(() => {
-        getAccountingAccounts().then(setAccountingAccounts);
-    }, []);
+    // Accounting State - Managed by Hook now
 
 
 

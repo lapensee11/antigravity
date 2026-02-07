@@ -10,10 +10,21 @@ export default function DataBackup() {
 
     const exportData = async () => {
         const data: any = {};
-        const tables = ['invoices', 'employees', 'articles', 'tiers'];
+        const tables = [
+            'invoices', 'employees', 'articles', 'tiers', 'recipes',
+            'families', 'subFamilies', 'structureTypes', 'transactions',
+            'salesData', 'accountingNatures', 'accounting_accounts',
+            'settings', 'partners'
+        ];
 
         for (const table of tables) {
-            data[table] = await (db as any)[table].toArray();
+            try {
+                if ((db as any)[table]) {
+                    data[table] = await (db as any)[table].toArray();
+                }
+            } catch (err) {
+                console.warn(`Could not export table ${table}`, err);
+            }
         }
 
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -21,7 +32,7 @@ export default function DataBackup() {
         const link = document.createElement('a');
         const date = new Date().toISOString().split('T')[0];
         link.href = url;
-        link.download = `bako-backup-${date}.json`;
+        link.download = `bako-backup-complet-${date}.json`;
         link.click();
         URL.revokeObjectURL(url);
     };
@@ -30,7 +41,7 @@ export default function DataBackup() {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (!confirm("Attention : cette opération va écraser toutes vos données actuelles. Souhaitez-vous continuer ?")) {
+        if (!confirm("Attention : cette opération va écraser TOUTES vos données (paye, structure, articles, ventes). Souhaitez-vous continuer ?")) {
             return;
         }
 
@@ -39,22 +50,29 @@ export default function DataBackup() {
             try {
                 const data = JSON.parse(event.target?.result as string);
 
-                // Reset DB
+                // Full Reset: delete and reopen
                 await db.delete();
                 await db.open();
 
-                const tables = ['invoices', 'employees', 'articles', 'tiers'];
+                const tables = [
+                    'invoices', 'employees', 'articles', 'tiers', 'recipes',
+                    'families', 'subFamilies', 'structureTypes', 'transactions',
+                    'salesData', 'accountingNatures', 'accounting_accounts',
+                    'settings', 'partners'
+                ];
+
                 for (const table of tables) {
-                    if (data[table]) {
-                        await (db as any)[table].bulkAdd(data[table]);
+                    if (data[table] && (db as any)[table]) {
+                        // Use put to avoid collisions, although delete/open should clear everything
+                        await (db as any)[table].bulkPut(data[table]);
                     }
                 }
 
-                alert("Restauration réussie ! L'application va se recharger.");
+                alert("Restauration complète réussie ! L'application va se recharger.");
                 window.location.reload();
             } catch (err) {
                 console.error("Import failed", err);
-                alert("Erreur lors de l'importation. Le fichier est peut-être corrompu.");
+                alert("Erreur lors de la restauration. Vérifiez le format du fichier.");
             }
         };
         reader.readAsText(file);

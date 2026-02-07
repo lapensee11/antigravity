@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Outfit } from "next/font/google";
 import "./globals.css";
+import { QueryProvider } from "@/components/providers/QueryProvider";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -28,7 +29,9 @@ export default function RootLayout({
         className={`${inter.variable} ${outfit.variable} antialiased`}
       >
         <div className="animate-in fade-in duration-500">
-          {children}
+          <QueryProvider>
+            {children}
+          </QueryProvider>
         </div>
       </body>
     </html>
