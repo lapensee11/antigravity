@@ -70,7 +70,7 @@ export function InvoiceList({ invoices, selectedInvoiceId, onSelect, onFilterCha
                                 <div className="flex justify-between items-end mt-3 border-t border-slate-200/50 pt-2">
                                     <span className="text-[10px] text-slate-400 font-medium">{inv.date}</span>
                                     <span className="font-bold text-slate-700 text-sm">
-                                        {inv.totalTTC.toLocaleString()} Dh
+                                        {inv.totalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh
                                     </span>
                                 </div>
                             </div>

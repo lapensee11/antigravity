@@ -78,10 +78,11 @@ export interface InvoiceLine {
     discount: number; // %
     vatRate: number; // %
     totalTTC: number; // Calculated
+    details?: string;
     accountingCode?: string; // Per-line override
 }
 
-export type PaymentMode = "Virement" | "Espèces" | "Chèque" | "Prélèvement" | "Carte Bancaire";
+export type PaymentMode = "Virement" | "Espèces" | "Chèques" | "Prélèvement";
 
 export interface Payment {
     id: string;
@@ -108,6 +109,8 @@ export interface Invoice {
 
     // Financials
     totalHT: number;
+    totalVAT?: number;
+    totalRemise?: number;
     totalTTC: number;
     rounding: number;
     deposit: number; // Acompte
@@ -232,6 +235,7 @@ export interface Transaction {
 
     isReconciled?: boolean; // For Bank
     reconciledDate?: string;
+    mode?: PaymentMode;
 }
 
 // Staff / Payroll

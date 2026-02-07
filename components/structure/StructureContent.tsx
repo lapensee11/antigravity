@@ -10,7 +10,8 @@ import {
     getSubFamilies, saveSubFamily, deleteSubFamily,
     getAccountingAccounts, saveAccountingAccount, deleteAccountingAccount,
     getSettings, saveSetting,
-    getPartners, savePartner, deletePartner
+    getPartners, savePartner, deletePartner,
+    reconcileStructureWithMaster, moveArticlesBetweenFamilies
 } from "@/lib/data-service";
 import { Partner } from "@/lib/types";
 
@@ -386,6 +387,16 @@ export function StructureContent({
         }
     };
 
+    const handleRepairStructure = async () => {
+        if (!confirm("Voulez-vous vérifier l'intégrité de la structure ?\n\nCela rajoute les familles manquantes sans modifier vos renommages ou vos créations personnelles.")) return;
+
+        // 1. Sync structures (additive only)
+        await reconcileStructureWithMaster();
+
+        alert("Structure vérifiée. Vos personnalisations sont préservées.");
+        window.location.reload();
+    };
+
     const getParentLabel = () => {
         if (modalMode === "family") {
             if (editMode) {
@@ -524,6 +535,14 @@ export function StructureContent({
                         <h2 className="text-4xl font-extrabold text-slate-800 tracking-tight">Structure</h2>
                         <p className="text-slate-500 mt-2 text-lg font-light">Gestion de l'architecture de votre boulangerie.</p>
                     </div>
+                    {/* Global Action Button */}
+                    <button
+                        onClick={handleRepairStructure}
+                        className="flex items-center gap-2 px-6 py-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-3xl font-black text-xs transition-all active:scale-95 group border-2 border-red-100 mb-2"
+                    >
+                        <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
+                        VÉRIFIER LA STRUCTURE
+                    </button>
                 </div>
 
                 {/* Tab Selector */}

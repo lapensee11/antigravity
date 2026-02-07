@@ -1,6 +1,8 @@
 import React, { useRef, useState, forwardRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Trash2, Plus, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DateInput } from "@/components/ui/DateInput";
 
 // --- Types ---
 // Assuming these are compatible with your main types. 
@@ -27,7 +29,7 @@ interface InvoicePaymentsProps {
     onExit?: () => void;
 }
 
-const MODES = ["Espèces", "Chèque", "Virement", "Carte Bancaire"];
+const MODES = ["Chèques", "Espèces", "Virement", "Prélèvement"];
 
 // Helper Component for Strict Decimal Formatting (fr-FR)
 const DecimalInput = forwardRef<HTMLInputElement, any>(({ value, onChange, className, ...props }, ref) => {
@@ -99,6 +101,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
     // Local State
     const [activePaymentRow, setActivePaymentRow] = useState<number | null>(null);
     const [paymentModeFocusIndex, setPaymentModeFocusIndex] = useState<number>(-1);
+    const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
 
     // Click outside handler for payment mode dropdown
     useEffect(() => {
@@ -131,7 +134,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
         const newPayment = {
             id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             amount: 0,
-            mode: "Espèces",
+            mode: "Chèques",
             date: new Date().toISOString().split('T')[0],
             account: "Caisse"
         };
@@ -144,37 +147,6 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
             const lastIndex = newPayments.length - 1;
             amountRefs.current[lastIndex]?.focus();
         }, 100);
-    };
-
-    const handleDateArrow = (index: number, part: 'day' | 'month' | 'year', direction: 'up' | 'down') => {
-        const newPayments = [...payments];
-        const payment = { ...newPayments[index] };
-
-        const parts = payment.date ? payment.date.split('-') : [];
-        let date;
-        if (parts.length === 3) {
-            date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-        } else {
-            date = new Date();
-        }
-
-        const change = direction === 'up' ? 1 : -1;
-
-        if (part === 'day') {
-            date.setDate(date.getDate() + change);
-        } else if (part === 'month') {
-            date.setMonth(date.getMonth() + change);
-        } else if (part === 'year') {
-            date.setFullYear(date.getFullYear() + change);
-        }
-
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, '0');
-        const d = String(date.getDate()).padStart(2, '0');
-
-        payment.date = `${y}-${m}-${d}`;
-        newPayments[index] = payment;
-        onPaymentsChange(newPayments);
     };
 
     return (
@@ -209,54 +181,15 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {payments.map((payment, index) => {
-                                const dateParts = payment.date ? payment.date.split("-") : ["", "", ""];
                                 return (
                                     <tr key={payment.id || index} className="group hover:bg-slate-50/50">
                                         {/* Date */}
-                                        <td className="px-4 py-2">
-                                            <div className="flex items-center gap-1 font-mono text-xs bg-white border border-slate-200 rounded-md px-2 py-1 shadow-sm focus-within:ring-1 focus-within:ring-blue-400 w-fit">
-                                                <Calendar className="w-3 h-3 text-slate-400 mr-1" />
-                                                <div className="flex items-center gap-0.5 relative">
-                                                    {/* Day */}
-                                                    <span className="relative">
-                                                        <span className="text-slate-700 font-bold">{dateParts[2]}</span>
-                                                        <input
-                                                            className="absolute inset-0 opacity-0 cursor-col-resize w-full"
-                                                            type="text"
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "ArrowUp") { e.preventDefault(); handleDateArrow(index, 'day', 'up'); }
-                                                                if (e.key === "ArrowDown") { e.preventDefault(); handleDateArrow(index, 'day', 'down'); }
-                                                            }}
-                                                        />
-                                                    </span>
-                                                    <span className="text-slate-300">/</span>
-                                                    {/* Month */}
-                                                    <span className="relative">
-                                                        <span className="text-slate-700 font-bold">{dateParts[1]}</span>
-                                                        <input
-                                                            className="absolute inset-0 opacity-0 cursor-col-resize w-full"
-                                                            type="text"
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "ArrowUp") { e.preventDefault(); handleDateArrow(index, 'month', 'up'); }
-                                                                if (e.key === "ArrowDown") { e.preventDefault(); handleDateArrow(index, 'month', 'down'); }
-                                                            }}
-                                                        />
-                                                    </span>
-                                                    <span className="text-slate-300">/</span>
-                                                    {/* Year */}
-                                                    <span className="relative">
-                                                        <span className="text-slate-700 font-bold">{dateParts[0]}</span>
-                                                        <input
-                                                            className="absolute inset-0 opacity-0 cursor-col-resize w-full"
-                                                            type="text"
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === "ArrowUp") { e.preventDefault(); handleDateArrow(index, 'year', 'up'); }
-                                                                if (e.key === "ArrowDown") { e.preventDefault(); handleDateArrow(index, 'year', 'down'); }
-                                                            }}
-                                                        />
-                                                    </span>
-                                                </div>
-                                            </div>
+                                        <td className="px-4 py-2 w-48">
+                                            <DateInput
+                                                value={payment.date}
+                                                onChange={(val: string) => handlePaymentChange(index, "date", val)}
+                                                className="bg-transparent border-slate-200 text-slate-700 h-8"
+                                            />
                                         </td>
 
                                         {/* Amount */}
@@ -280,7 +213,13 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                             <div className="relative">
                                                 <button
                                                     ref={el => { paymentModeRefs.current[index] = el; }}
-                                                    onClick={() => {
+                                                    onClick={(e) => {
+                                                        const rect = e.currentTarget.getBoundingClientRect();
+                                                        setDropdownPos({
+                                                            top: rect.bottom + window.scrollY,
+                                                            left: rect.left + window.scrollX + (rect.width / 2),
+                                                            width: 160 // Matches the w-40 class
+                                                        });
                                                         if (activePaymentRow === index) {
                                                             setActivePaymentRow(null);
                                                         } else {
@@ -308,7 +247,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                                     const selectedMode = MODES[paymentModeFocusIndex];
                                                                     handlePaymentChange(index, "mode", selectedMode);
                                                                     setActivePaymentRow(null);
-                                                                    if (selectedMode === "Chèque") {
+                                                                    if (selectedMode === "Chèques") {
                                                                         setTimeout(() => paymentRefRefs.current[index]?.focus(), 50);
                                                                     } else {
                                                                         setTimeout(() => paymentNoteRefs.current[index]?.focus(), 50);
@@ -321,7 +260,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                         } else if (e.key === "Tab" && !e.shiftKey) {
                                                             e.preventDefault();
                                                             setActivePaymentRow(null);
-                                                            if (payment.mode === "Chèque") {
+                                                            if (payment.mode === "Chèques") {
                                                                 paymentRefRefs.current[index]?.focus();
                                                             } else {
                                                                 paymentNoteRefs.current[index]?.focus();
@@ -338,8 +277,18 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                     {payment.mode}
                                                 </button>
 
-                                                {activePaymentRow === index && (
-                                                    <div ref={paymentListRef} className="absolute top-full left-1/2 -translate-x-1/2 w-40 bg-white shadow-xl rounded-lg border border-slate-200 z-50 mt-1 py-1">
+                                                {activePaymentRow === index && typeof document !== 'undefined' && createPortal(
+                                                    <div
+                                                        ref={paymentListRef}
+                                                        style={{
+                                                            position: 'absolute',
+                                                            top: `${dropdownPos.top}px`,
+                                                            left: `${dropdownPos.left}px`,
+                                                            transform: 'translateX(-50%)',
+                                                            width: `${dropdownPos.width}px`
+                                                        }}
+                                                        className="bg-white shadow-2xl rounded-lg border border-slate-200 z-[9999] mt-1 py-1"
+                                                    >
                                                         {MODES.map((mode, i) => (
                                                             <div
                                                                 key={mode}
@@ -351,7 +300,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                                     e.stopPropagation();
                                                                     handlePaymentChange(index, "mode", mode);
                                                                     setActivePaymentRow(null);
-                                                                    if (mode === "Chèque") {
+                                                                    if (mode === "Chèques") {
                                                                         setTimeout(() => paymentRefRefs.current[index]?.focus(), 50);
                                                                     } else {
                                                                         setTimeout(() => paymentNoteRefs.current[index]?.focus(), 50);
@@ -361,7 +310,8 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                                 {mode}
                                                             </div>
                                                         ))}
-                                                    </div>
+                                                    </div>,
+                                                    document.body
                                                 )}
                                             </div>
                                         </td>
@@ -393,7 +343,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
 
                                         {/* Cheque Info (N° Chèque) */}
                                         <td className="px-4 py-2">
-                                            {payment.mode === "Chèque" ? (
+                                            {payment.mode === "Chèques" ? (
                                                 <input
                                                     ref={el => { paymentRefRefs.current[index] = el; }}
                                                     placeholder="N° Chèque"
@@ -430,7 +380,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                         }
                                                     } else if (e.key === "Tab" && e.shiftKey) {
                                                         e.preventDefault();
-                                                        if (payment.mode === "Chèque") {
+                                                        if (payment.mode === "Chèques") {
                                                             paymentRefRefs.current[index]?.focus();
                                                         } else {
                                                             paymentModeRefs.current[index]?.focus();
@@ -474,14 +424,14 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                     <div className="flex flex-col items-center">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Payé</span>
                         <span className="text-lg font-black text-emerald-400 leading-none">
-                            {(deposit || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-xs opacity-60 font-medium">Dh</span>
+                            {(deposit || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs opacity-60 font-medium">Dh</span>
                         </span>
                     </div>
                     <div className="w-px h-10 bg-white/20" />
                     <div className="flex flex-col items-center">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Reste à Payer</span>
                         <span className="text-lg font-black text-red-400 leading-none">
-                            {(balanceDue || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-xs opacity-60 font-medium">Dh</span>
+                            {(balanceDue || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs opacity-60 font-medium">Dh</span>
                         </span>
                     </div>
                 </div>

@@ -24,14 +24,32 @@ import { motion } from "framer-motion";
 
 export default function Home() {
   const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchStats() {
-      const data = await getDashboardStats();
-      setStats(data);
+      try {
+        const data = await getDashboardStats();
+        setStats(data);
+      } catch (err) {
+        console.error("Failed to fetch dashboard stats:", err);
+      } finally {
+        setLoading(false);
+      }
     }
     fetchStats();
   }, []);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen bg-[#F8FAFC] items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-slate-500 font-bold font-outfit animate-pulse">Initialisation du système...</p>
+        </div>
+      </div>
+    );
+  }
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('fr-FR', {
@@ -225,7 +243,7 @@ export default function Home() {
 }
 
 function SalesComparisonGraph({ data, currentMonth, prevMonth }: { data: any[], currentMonth: string, prevMonth: string }) {
-  const maxValue = Math.max(...data.map(d => Math.max(d.current, d.prev)), 1000);
+  const maxValue = Math.max(1000, ...data.map(d => Math.max(d.current || 0, d.prev || 0)));
   const height = 200;
   const width = 800;
   const padding = 40;

@@ -261,13 +261,13 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                                 </span>
                                             </td>
                                             <td className="py-4 px-6 text-right text-[14px] font-black text-slate-900 whitespace-nowrap">
-                                                {inv.totalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-[10px] opacity-40">Dh</span>
+                                                {inv.totalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-40">Dh</span>
                                             </td>
                                             <td className="py-4 px-6 text-right text-[14px] font-bold text-emerald-600 whitespace-nowrap">
-                                                {totalPaid > 0 ? totalPaid.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : "-"}
+                                                {totalPaid > 0 ? totalPaid.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
                                             </td>
                                             <td className="py-4 px-6 text-right text-[14px] font-black text-red-500 whitespace-nowrap">
-                                                {inv.balanceDue > 0.05 ? inv.balanceDue.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : "-"}
+                                                {inv.balanceDue > 0.05 ? inv.balanceDue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
                                             </td>
                                             <td className="py-4 px-6 text-center">
                                                 <button

@@ -61,17 +61,17 @@ export const InvoiceFinancials: React.FC<InvoiceFinancialsProps> = ({ formData, 
             <div className="bg-[#1E293B] text-white rounded-xl py-3 px-6 flex items-center gap-8 shadow-lg shadow-gray-400/20">
                 <div className="flex flex-col">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total HT</span>
-                    <span className="text-sm font-black">{(formData.totalHT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-[10px] opacity-60">Dh</span></span>
+                    <span className="text-sm font-black">{(formData.totalHT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-60">Dh</span></span>
                 </div>
                 <div className="w-px h-8 bg-white/10" />
                 <div className="flex flex-col">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TVA</span>
-                    <span className="text-sm font-black">{((formData as any).totalVAT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-[10px] opacity-60">Dh</span></span>
+                    <span className="text-sm font-black">{(formData.totalVAT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-60">Dh</span></span>
                 </div>
                 <div className="w-px h-8 bg-white/10" />
                 <div className="flex flex-col">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Remise</span>
-                    <span className="text-sm font-black text-white">{((formData as any).totalRemise || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-[10px] opacity-60 font-medium">Dh</span></span>
+                    <span className="text-sm font-black text-white">{(formData.totalRemise || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-60 font-medium">Dh</span></span>
                 </div>
                 <div className="w-px h-8 bg-white/10" />
                 <div className="flex flex-col">
@@ -88,7 +88,7 @@ export const InvoiceFinancials: React.FC<InvoiceFinancialsProps> = ({ formData, 
                 <div className="w-px h-10 bg-white/20 mx-2" />
                 <div className="flex flex-col">
                     <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Total TTC</span>
-                    <span className="text-xl font-black text-blue-400">{(formData.totalTTC || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-xs opacity-80">Dh</span></span>
+                    <span className="text-xl font-black text-blue-400">{(formData.totalTTC || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs opacity-80">Dh</span></span>
                 </div>
             </div>
         </div>

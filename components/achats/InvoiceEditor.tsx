@@ -4,6 +4,7 @@ import { Invoice, InvoiceLine } from "@/lib/types";
 import { InvoiceDocuments } from "./editor/InvoiceDocuments";
 import { InvoiceFinancials } from "./editor/InvoiceFinancials";
 import { InvoicePayments } from "./editor/InvoicePayments";
+import { DateInput } from "@/components/ui/DateInput";
 import { initialFamilies, initialSubFamilies } from "@/lib/data";
 import { Trash2, Plus, Check } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -104,6 +105,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
 
     // Refs for Focus Management
     const designationRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const detailsRefs = useRef<(HTMLInputElement | null)[]>([]);
     const quantityRefs = useRef<(HTMLInputElement | null)[]>([]);
     const priceRefs = useRef<(HTMLInputElement | null)[]>([]);
     const unitRefs = useRef<(HTMLSelectElement | null)[]>([]);
@@ -128,8 +130,20 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
         if (invoice) {
             // Recalculate totals to ensure consistency with lines/payments
             const lines = invoice.lines || [];
-            const calculatedHT = lines.reduce((sum, l) => sum + (l.quantity * l.priceHT * (1 - (l.discount || 0) / 100)), 0);
-            const calculatedTTC = lines.reduce((sum, l) => sum + l.totalTTC, 0);
+            const totalHT = lines.reduce((sum, l) => sum + (l.quantity * l.priceHT * (1 - (l.discount || 0) / 100)), 0);
+
+            const totalVAT = lines.reduce((sum, l) => {
+                const lineHT = l.quantity * l.priceHT * (1 - (l.discount || 0) / 100);
+                return sum + (lineHT * (l.vatRate / 100));
+            }, 0);
+
+            const totalRemise = lines.reduce((sum, l) => {
+                const lineBase = l.quantity * l.priceHT;
+                return sum + (lineBase * ((l.discount || 0) / 100));
+            }, 0);
+
+            const rounding = invoice.rounding || 0;
+            const totalTTC = totalHT + totalVAT + rounding;
 
             let payments = invoice.payments || [];
             if (payments.length === 0) {
@@ -137,19 +151,21 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                     id: `pay_${Date.now()}`,
                     date: new Date().toISOString().split('T')[0],
                     amount: 0,
-                    mode: "Espèces" as const,
+                    mode: "Chèques" as const,
                     account: "Caisse" as const
                 }];
             }
 
             const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-            const balanceDue = calculatedTTC - totalPaid;
+            const balanceDue = totalTTC - totalPaid;
 
             setFormData({
                 ...invoice,
-                payments: payments, // Use the potentially modified payments array
-                totalHT: calculatedHT,
-                totalTTC: calculatedTTC,
+                payments: payments,
+                totalHT,
+                totalTTC,
+                totalVAT,
+                totalRemise,
                 deposit: totalPaid,
                 balanceDue: balanceDue
             });
@@ -164,7 +180,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                 id: `pay_${Date.now()}`,
                 date: new Date().toISOString().split('T')[0],
                 amount: 0,
-                mode: "Espèces" as const,
+                mode: "Chèques" as const,
                 account: "Caisse" as const
             };
             setFormData({
@@ -191,8 +207,19 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
     const handleSupplierChange = (id: string) => {
         const supplier = suppliers.find(s => s.id === id);
         const name = supplier ? supplier.name : "";
-        const newNumber = onGenerateNumber ? onGenerateNumber(name) : formData.number;
+
+        // Only generate number if current number is empty or missing
+        const currentNumber = formData.number || "";
+        const isPlaceholder = currentNumber === "" || currentNumber === "---";
+        const newNumber = (onGenerateNumber && isPlaceholder) ? onGenerateNumber(name) : currentNumber;
+
         const newData = { ...formData, supplierId: id, number: newNumber };
+        setFormData(newData);
+        if (onUpdate && invoice) onUpdate({ ...invoice, ...newData } as Invoice);
+    };
+
+    const handleNumberChange = (val: string) => {
+        const newData = { ...formData, number: val };
         setFormData(newData);
         if (onUpdate && invoice) onUpdate({ ...invoice, ...newData } as Invoice);
     };
@@ -272,7 +299,8 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
             priceHT: 0,
             discount: 0,
             vatRate: 20,
-            totalTTC: 0
+            totalTTC: 0,
+            details: ""
         };
         const newLines = [...(formData.lines || []), newLine];
         updateLines(newLines);
@@ -331,7 +359,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
         updateLines(newLines);
         setTimeout(() => {
             setActiveRow(null);
-            quantityRefs.current[index]?.focus();
+            detailsRefs.current[index]?.focus();
         }, 50);
     };
 
@@ -342,7 +370,8 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
             ...lineToClone,
             id: `line_${Date.now()}`,
             quantity: 0, // Reset quantity as requested ("vide")
-            totalTTC: 0
+            totalTTC: 0,
+            details: lineToClone.details || ""
         };
 
         // Recalc totals for 0 quantity
@@ -407,9 +436,9 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                 e.preventDefault();
                 handleSelectArticle(index, filteredArticles[articleFocusIndex]);
             } else if (e.key === "Enter") {
-                // If Enter but no selection, just focus quantity
+                // If Enter but no selection, just focus details
                 e.preventDefault();
-                quantityRefs.current[index]?.focus();
+                detailsRefs.current[index]?.focus();
             }
         } else if (e.key === "Escape") {
             setActiveRow(null);
@@ -420,7 +449,9 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
     const handleLineKeyDown = (e: React.KeyboardEvent, index: number, field: string) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            if (field === "quantity") {
+            if (field === "details") {
+                quantityRefs.current[index]?.focus();
+            } else if (field === "quantity") {
                 unitRefs.current[index]?.focus();
             } else if (field === "unit") {
                 priceRefs.current[index]?.focus();
@@ -508,9 +539,19 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                 <Plus className="w-4 h-4 rotate-45" />
                             </div>
 
-                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono opacity-80 pl-0.5 mt-1">
-                                N° {formData.number || "---"}
-                            </span>
+                            <div className="flex items-center gap-1 mt-1">
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono opacity-80">
+                                    N°
+                                </span>
+                                <input
+                                    type="text"
+                                    value={formData.number || ""}
+                                    onChange={e => handleNumberChange(e.target.value)}
+                                    onFocus={(e) => e.target.select()}
+                                    placeholder="---"
+                                    className="bg-transparent text-xs font-bold text-slate-500 uppercase tracking-wider font-mono focus:outline-none focus:text-blue-600 focus:bg-blue-50/50 rounded px-1 transition-all w-full max-w-[200px]"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -520,22 +561,20 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                             {/* Date 1: Facture */}
                             <div className="flex flex-col px-4 border-r border-slate-100 hover:bg-slate-50 transition-colors rounded-l-lg group justify-center h-full">
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">Date Facture</span>
-                                <input
-                                    type="date"
+                                <DateInput
                                     value={formData.date || ""}
-                                    onChange={e => setFormData({ ...formData, date: e.target.value })}
-                                    className="bg-transparent text-lg font-black text-slate-700 focus:outline-none w-32 cursor-pointer leading-none"
+                                    onChange={val => setFormData({ ...formData, date: val })}
+                                    className="bg-transparent border-none text-lg font-black text-slate-700 focus:outline-none w-40 cursor-pointer p-0 h-auto"
                                 />
                             </div>
 
                             {/* Date 2: Echéance */}
                             <div className="flex flex-col px-4 hover:bg-slate-50 transition-colors rounded-r-lg group justify-center h-full">
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">Echéance</span>
-                                <input
-                                    type="date"
+                                <DateInput
                                     value={formData.date ? new Date(new Date(formData.date).setDate(new Date(formData.date).getDate() + 30)).toISOString().split('T')[0] : ""}
-                                    disabled
-                                    className="bg-transparent text-lg font-black text-slate-300 focus:outline-none w-32 cursor-not-allowed leading-none"
+                                    onChange={() => { }}
+                                    className="bg-transparent border-none text-lg font-black text-slate-300 focus:outline-none w-40 cursor-not-allowed p-0 h-auto"
                                 />
                             </div>
                         </div>
@@ -576,15 +615,16 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                             <table className="w-full text-sm border-separate border-spacing-0">
                                 <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-200 tracking-wider">
                                     <tr>
-                                        <th className="px-2 py-3 text-left w-[8%] rounded-tl-xl">Cpt.</th>
-                                        <th className="px-4 py-3 text-left w-[20%]">Désignation</th>
-                                        <th className="px-2 py-3 text-right w-[8%]">Qté</th>
-                                        <th className="px-2 py-3 text-center w-[12%]">Unité</th>
-                                        <th className="px-2 py-3 text-right w-[12%]">PU HT</th>
-                                        <th className="px-2 py-3 text-right w-[8%]">TVA %</th>
-                                        <th className="px-2 py-3 text-right w-[10%]">Remise %</th>
-                                        <th className="px-2 py-3 text-right w-[12%]">Total HT</th>
-                                        <th className="px-4 py-3 text-right w-[13%]">Total TTC</th>
+                                        <th className="px-2 py-3 text-left w-[5%] rounded-tl-xl">Cpt.</th>
+                                        <th className="px-4 py-3 text-left w-[18%]">Désignation</th>
+                                        <th className="px-4 py-3 text-left w-[15%]">Détails</th>
+                                        <th className="px-2 py-3 text-right w-[6%]">Qté</th>
+                                        <th className="px-2 py-3 text-center w-[8%]">Unité</th>
+                                        <th className="px-2 py-3 text-right w-[10%]">PU HT</th>
+                                        <th className="px-2 py-3 text-right w-[6%]">TVA %</th>
+                                        <th className="px-2 py-3 text-right w-[8%]">Remise %</th>
+                                        <th className="px-2 py-3 text-right w-[10%]">Total HT</th>
+                                        <th className="px-4 py-3 text-right w-[12%]">Total TTC</th>
                                         <th className="px-2 py-3 w-8 rounded-tr-xl"></th>
                                     </tr>
                                 </thead>
@@ -638,6 +678,19 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                                     )}
                                                 </td>
 
+                                                {/* Details */}
+                                                <td className="px-4 py-2">
+                                                    <input
+                                                        ref={(el) => { detailsRefs.current[index] = el; }}
+                                                        value={line.details || ""}
+                                                        onChange={e => handleLineChange(index, "details", e.target.value)}
+                                                        onFocus={(e) => setTimeout(() => e.target.select(), 0)}
+                                                        onKeyDown={(e) => handleLineKeyDown(e, index, "details")}
+                                                        className="w-full bg-transparent font-normal text-slate-500 italic text-[11px] outline-none placeholder:text-slate-300"
+                                                        placeholder="Détails..."
+                                                    />
+                                                </td>
+
                                                 {/* Qty */}
                                                 <td className="px-2 py-2">
                                                     <input
@@ -645,7 +698,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                                         type="number"
                                                         value={line.quantity}
                                                         onChange={e => handleLineChange(index, "quantity", e.target.value)}
-                                                        onFocus={(e) => e.target.select()}
+                                                        onFocus={(e) => setTimeout(() => e.target.select(), 0)}
                                                         onClick={(e) => (e.target as HTMLInputElement).select()}
                                                         onKeyDown={(e) => handleLineKeyDown(e, index, "quantity")}
                                                         className="w-full text-right bg-transparent outline-none font-medium [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -687,7 +740,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                                             type="number"
                                                             value={line.vatRate !== undefined ? line.vatRate : 0}
                                                             onChange={e => handleLineChange(index, "vatRate", e.target.value)}
-                                                            onFocus={(e) => e.target.select()}
+                                                            onFocus={(e) => setTimeout(() => e.target.select(), 0)}
                                                             onKeyDown={(e) => handleLineKeyDown(e, index, "vatRate")}
                                                             className="w-full text-right bg-transparent outline-none font-medium text-slate-500 pr-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                         />
@@ -703,7 +756,7 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                                             type="number"
                                                             value={line.discount}
                                                             onChange={e => handleLineChange(index, "discount", e.target.value)}
-                                                            onFocus={(e) => e.target.select()}
+                                                            onFocus={(e) => setTimeout(() => e.target.select(), 0)}
                                                             onKeyDown={(e) => handleLineKeyDown(e, index, "discount")}
                                                             className="w-full text-right bg-transparent outline-none font-medium text-slate-500 pr-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                         />
@@ -750,8 +803,8 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                                 <tfoot className="bg-slate-50 font-bold text-slate-800 text-xs border-t border-slate-200">
                                     <tr>
                                         <td colSpan={6} className="px-4 py-3 text-right uppercase tracking-wide text-slate-500 rounded-bl-xl">Totaux</td>
-                                        <td className="px-2 py-3 text-right text-slate-700">{(formData.totalHT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} Dh</td>
-                                        <td className="px-4 py-3 text-right font-black text-[#5D4037]">{(formData.totalTTC || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} Dh</td>
+                                        <td className="px-2 py-3 text-right text-slate-700">{(formData.totalHT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh</td>
+                                        <td className="px-4 py-3 text-right font-black text-[#5D4037]">{(formData.totalTTC || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh</td>
                                         <td className="rounded-br-xl"></td>
                                     </tr>
                                 </tfoot>
@@ -786,6 +839,6 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                     />
                 </div>
             </div>
-        </GlassCard>
+        </GlassCard >
     );
 }

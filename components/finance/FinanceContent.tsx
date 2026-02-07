@@ -7,8 +7,10 @@ import { useState, useMemo } from "react";
 import { Wallet, Landmark, Archive, Search, Calendar, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { saveTransaction, deleteTransaction } from "@/lib/data-service";
+import { useInvoices } from "@/lib/hooks/use-data";
 
 export function FinanceContent({ initialTransactions }: { initialTransactions: Transaction[] }) {
+    const { data: invoices = [] } = useInvoices();
     const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
     const [activeAccount, setActiveAccount] = useState<"Banque" | "Caisse" | "Coffre">("Banque");
     const [isAddingNew, setIsAddingNew] = useState(false);
@@ -323,6 +325,7 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
                     <div className="flex-1 flex flex-col gap-4 overflow-hidden">
                         <FinanceJournal
                             transactions={filteredTransactions}
+                            invoices={invoices}
                             accountType={activeAccount}
                             onToggleReconcile={handleToggleReconcile}
                             onEdit={() => { }}

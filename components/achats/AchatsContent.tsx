@@ -43,7 +43,7 @@ export function AchatsContent({
         if (tiers.length > 0 && filtered.length === 0) {
             console.warn("AchatsContent: NO SUPPLIERS FOUND. Checking first tier types:", tiers.slice(0, 3).map(t => `"${t.type}"`));
         }
-        return filtered;
+        return filtered.sort((a, b) => a.name.localeCompare(b.name));
     }, [tiers]);
     const sidebarListRef = useRef<HTMLDivElement>(null);
 
@@ -179,6 +179,8 @@ export function AchatsContent({
 
         // 3. Prepare Transactions
         const isDraft = inv.status !== "Validated";
+        const supplierName = suppliers.find(s => s.id === inv.supplierId)?.name || inv.supplierId || 'Inconnu';
+
         const newTxs: Transaction[] = (inv.payments || []).map(p => {
             let account: "Banque" | "Caisse" | "Coffre" = "Coffre";
             if (!isDraft) {
@@ -188,14 +190,15 @@ export function AchatsContent({
             return {
                 id: `t_sync_${id}_${p.id}`,
                 date: p.date,
-                label: `Achat: ${inv.supplierId || 'Inconnu'} (${inv.number})`,
+                label: `Achat: ${inv.number}`,
                 amount: p.amount,
                 type: "Depense",
                 category: "Achat",
                 account: account,
                 invoiceId: id,
-                tier: inv.supplierId,
-                pieceNumber: inv.number,
+                tier: supplierName,
+                pieceNumber: p.mode === "Chèques" ? (p.reference || inv.number) : inv.number,
+                mode: p.mode,
                 isReconciled: false
             };
         });
@@ -346,13 +349,24 @@ export function AchatsContent({
             if (statusFilter === "FACTURES" && inv.status === "Draft") return false;
             if (statusFilter === "BROUILLONS" && inv.status !== "Draft") return false;
             if (supplierSearch) {
-                if (!inv.supplierId.toLowerCase().includes(supplierSearch.toLowerCase())) return false;
+                const supplier = suppliers.find(s => s.id === inv.supplierId || s.code === inv.supplierId);
+                const name = supplier ? supplier.name : inv.supplierId;
+                if (!name.toLowerCase().includes(supplierSearch.toLowerCase())) return false;
             }
             const invDateStr = inv.date;
             if (dateRange.start && invDateStr < dateRange.start) return false;
             if (dateRange.end && invDateStr > dateRange.end) return false;
             return true;
-        }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        }).sort((a, b) => {
+            // 1. Non-synchronized first
+            const aSynced = !!a.syncTime;
+            const bSynced = !!b.syncTime;
+            if (aSynced !== bSynced) {
+                return aSynced ? 1 : -1;
+            }
+            // 2. Then by date descending
+            return new Date(b.date).getTime() - new Date(a.date).getTime();
+        });
     }, [invoices, statusFilter, supplierSearch, periodFilter, dateRange]);
 
     // Auto-select
@@ -581,12 +595,17 @@ export function AchatsContent({
                                         </div>
 
                                         <div className="flex justify-between items-end w-full">
-                                            <h3 className={cn("text-sm font-black uppercase tracking-tight truncate pr-2 leading-none mb-0.5", isSelected ? "text-slate-800" : "text-slate-700")}>
-                                                {(() => {
-                                                    const s = tiers.find(t => t.id === inv.supplierId || t.code === inv.supplierId);
-                                                    return s ? s.name : (inv.supplierId || "Fournisseur");
-                                                })()}
-                                            </h3>
+                                            <div className="flex flex-col min-w-0 flex-1">
+                                                <h3 className={cn("text-sm font-black uppercase tracking-tight truncate pr-2 leading-none mb-0.5", isSelected ? "text-slate-800" : "text-slate-700")}>
+                                                    {(() => {
+                                                        const s = tiers.find(t => t.id === inv.supplierId || t.code === inv.supplierId);
+                                                        return s ? s.name : (inv.supplierId || "Fournisseur");
+                                                    })()}
+                                                </h3>
+                                                {!inv.syncTime && (
+                                                    <div className="h-0.5 w-8 bg-orange-500 rounded-full mt-0.5 shadow-sm shadow-orange-500/20" />
+                                                )}
+                                            </div>
                                             {(() => {
                                                 const totalPaid = (inv.payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
                                                 const activeBalance = inv.totalTTC - totalPaid;
@@ -739,8 +758,6 @@ export function AchatsContent({
                                 onUpdate={handleUpdate}
                                 onCreateNew={handleCreateNew}
                                 onDuplicate={handleDuplicate}
-                                suppliers={suppliers}
-                                articles={articles}
                                 onGenerateNumber={generateInvoiceNumber}
                                 onExit={handleExitEdit}
                             />

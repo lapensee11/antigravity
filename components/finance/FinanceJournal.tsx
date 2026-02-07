@@ -1,4 +1,4 @@
-import { Transaction } from "@/lib/types";
+import { Transaction, Invoice } from "@/lib/types";
 import { Check, Edit2, Copy, Trash2, X, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
@@ -11,6 +11,7 @@ interface FinanceJournalProps {
     onDuplicate: (id: string) => void;
     onDelete: (id: string) => void;
     onUpdate?: (transaction: Transaction) => void; // New prop for updating
+    invoices?: Invoice[];
     tiers?: string[]; // New prop for tiers list
     isAddingNew?: boolean;
     onSaveNew?: (transaction: Partial<Transaction>) => void;
@@ -25,6 +26,7 @@ export function FinanceJournal({
     onDuplicate,
     onDelete,
     onUpdate,
+    invoices = [],
     tiers = [],
     isAddingNew = false,
     onSaveNew,
@@ -201,8 +203,9 @@ export function FinanceJournal({
                             <th className="px-2 py-3 text-center w-10 border-r border-slate-200/50">P.</th>
                             <th className="px-2 py-3 text-left w-32 border-r border-slate-200/50">Date</th>
                             <th className="px-2 py-3 text-left w-48 border-r border-slate-200/50">Tiers</th>
-                            <th className="px-2 py-3 text-left border-r border-slate-200/50">Libellé</th>
+                            <th className="px-2 py-3 text-left w-64 border-r border-slate-200/50">Libellé</th>
                             <th className="px-2 py-3 text-left w-40 border-r border-slate-200/50">N° Pièce</th>
+                            <th className="px-2 py-3 text-left w-40 border-r border-slate-200/50">N° Facture(s)</th>
                             <th className="px-2 py-3 text-right text-red-600 w-28 border-r border-slate-200/50">Débit</th>
                             <th className="px-2 py-3 text-right text-green-600 w-28 border-r border-slate-200/50">Crédit</th>
                             <th className="px-2 py-3 text-right w-36 pl-4">Actions</th>
@@ -251,6 +254,9 @@ export function FinanceJournal({
                                         onChange={(e) => setNewTx({ ...newTx, pieceNumber: e.target.value })}
                                         className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono"
                                     />
+                                </td>
+                                <td className="px-1 py-1 border-r border-slate-100 italic text-[10px] text-slate-400 flex items-center justify-center h-full">
+                                    -
                                 </td>
                                 <td className="px-1 py-1 border-r border-slate-100">
                                     <input
@@ -351,6 +357,9 @@ export function FinanceJournal({
                                                 className="w-full bg-white border border-amber-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none font-mono"
                                             />
                                         </td>
+                                        <td className="px-1 py-1 border-r border-amber-200/50 italic text-[10px] text-amber-600/50 text-center">
+                                            -
+                                        </td>
                                         <td className="px-1 py-1 border-r border-amber-200/50">
                                             <input
                                                 type="number"
@@ -435,13 +444,33 @@ export function FinanceJournal({
                                     </td>
 
                                     {/* Libellé */}
-                                    <td className="px-2 py-1.5 text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis max-w-[300px] text-[13px] border-r border-slate-100">
+                                    <td className="px-2 py-1.5 text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis w-64 text-[13px] border-r border-slate-100">
                                         {tx.label}
                                     </td>
 
                                     {/* N° Pièce */}
                                     <td className="px-2 py-1.5 font-mono text-[11px] text-slate-400 border-r border-slate-100">
                                         {tx.pieceNumber || "-"}
+                                    </td>
+
+                                    {/* N° Facture(s) */}
+                                    <td className="px-2 py-1.5 font-mono text-[11px] text-blue-600/70 border-r border-slate-100">
+                                        {(() => {
+                                            if (tx.invoiceId) {
+                                                const inv = (invoices as Invoice[]).find(i => i.id === tx.invoiceId);
+                                                return inv?.number || "-";
+                                            }
+                                            // Aggregated checks
+                                            if (tx.pieceNumber && tx.label.includes("Reglement Chèque")) {
+                                                const concernedInvoices = (invoices as Invoice[]).filter(inv =>
+                                                    inv.payments.some(p => p.reference === tx.pieceNumber)
+                                                );
+                                                if (concernedInvoices.length > 0) {
+                                                    return concernedInvoices.map(inv => inv.number).join(", ");
+                                                }
+                                            }
+                                            return "-";
+                                        })()}
                                     </td>
 
                                     {/* Débit */}

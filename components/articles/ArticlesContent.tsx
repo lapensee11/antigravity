@@ -116,6 +116,7 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
 
     const [selectedType, setSelectedType] = useState<"TOUS" | "1" | "2">("TOUS");
     const [searchQuery, setSearchQuery] = useState("");
+    const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
     const [selectedSubFamilyId, setSelectedSubFamilyId] = useState<string | null>(null);
 
     const availableFamilies = useMemo(() => {
@@ -133,25 +134,6 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
         return subFamilies.filter(s => familyIds.has(s.familyId));
     }, [availableFamilies, subFamilies]);
 
-    const [isFamilyOpen, setIsFamilyOpen] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-                setIsFamilyOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
-
-    const getSelectionLabel = () => {
-        if (!selectedSubFamilyId) return "Toutes Familles";
-        const sub = subFamilies.find(s => s.id === selectedSubFamilyId);
-        if (sub) return sub.name;
-        return "Toutes Familles";
-    }
 
     const filteredArticles = useMemo(() => {
         let filtered = articles;
@@ -173,9 +155,12 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
         }
         if (selectedSubFamilyId) {
             filtered = filtered.filter(a => a.subFamilyId === selectedSubFamilyId);
+        } else if (selectedFamilyId) {
+            const familySubs = new Set(subFamilies.filter(s => s.familyId === selectedFamilyId).map(s => s.id));
+            filtered = filtered.filter(a => familySubs.has(a.subFamilyId));
         }
         return filtered.sort((a, b) => a.code.localeCompare(b.code));
-    }, [articles, selectedType, searchQuery, selectedSubFamilyId]);
+    }, [articles, selectedType, searchQuery, selectedFamilyId, selectedSubFamilyId, subFamilies]);
 
     useEffect(() => {
         if (!selectedArticle && filteredArticles.length > 0) {
@@ -318,8 +303,8 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                                 </button>
                                 <button
                                     onClick={async () => {
-                                        const validFamilies = new Set(initialFamilies.filter(f => f.typeId === "1" || f.typeId === "2").map(f => f.id));
-                                        const validSubs = new Set(initialSubFamilies.filter(s => validFamilies.has(s.familyId)).map(s => s.id));
+                                        const validFamilies = new Set(families.filter(f => f.typeId === "1" || f.typeId === "2").map(f => f.id));
+                                        const validSubs = new Set(subFamilies.filter(s => validFamilies.has(s.familyId)).map(s => s.id));
 
                                         const toDelete = articles.filter(a =>
                                             a.id === 'a1' ||
@@ -355,130 +340,65 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                                     <Plus className="w-6 h-6" />
                                 </button>
                             </div>
-                            <button
-                                onClick={async () => {
-                                    const testData = [
-                                        // Batch 11 (Fournitures Diverses)
-                                        // FA086 - Fournitures Diverses
-                                        { name: "Papier Cuisson", code: "PA086-01", unitAchat: "Boite", contenace: 100, unitPivot: "Feuilles", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Tourtière Diam 28", code: "PA086-02", unitAchat: "Carton", contenace: 100, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Tulipes MM", code: "PA086-03", unitAchat: "Carton", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Caissettes Fondant", code: "PA086-04", unitAchat: "Carton", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Caissettes N° 60*25", code: "PA086-05", unitAchat: "Carton", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Caissettes N° 3", code: "PA086-06", unitAchat: "Carton", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Feuille Polypro 15*12", code: "PA086-07", unitAchat: "Paquet", contenace: 100, unitPivot: "Feuilles", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Poches Jetables", code: "PA086-08", unitAchat: "Paquet", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Papier Aluminium", code: "PA086-11", unitAchat: "Rouleau", contenace: 1, unitPivot: "Mètres", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Ficelle Bordeaux", code: "PA086-21", unitAchat: "Bobine", contenace: 1, unitPivot: "Mètres", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Scotch", code: "PA086-22", unitAchat: "Rouleau", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Gants Jetables", code: "PA086-23", unitAchat: "Boite", contenace: 100, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Cuillères", code: "PA086-24", unitAchat: "Paquet", contenace: 100, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Rouleau caisse", code: "PA086-25", unitAchat: "Rouleau", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Bougies 1 an", code: "PA086-31", unitAchat: "Boite", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Bougies 10 ans", code: "PA086-32", unitAchat: "Boite", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Support de Bougies", code: "PA086-33", unitAchat: "Boite", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Fèves", code: "PA086-34", unitAchat: "Paquet", contenace: 100, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Couronnes", code: "PA086-35", unitAchat: "Paquet", contenace: 100, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" },
-                                        { name: "Sujets Noel", code: "PA086-36", unitAchat: "Boite", contenace: 1, unitPivot: "Unités", vatRate: 20, accountingNature: "6123", subFamilyId: "FA086" }
-                                    ];
-
-                                    if (confirm(`Importer / Fusionner ${testData.length} articles ?`)) {
-                                        const [existingArticles, liveSubFamilies] = await Promise.all([
-                                            getArticles(),
-                                            getSubFamilies()
-                                        ]);
-
-                                        for (const item of testData) {
-                                            const existing = existingArticles.find(a => a.code === item.code);
-
-                                            // Resolve real subFamilyId from Code (Smarter Import)
-                                            const codePrefix = item.code.split('-')[0].replace('P', 'F');
-                                            const matchingSub = liveSubFamilies.find(s => s.code === codePrefix || s.id === item.subFamilyId);
-
-                                            const art: Article = {
-                                                id: existing?.id || `ART-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-                                                ...item,
-                                                subFamilyId: matchingSub?.id || item.subFamilyId,
-                                                unitProduction: item.unitPivot,
-                                                coeffProd: 1,
-                                                lastPivotPrice: existing?.lastPivotPrice || 0,
-                                            };
-                                            await saveArticle(art);
-                                        }
-                                        window.location.reload();
-                                    }
-                                }}
-                                className="w-10 h-10 bg-white border border-slate-200 text-slate-400 rounded-xl flex items-center justify-center shrink-0 hover:bg-slate-50 transition-all"
-                                title="Essai Test Import"
-                            >
-                                <Database className="w-5 h-5" />
-                            </button>
                         </div>
-                        <div className="relative z-20" ref={dropdownRef}>
-                            <button
-                                onClick={() => setIsFamilyOpen(!isFamilyOpen)}
-                                className={cn(
-                                    "w-full flex items-center justify-between bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium transition-all shadow-sm group",
-                                    isFamilyOpen ? "ring-2 ring-blue-100 border-blue-400" : "hover:border-slate-300"
-                                )}
-                            >
-                                <span className={selectedSubFamilyId ? "text-slate-800 truncate" : "text-slate-500"}>
-                                    {selectedSubFamilyId ? getSelectionLabel() : "Toutes Familles"}
-                                </span>
-                                <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-colors" />
-                            </button>
-                            {isFamilyOpen && (
-                                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden max-h-[400px] overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-200 z-50">
+                        <div className="flex flex-col gap-2 bg-white/50 p-3 rounded-2xl border border-white/80 shadow-inner">
+                            <div className="flex items-center justify-between px-1">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Navigation Structure</span>
+                                {(selectedFamilyId || selectedSubFamilyId) && (
                                     <button
                                         onClick={() => {
+                                            setSelectedFamilyId(null);
                                             setSelectedSubFamilyId(null);
-                                            setIsFamilyOpen(false);
                                         }}
+                                        className="text-[10px] font-bold text-blue-500 hover:text-blue-700 transition-colors"
+                                    >
+                                        Réinitialiser
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                {/* Dropdown Familles */}
+                                <div className="w-full">
+                                    <select
+                                        value={selectedFamilyId || ""}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setSelectedFamilyId(val === "" ? null : val);
+                                            setSelectedSubFamilyId(null);
+                                        }}
+                                        className="w-full bg-white/40 border border-white/60 rounded-xl px-3 py-2 text-[10px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer"
+                                    >
+                                        <option value="">Toutes Familles</option>
+                                        {availableFamilies.map(fam => (
+                                            <option key={fam.id} value={fam.id}>[{fam.code}] - {fam.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Dropdown Sous-Familles */}
+                                <div className="w-full">
+                                    <select
+                                        value={selectedSubFamilyId || ""}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setSelectedSubFamilyId(val === "" ? null : val);
+                                        }}
+                                        disabled={!selectedFamilyId}
                                         className={cn(
-                                            "w-full text-left px-4 py-3 font-medium flex items-center justify-between transition-colors border-b border-slate-50",
-                                            !selectedSubFamilyId
-                                                ? "bg-blue-500 text-white"
-                                                : "text-slate-600 hover:bg-slate-50"
+                                            "w-full bg-white/40 border border-white/60 rounded-xl px-3 py-2 text-[10px] font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer",
+                                            !selectedFamilyId && "opacity-50 cursor-not-allowed"
                                         )}
                                     >
-                                        <span>Toutes Familles</span>
-                                        {!selectedSubFamilyId && <Check className="w-4 h-4" />}
-                                    </button>
-                                    <div className="py-2">
-                                        {availableFamilies.map(fam => {
-                                            const subs = availableSubFamilies.filter(s => s.familyId === fam.id);
-                                            if (subs.length === 0) return null;
-                                            return (
-                                                <div key={fam.id}>
-                                                    <div className="px-4 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 mt-1 first:mt-0">
-                                                        {fam.code} - {fam.name}
-                                                    </div>
-                                                    {subs.map(sub => (
-                                                        <button
-                                                            key={sub.id}
-                                                            onClick={() => {
-                                                                setSelectedSubFamilyId(sub.id);
-                                                                setIsFamilyOpen(false);
-                                                            }}
-                                                            className="w-full text-left pl-6 pr-4 py-2 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition-all flex items-center justify-between group"
-                                                        >
-                                                            <span className="font-medium truncate max-w-[180px]">{sub.name}</span>
-                                                            <span className={cn(
-                                                                "text-[9px] px-1 py-0.5 rounded font-mono font-bold transition-all",
-                                                                selectedSubFamilyId === sub.id
-                                                                    ? "bg-blue-100 text-blue-600"
-                                                                    : "bg-slate-100 text-slate-400 group-hover:bg-blue-100 group-hover:text-blue-600"
-                                                            )}>
-                                                                {sub.code}
-                                                            </span>
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
+                                        <option value="">{selectedFamilyId ? "Toutes S-Familles" : "Choisir Famille..."}</option>
+                                        {availableSubFamilies
+                                            .filter(s => s.familyId === selectedFamilyId)
+                                            .map(sub => (
+                                                <option key={sub.id} value={sub.id}>[{sub.code}] - {sub.name}</option>
+                                            ))}
+                                    </select>
                                 </div>
-                            )}
+                            </div>
                         </div>
                     </div>
                     <div
@@ -486,8 +406,8 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                         className="flex-1 overflow-y-auto custom-scrollbar border-t border-slate-200"
                     >
                         {filteredArticles.map(article => {
-                            const sub = initialSubFamilies.find(s => s.id === article.subFamilyId);
-                            const family = sub ? initialFamilies.find(f => f.id === sub.familyId) : null;
+                            const sub = subFamilies.find(s => s.id === article.subFamilyId);
+                            const family = sub ? families.find(f => f.id === sub.familyId) : null;
                             const typePrefix = family ? family.code.substring(0, 2) : "XX";
                             const isSelected = selectedArticle?.id === article.id;
                             return (

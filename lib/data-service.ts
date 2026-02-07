@@ -1,5 +1,6 @@
 import { db } from './db';
 import { Article, StaffMember, Invoice, Tier, Family, SubFamily, Recipe, StructureType, Transaction, AccountingAccount, AppSetting, Partner } from './types';
+import { initialFamilies, initialSubFamilies } from './data';
 
 // ... (previous imports)
 
@@ -21,7 +22,25 @@ export async function saveInvoice(invoice: Invoice): Promise<{ success: true }> 
 }
 
 export async function deleteInvoice(id: string): Promise<{ success: true }> {
+    const inv = await db.invoices.get(id);
+    const affectedChecks = new Set<string>();
+    if (inv) {
+        (inv.payments || []).forEach(p => {
+            if (p.mode === "Chèques" && p.reference) affectedChecks.add(p.reference);
+        });
+    }
+
     await db.invoices.delete(id);
+    await db.transactions.where('invoiceId').equals(id).delete();
+
+    // Re-evaluate affected checks
+    if (affectedChecks.size > 0) {
+        const allInvoices = await db.invoices.toArray();
+        for (const ref of Array.from(affectedChecks)) {
+            await updateAggregatedCheck(ref, allInvoices);
+        }
+    }
+
     return { success: true };
 }
 
@@ -71,8 +90,72 @@ export async function deleteTier(id: string): Promise<{ success: true }> {
 }
 
 // SIMULATIONS / SYNC
+async function updateAggregatedCheck(ref: string, allInvoices: Invoice[]) {
+    let total = 0;
+    let supplier = "";
+    let date = "";
+
+    allInvoices.forEach(inv => {
+        (inv.payments || []).forEach(p => {
+            if (p.mode === "Chèques" && p.reference === ref) {
+                total += Number(p.amount) || 0;
+                if (!supplier) supplier = inv.supplierId;
+                if (!date) date = p.date;
+            }
+        });
+    });
+
+    if (total > 0) {
+        // Resolve supplier name
+        let supplierName = supplier;
+        if (supplier) {
+            const tierObj = await db.tiers.get(supplier);
+            if (tierObj) supplierName = tierObj.name;
+        }
+
+        await db.transactions.put({
+            id: `check_vignette_${ref}`,
+            date: date || new Date().toISOString().split('T')[0],
+            label: `Reglement Chèque: ${ref}`,
+            amount: total,
+            type: "Depense",
+            category: "Achat",
+            account: "Banque",
+            pieceNumber: ref,
+            tier: supplierName,
+            mode: "Chèques" as const,
+            isReconciled: false
+        } as Transaction);
+    } else {
+        await db.transactions.delete(`check_vignette_${ref}`);
+    }
+}
+
 export const syncInvoiceTransactions = async (invoiceId: string, transactions: any[]) => {
-    console.log(`Simulating sync of ${transactions.length} transactions for invoice ${invoiceId}`);
+    // 1. Delete previous individual transactions for this invoice
+    await db.transactions.where('invoiceId').equals(invoiceId).delete();
+
+    // 2. Identify check numbers to re-evaluate
+    const affectedCheckNumbers = new Set<string>(
+        transactions
+            .filter(t => t.mode === "Chèques" && t.pieceNumber)
+            .map(t => t.pieceNumber)
+    );
+
+    // 3. Handle Aggregated Checks
+    if (affectedCheckNumbers.size > 0) {
+        const allInvoices = await db.invoices.toArray();
+        for (const ref of Array.from(affectedCheckNumbers)) {
+            await updateAggregatedCheck(ref, allInvoices);
+        }
+    }
+
+    // 4. Handle Non-Aggregated Transactions (Individual)
+    const individualTxs = transactions.filter(t => t.mode !== "Chèques" || !t.pieceNumber);
+    for (const tx of individualTxs) {
+        await db.transactions.put(tx);
+    }
+
     return { success: true };
 };
 
@@ -133,6 +216,51 @@ export async function saveSubFamily(subFamily: SubFamily): Promise<{ success: tr
 export async function deleteSubFamily(id: string): Promise<{ success: true }> {
     await db.subFamilies.delete(id);
     return { success: true };
+}
+
+export async function reconcileStructureWithMaster(): Promise<{ success: true }> {
+    await db.transaction('rw', [db.families, db.subFamilies], async () => {
+        // 1. Ensure all standard families exist, but DON'T overwrite their names
+        for (const family of initialFamilies) {
+            const existing = await db.families.get(family.id);
+            if (!existing) {
+                await db.families.add(family);
+            }
+            // Optional: if (existing && !existing.name) await db.families.update(family.id, { name: family.name });
+        }
+        // 2. Ensure all standard sub-families exist
+        for (const sub of initialSubFamilies) {
+            const existing = await db.subFamilies.get(sub.id);
+            if (!existing) {
+                await db.subFamilies.add(sub);
+            }
+        }
+    });
+    return { success: true };
+}
+
+export async function moveArticlesBetweenFamilies(fromId: string, toId: string): Promise<{ count: number }> {
+    const articles = await db.articles.where('subFamilyId').startsWith(fromId).toArray();
+    // This is naive because subFamilyId is not just familyId. 
+    // We should probably check the sub-family hierarchy.
+    const allSubFamilies = await db.subFamilies.toArray();
+    const fromSubs = allSubFamilies.filter(s => s.familyId === fromId).map(s => s.id);
+    const toSubs = allSubFamilies.filter(s => s.familyId === toId);
+
+    let count = 0;
+    const articlesToMove = await db.articles.toArray();
+    for (const art of articlesToMove) {
+        if (fromSubs.includes(art.subFamilyId)) {
+            // Find equivalent sub in target family by code or name
+            const currentSub = allSubFamilies.find(s => s.id === art.subFamilyId);
+            const targetSub = toSubs.find(s => s.code === currentSub?.code || s.name === currentSub?.name);
+            if (targetSub) {
+                await db.articles.update(art.id, { subFamilyId: targetSub.id });
+                count++;
+            }
+        }
+    }
+    return { count };
 }
 // TRANSACTIONS
 export async function getTransactions(): Promise<Transaction[]> {
@@ -240,64 +368,66 @@ export async function getDashboardStats() {
     const prevMonthDate = new Date(currentYear, currentMonth - 1, 1);
     const prevMonthPrefix = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
-    // 1. Sales Calculation
-    const salesTable = await db.salesData.toArray();
-    let totalSales = 0; // Current Month Real
-    let prevTotalSales = 0; // Prev Month Real (Same Period)
+    // 1. Sales Calculation - Filtered by prefixes
+    const currentMonthSales = await db.salesData.where('id').startsWith(currentMonthPrefix).toArray();
+    const prevMonthSales = await db.salesData.where('id').startsWith(prevMonthPrefix).toArray();
 
-    // Daily series for comparison graph
+    let totalSales = 0;
+    let prevTotalSales = 0;
+
     const dailyComparisonMap: Record<number, { current: number, prev: number }> = {};
     for (let d = 1; d <= 31; d++) dailyComparisonMap[d] = { current: 0, prev: 0 };
 
-    salesTable.forEach(day => {
+    currentMonthSales.forEach(day => {
         const dayParts = day.id.split('-');
-        if (dayParts.length !== 3) return;
         const dayNum = parseInt(dayParts[2]);
+        const val = parseFloat(day.real?.calculated?.ttc) || 0;
+        totalSales += val;
+        dailyComparisonMap[dayNum].current = val;
+    });
 
-        // Current Month
-        if (day.id.startsWith(currentMonthPrefix) && day.real?.calculated?.ttc) {
-            const val = parseFloat(day.real.calculated.ttc) || 0;
-            totalSales += val;
-            dailyComparisonMap[dayNum].current = val;
+    prevMonthSales.forEach(day => {
+        const dayParts = day.id.split('-');
+        const dayNum = parseInt(dayParts[2]);
+        const val = parseFloat(day.real?.calculated?.ttc) || 0;
+        if (dayNum <= currentDay) {
+            prevTotalSales += val;
         }
-
-        // Previous Month
-        if (day.id.startsWith(prevMonthPrefix) && day.real?.calculated?.ttc) {
-            const val = parseFloat(day.real.calculated.ttc) || 0;
-            if (dayNum <= currentDay) {
-                prevTotalSales += val;
-            }
-            dailyComparisonMap[dayNum].prev = val;
-        }
+        dailyComparisonMap[dayNum].prev = val;
     });
 
     const dailyComparison = Object.keys(dailyComparisonMap)
         .map(d => ({ day: parseInt(d), ...dailyComparisonMap[parseInt(d)] }))
         .sort((a, b) => a.day - b.day);
 
-    // 2. Pending Invoices (Total TTC)
-    const invoices = await db.invoices.toArray();
-    const pendingInvoices = invoices.filter(inv => inv.status === 'Draft' || inv.status === 'Validated');
+    // 2. Pending Invoices - Filtered by status index
+    const pendingInvoices = await db.invoices
+        .where('status')
+        .anyOf(['Draft', 'Validated'])
+        .toArray();
+
     const totalPendingAmount = pendingInvoices.reduce((sum, inv) => {
-        const linesTotal = inv.lines.reduce((lSum, l) => lSum + (l.totalTTC || 0), 0);
-        return sum + linesTotal;
+        return sum + (inv.totalTTC || 0); // Using cached totalTTC
     }, 0);
 
     // 3. Articles & Production
     const articleCount = await db.articles.count();
     const recipeCount = await db.recipes.count();
 
-    // 4. Activity Feed (Last 5 invoices)
-    const recentActivity = invoices
-        .sort((a, b) => b.date.localeCompare(a.date))
-        .slice(0, 5)
-        .map(inv => ({
-            id: inv.id,
-            type: 'FACTURE',
-            label: `Facture ${inv.number}`,
-            date: inv.date,
-            amount: inv.lines.reduce((sum, l) => sum + (l.totalTTC || 0), 0)
-        }));
+    // 4. Activity Feed - Last 5 invoices
+    const recentActivityRaw = await db.invoices
+        .orderBy('date')
+        .reverse()
+        .limit(5)
+        .toArray();
+
+    const recentActivity = recentActivityRaw.map(inv => ({
+        id: inv.id,
+        type: 'FACTURE',
+        label: `Facture ${inv.number}`,
+        date: inv.date,
+        amount: inv.totalTTC || 0
+    }));
 
     return {
         totalSales,
