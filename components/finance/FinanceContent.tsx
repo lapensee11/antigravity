@@ -8,12 +8,15 @@ import { Wallet, Landmark, Archive, Search, Calendar, Plus, X } from "lucide-rea
 import { cn } from "@/lib/utils";
 import { saveTransaction, deleteTransaction } from "@/lib/data-service";
 import { useInvoices } from "@/lib/hooks/use-data";
+import { BankReconciliationModal } from "./BankReconciliationModal";
+import { Scale } from "lucide-react";
 
 export function FinanceContent({ initialTransactions }: { initialTransactions: Transaction[] }) {
     const { data: invoices = [] } = useInvoices();
     const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
     const [activeAccount, setActiveAccount] = useState<"Banque" | "Caisse" | "Coffre">("Banque");
     const [isAddingNew, setIsAddingNew] = useState(false);
+    const [isReconModalOpen, setIsReconModalOpen] = useState(false);
 
     const [searchQuery, setSearchQuery] = useState("");
     const [periodFilter, setPeriodFilter] = useState<"Toutes" | "Quinzaine" | "Mois" | "Période">("Toutes");
@@ -266,6 +269,21 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
                         </div>
 
                         <div className="flex items-center gap-3 w-full">
+                            {/* Rapprochement Button */}
+                            <button
+                                onClick={() => setIsReconModalOpen(true)}
+                                className={cn(
+                                    "h-[54px] px-6 rounded-2xl flex items-center justify-center gap-3 font-bold transition-all hover:scale-[1.02] active:scale-95 shadow-sm border",
+                                    activeAccount === "Banque"
+                                        ? "bg-white border-[#C8A890]/30 text-[#B6967E] hover:bg-[#F2DAC3]/10"
+                                        : "opacity-40 cursor-not-allowed bg-slate-100 text-slate-400 border-slate-200"
+                                )}
+                                disabled={activeAccount !== "Banque"}
+                            >
+                                <Scale className="w-5 h-5" />
+                                <span>Rapprochement</span>
+                            </button>
+
                             <div className="relative flex-1 h-[54px] group">
                                 <div className="absolute inset-0 bg-white rounded-2xl border border-slate-200 shadow-sm group-focus-within:border-indigo-300 group-focus-within:ring-4 group-focus-within:ring-indigo-100 transition-all pointer-events-none" />
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-500 transition-colors z-10" />
@@ -339,6 +357,12 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
                         />
                     </div>
                 </div>
+
+                {/* Bank Reconciliation Modal */}
+                <BankReconciliationModal
+                    isOpen={isReconModalOpen}
+                    onClose={() => setIsReconModalOpen(false)}
+                />
             </main>
         </div>
     );

@@ -811,6 +811,18 @@ export function InvoiceEditor({ invoice, onSave, onDelete, onSync, onUpdate, onC
                             </table>
                         </div>
 
+                        {/* Quick Add Button Below Table */}
+                        <div className="mt-2 flex justify-start">
+                            <button
+                                type="button"
+                                onClick={handleAddLine}
+                                className="w-8 h-8 bg-[#1E293B] text-white rounded-lg flex items-center justify-center hover:bg-slate-700 transition-all shadow-md shadow-slate-200 group active:scale-95 translate-x-1"
+                                title="Ajouter une ligne rapidement"
+                            >
+                                <Plus className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                            </button>
+                        </div>
+
                         {/* Detailed Calculation Summary */}
                         <InvoiceFinancials
                             formData={formData}

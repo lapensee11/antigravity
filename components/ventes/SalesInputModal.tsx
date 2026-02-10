@@ -209,19 +209,24 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
     // Glovo Net
     const glovoNet = ((parseFloat(glovo.brut) || 0) * (1 - commTTC)) - (parseFloat(glovo.incid) || 0) - (parseFloat(glovo.cash) || 0);
 
-    // Total HT
+    // Total HT (Remains based on sum of categories)
     const totalHT = valImpHT + valExo;
 
-    // Total TTC
-    const totalTTC = valExo + sumOthersTTC;
+    // Theoretical TTC (Sum of categories)
+    const theoreticalTTC = valExo + sumOthersTTC;
 
-    // Remise
-    const valRemise = totalTTC - manualSubTotal;
+    // Total TTC (Display/Saved - New formula for Real: SubTotal + Supps)
+    const totalTTC = isDeclared
+        ? theoreticalTTC
+        : (manualSubTotal + totalSupplements);
+
+    // Remise (Calculated from Theoretical sum vs manual input)
+    const valRemise = theoreticalTTC - manualSubTotal;
 
     // Derived Cash
     const valEsp = isDeclared
         ? (totalTTC - mtCmi - mtChq - (parseFloat(glovo.brut) || 0) + (parseFloat(glovo.cash) || 0))
-        : ((manualSubTotal + totalSupplements) - mtCmi - mtChq);
+        : (totalTTC - mtCmi - mtChq);
 
 
 
@@ -474,16 +479,19 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
         const currentData = formDataRef.current; // READ FROM REF
         if (onSave && currentData) {
             // ROBUST CALCULATION (Don't rely on useEffect)
+            // 2. Parse Inputs
             const dSales = currentData.sales || {};
             const dSupp = currentData.supplements || { traiteurs: "0", caisse: "0" };
             const dPay = currentData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" };
             const dGlovo = currentData.glovo || { brut: "0", incid: "0", cash: "0" };
             const dSubTotal = parseFloat(currentData.subTotalInput) || 0;
 
-            // 1. Exonéré
             const cValExo = parseFloat(dSales["BOULANGERIE"] || "0");
+            const cTotalSupp = (parseFloat(dSupp.traiteurs) || 0) + (parseFloat(dSupp.caisse) || 0);
+            const cMtCmi = parseFloat(dPay.mtCmi) || 0;
+            const cMtChq = parseFloat(dPay.mtChq) || 0;
 
-            // 2. Imposable HT
+            // 3. Totals
             let cSumOthersTTC = 0;
             Object.entries(dSales).forEach(([key, val]) => {
                 if (key !== "BOULANGERIE") {
@@ -492,22 +500,16 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             });
             const cValImpHT = cSumOthersTTC / 1.2;
 
-            // 3. Totals
+            const cTheoreticalTTC = cValExo + cSumOthersTTC;
             const cTotalHT = cValImpHT + cValExo;
-            const cTotalTTC = cValExo + cSumOthersTTC;
-            const cValRemise = cTotalTTC - dSubTotal;
+            const cTotalTTC = isDeclared ? cTheoreticalTTC : (dSubTotal + cTotalSupp);
+            const cValRemise = cTheoreticalTTC - dSubTotal;
 
             // 4. Glovo Net
             const cGlovoNet = ((parseFloat(dGlovo.brut) || 0) * (1 - commTTC)) - (parseFloat(dGlovo.incid) || 0) - (parseFloat(dGlovo.cash) || 0);
 
-            // 5. Espèces & Supplements
-            const cTotalSupp = (parseFloat(dSupp.traiteurs) || 0) + (parseFloat(dSupp.caisse) || 0);
-            const cMtCmi = parseFloat(dPay.mtCmi) || 0;
-            const cMtChq = parseFloat(dPay.mtChq) || 0;
-
-            const cValEsp = isDeclared
-                ? (cTotalTTC - cMtCmi - cMtChq - (parseFloat(dGlovo.brut) || 0) + (parseFloat(dGlovo.cash) || 0))
-                : ((dSubTotal + cTotalSupp) - cMtCmi - cMtChq);
+            // 5. Espèces (Unified Formula: TTC - CMI - Chq - GlovoBrut + GlovoCash)
+            const cValEsp = cTotalTTC - cMtCmi - cMtChq - (parseFloat(dGlovo.brut) || 0) + (parseFloat(dGlovo.cash) || 0);
 
             const freshCalculated = {
                 exo: cValExo.toFixed(2),

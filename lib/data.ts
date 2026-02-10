@@ -78,12 +78,10 @@ export const initialSubFamilies: SubFamily[] = [
     { id: "FA082", name: "Emballage Carton", code: "FA082", familyId: "FA08" },
     { id: "FA083", name: "Emballage Polystyrène", code: "FA083", familyId: "FA08" },
     { id: "FA084", name: "Consommable Emballage", code: "FA084", familyId: "FA08" },
-    { id: "FA091", name: "Gasoil (Fours)", code: "FA091", familyId: "FA09" },
-    { id: "FA092", name: "Gaz", code: "FA092", familyId: "FA09" },
     { id: "FA093", name: "Eau / Electricité", code: "FA093", familyId: "FA09" },
     { id: "FA094", name: "Téléphone", code: "FA094", familyId: "FA09" },
-    { id: "FA095", name: "Gasoil (Voitures)", code: "FA095", familyId: "FA09" },
     { id: "FA096", name: "Fournitures Diverses", code: "FA096", familyId: "FA09" },
+    // Specific Energy Sub-Families from Image
     { id: "FA101", name: "Produits de Ménage", code: "FA101", familyId: "FA10" },
     { id: "FA102", name: "Service Hygiène", code: "FA102", familyId: "FA10" },
     { id: "FA103", name: "Tenues de Personnel", code: "FA103", familyId: "FA10" },

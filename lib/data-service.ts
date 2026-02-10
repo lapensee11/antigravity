@@ -1,5 +1,5 @@
 import { db } from './db';
-import { Article, StaffMember, Invoice, Tier, Family, SubFamily, Recipe, StructureType, Transaction, AccountingAccount, AppSetting, Partner } from './types';
+import { Article, StaffMember, Invoice, Tier, Family, SubFamily, Recipe, StructureType, Transaction, AccountingAccount, AppSetting, Partner, CMIEntry } from './types';
 import { initialFamilies, initialSubFamilies } from './data';
 
 // ... (previous imports)
@@ -311,6 +311,16 @@ export async function saveSalesData(id: string, real?: any, declared?: any): Pro
         real: real !== undefined ? real : existing?.real,
         declared: declared !== undefined ? declared : existing?.declared
     });
+    return { success: true };
+}
+
+// CMI ENTRIES
+export async function getCMIEntries(): Promise<CMIEntry[]> {
+    return await db.cmi_entries.toArray();
+}
+
+export async function saveCMIEntries(entries: CMIEntry[]): Promise<{ success: true }> {
+    await db.cmi_entries.bulkPut(entries);
     return { success: true };
 }
 
@@ -709,3 +719,91 @@ export async function deleteUnitGlobal(name: string, type: UnitType): Promise<{ 
     }
     return { success: true };
 }
+
+export async function ensureArticlesExist(): Promise<{ success: true }> {
+    // 0 & 1. Ensure Structural Seeding (Once Only)
+    const STRUCT_SEED_KEY = 'bakery_maintenance_structure_seeded_v2'; // Bumped for Energy fix
+    if (typeof window !== "undefined" && !localStorage.getItem(STRUCT_SEED_KEY)) {
+        // Ensure Families exist
+        const maintenanceFamilies: Family[] = [
+            { id: "FA09", name: "Energie et Fluides", code: "FA09", typeId: "1" },
+            { id: "FA10", name: "Entretien et Hygiène", code: "FA10", typeId: "1" },
+            { id: "FA11", name: "Matériel", code: "FA11", typeId: "1" },
+        ];
+
+        for (const fam of maintenanceFamilies) {
+            await db.families.put(fam);
+        }
+
+        // Ensure Sub-Families exist
+        const maintenanceSubs: SubFamily[] = [
+            // Energy (FA09) - New from Image
+            { id: "FA091", name: "Carburants & Gaz", code: "FA091", familyId: "FA09" },
+            { id: "FA092", name: "Eau & Électricité", code: "FA092", familyId: "FA09" },
+            { id: "FA093", name: "Télécommunications", code: "FA093", familyId: "FA09" },
+
+            // Hygiene (FA10)
+            { id: "FA101", name: "Produits de Ménage", code: "FA101", familyId: "FA10" },
+            { id: "FA102", name: "Service Hygiène", code: "FA102", familyId: "FA10" },
+            { id: "FA103", name: "Tenues de Personnel", code: "FA103", familyId: "FA10" },
+        ];
+
+        for (const sub of maintenanceSubs) {
+            await db.subFamilies.put(sub);
+        }
+        localStorage.setItem(STRUCT_SEED_KEY, 'true');
+    }
+
+    // 2. Ensure Articles exist (Only if not already seeded to allow permanent deletion)
+    const SEED_KEY = 'bakery_maintenance_articles_seeded_v4'; // Bumped for Energy fix
+    if (typeof window !== "undefined" && !localStorage.getItem(SEED_KEY)) {
+        const initialMaintenanceArticles: any[] = [
+            // ENERGIE (FA091, FA092, FA093) - From Image
+            { id: "PA091-01", name: "Gasoil (Fours)", code: "PA091-01", subFamilyId: "FA091", unitAchat: "Tonne", unitPivot: "Litres", unitProduction: "Litres", contenace: 1000, coeffProd: 1, vatRate: 10, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA091-02", name: "Gaz", code: "PA091-02", subFamilyId: "FA091", unitAchat: "Bouteille", unitPivot: "Kg", unitProduction: "Kg", contenace: 12, coeffProd: 1, vatRate: 10, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA091-03", name: "Diesel (Voitures)", code: "PA091-03", subFamilyId: "FA091", unitAchat: "Litre", unitPivot: "Litres", unitProduction: "Litres", contenace: 1, coeffProd: 1, vatRate: 10, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+
+            { id: "PA092-01", name: "Eléctricité Pat", code: "PA092-01", subFamilyId: "FA092", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 10, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
+            { id: "PA092-02", name: "Eléctricité Général", code: "PA092-02", subFamilyId: "FA092", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 10, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
+            { id: "PA092-03", name: "Eau", code: "PA092-03", subFamilyId: "FA092", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 10, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
+
+            { id: "PA093-01", name: "Lignes Ittisalat", code: "PA093-01", subFamilyId: "FA093", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
+            { id: "PA093-02", name: "Lignes Orange", code: "PA093-02", subFamilyId: "FA093", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
+            { id: "PA093-03", name: "Internet", code: "PA093-03", subFamilyId: "FA093", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
+
+            // HYGIENE & ENTRETIEN (FA101, FA102, FA103)
+            // ... (rest of hygiene articles stay the same)
+            { id: "PA101-01", name: "Lessive Mains", code: "PA101-01", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA101-02", name: "Javel", code: "PA101-02", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA101-03", name: "Nettoyant Sol", code: "PA101-03", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA101-04", name: "ONI", code: "PA101-04", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA101-05", name: "Nettoyage Vitres", code: "PA101-05", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA101-11", name: "Balai", code: "PA101-11", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA101-12", name: "Raclette", code: "PA101-12", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA101-13", name: "Manche à balai", code: "PA101-13", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA101-14", name: "Serpillère", code: "PA101-14", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA101-15", name: "Torchons", code: "PA101-15", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+
+            // SubFamily FA102
+            { id: "PA102-01", name: "Entretien Egoûts", code: "PA102-01", subFamilyId: "FA102", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
+            { id: "PA102-02", name: "Laveur Vitres", code: "PA102-02", subFamilyId: "FA102", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
+
+            // SubFamily FA103
+            { id: "PA103-01", name: "Chemises vendeuses", code: "PA103-01", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA103-02", name: "Devant Vendeuses", code: "PA103-02", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA103-03", name: "Coiffe Vendeuses", code: "PA103-03", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA103-04", name: "Pantalon Vendeuses", code: "PA103-04", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA103-11", name: "Tenue labo", code: "PA103-11", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA103-12", name: "Tablier labo", code: "PA103-12", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA103-13", name: "Tocque Labo", code: "PA103-13", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+            { id: "PA103-14", name: "Tenue Ménage", code: "PA103-14", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
+        ];
+
+        for (const art of initialMaintenanceArticles) {
+            await db.articles.put(art);
+        }
+        localStorage.setItem(SEED_KEY, 'true');
+    }
+    return { success: true };
+}
+

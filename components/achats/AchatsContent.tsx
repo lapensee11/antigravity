@@ -8,6 +8,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { Search, Plus, X, FileText, File, Calendar, RefreshCw, Copy, Files, Trash2, Check, CloudUpload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
 import {
     getInvoices,
     saveInvoice,
@@ -15,7 +16,8 @@ import {
     getArticles,
     getTiers,
     syncInvoiceTransactions,
-    updateArticlePivotPrices
+    updateArticlePivotPrices,
+    ensureArticlesExist
 } from "@/lib/data-service";
 
 export function AchatsContent({
@@ -31,6 +33,7 @@ export function AchatsContent({
     const [articles, setArticles] = useState<Article[]>(initialArticles);
     const [tiers, setTiers] = useState<Tier[]>(initialTiers);
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+    const queryClient = useQueryClient();
 
     // Filter suppliers from tiers (Extremely Robust filtering)
     const suppliers = useMemo(() => {
@@ -62,7 +65,11 @@ export function AchatsContent({
 
                 setTiers(ts);
                 setInvoices(invs);
-                setArticles(arts);
+                await ensureArticlesExist();
+                queryClient.invalidateQueries({ queryKey: ["articles"] });
+                queryClient.invalidateQueries({ queryKey: ["subFamilies"] });
+                const updatedArts = await getArticles();
+                setArticles(updatedArts);
             } catch (error) {
                 console.error("AchatsContent: Load Error:", error);
             }
@@ -123,15 +130,10 @@ export function AchatsContent({
     // Filters
     const [statusFilter, setStatusFilter] = useState<"TOUS" | "FACTURES" | "BROUILLONS">("TOUS");
     const [supplierSearch, setSupplierSearch] = useState("");
-    const [periodFilter, setPeriodFilter] = useState<"TOUT" | "MOIS" | "TRIMESTRE">("MOIS");
+    const [periodFilter, setPeriodFilter] = useState<"TOUT" | "MOIS" | "TRIMESTRE">("TOUT");
 
     // Custom Date Range
-    const [dateRange, setDateRange] = useState<{ start: string; end: string }>(() => {
-        const now = new Date();
-        const start = new Date(new Date().setDate(now.getDate() - 30)).toISOString().split('T')[0];
-        const end = now.toISOString().split('T')[0];
-        return { start, end };
-    });
+    const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: "", end: "" });
 
     const setPeriod = (period: "TOUT" | "MOIS" | "TRIMESTRE") => {
         setPeriodFilter(period);

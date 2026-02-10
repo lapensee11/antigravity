@@ -238,6 +238,15 @@ export interface Transaction {
     mode?: PaymentMode;
 }
 
+export interface CMIEntry {
+    id: string;
+    date: string;
+    brut: number;
+    commission: number;
+    tva: number;
+    net: number;
+}
+
 // Staff / Payroll
 export interface StaffMember {
     id: number;

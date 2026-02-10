@@ -6,7 +6,8 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { SalesInputModal } from "@/components/ventes/SalesInputModal";
 import { useState, useEffect, Suspense, useRef, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { Calendar, TrendingUp, ShieldCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, TrendingUp, ShieldCheck, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import * as XLSX from 'xlsx-js-style';
 import { cn } from "@/lib/utils";
 import { saveSalesData, getSalesData, getPartners, saveTransaction, getTransactions } from "@/lib/data-service";
 import { Partner, Transaction, AccountType } from "@/lib/types";
@@ -513,12 +514,18 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                 usageExoneratedPercentage: (pExo * 100).toString() // Store as 10
             };
 
+            const ttcVal = parseFloat(dayReal.calculated?.ttc || "0");
+            const cmiVal = parseFloat(dayReal.payments?.mtCmi || "0");
+            const chqVal = parseFloat(dayReal.payments?.mtChq || "0");
+            const newEspReal = ttcVal - cmiVal - chqVal - glovoBrutVal + glovoCashVal;
+
             const updatedReal: DayData = {
                 ...dayReal,
                 glovo: updatedGlovoFull,
                 calculated: {
                     ...(dayReal.calculated || {}),
-                    glovo: newGlovoNet.toFixed(2)
+                    glovo: newGlovoNet.toFixed(2),
+                    esp: newEspReal.toFixed(2)
                 }
             };
 
@@ -647,6 +654,143 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
 
         return totals;
     }, [tableRows, viewMode]);
+
+    const handlePrevMonth = () => {
+        if (selectedMonth === 0) {
+            setSelectedMonth(11);
+            setSelectedYear(prev => prev - 1);
+        } else {
+            setSelectedMonth(prev => prev - 1);
+        }
+    };
+
+    const handleNextMonth = () => {
+        if (selectedMonth === 11) {
+            setSelectedMonth(0);
+            setSelectedYear(prev => prev + 1);
+        } else {
+            setSelectedMonth(prev => prev + 1);
+        }
+    };
+
+    const handleExportExcel = () => {
+        const dataToExport = tableRows.map(row => {
+            if (viewMode === "Compta") {
+                return {
+                    "Date": row.dateStr,
+                    "Exo": parseFloat((row as any).compta.exo) || 0,
+                    "Dont Glovo (Exo)": parseFloat((row as any).compta.glovoExo) || 0,
+                    "Imp. HT": parseFloat((row as any).compta.impHt) || 0,
+                    "Dont Glovo (Imp)": parseFloat((row as any).compta.glovoImp) || 0,
+                    "Total HT": parseFloat((row as any).compta.totHt) || 0,
+                    "Total TTC": parseFloat(row.compta.ttc) || 0,
+                    "CMI": parseFloat(row.cmi) || 0,
+                    "Chèques": parseFloat(row.chq) || 0,
+                    "Espèces (D)": parseFloat(row.declaredEsp) || 0,
+                    "Glovo Brut": parseFloat(salesData[row.isoKey]?.real?.glovo?.brut || "0") || 0,
+                    "Inc.": parseFloat(salesData[row.isoKey]?.real?.glovo?.incid || "0") || 0,
+                    "cash": parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0") || 0,
+                    "Glovo Net": parseFloat(row.glovo || "0") || 0
+                };
+            } else {
+                return {
+                    "Date": row.dateStr,
+                    "Exonéré": parseFloat(row.exo) || 0,
+                    "Imp. HT": parseFloat(row.impHt) || 0,
+                    "Total HT": parseFloat(row.totHt) || 0,
+                    "Total TTC": parseFloat(row.ttc) || 0,
+                    "CMI": parseFloat(row.cmi) || 0,
+                    "Chèques": parseFloat(row.chq) || 0,
+                    "Espèces": parseFloat(row.esp) || 0,
+                    "Glovo Brut": parseFloat(salesData[row.isoKey]?.real?.glovo?.brut || "0") || 0,
+                    "Inc.": parseFloat(salesData[row.isoKey]?.real?.glovo?.incid || "0") || 0,
+                    "cash": parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0") || 0,
+                    "Glovo Net": parseFloat(row.glovo || "0") || 0
+                };
+            }
+        });
+
+        // Calculate Totals Row
+        const totalsRow: any = { "Date": "TOTAL" };
+        const keys = Object.keys(dataToExport[0]);
+        keys.forEach(key => {
+            if (key === "Date") return;
+            totalsRow[key] = dataToExport.reduce((sum, row: any) => sum + (row[key] || 0), 0);
+        });
+
+        const finalData = [...dataToExport, totalsRow];
+
+        const ws = XLSX.utils.json_to_sheet(finalData);
+
+        // Styling
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const header = ws[XLSX.utils.encode_col(C) + 1]?.v;
+            const isGlovoCol = ["Dont Glovo", "Glovo Brut", "Inc.", "cash", "Glovo Net"].some(h => header.includes(h));
+            const isOrangeCol = ["CMI", "Chèques", "Espèces", "Espèces (D)"].some(h => header.includes(h));
+            const hasStrongSeparator = ["Date", "Total TTC", "Espèces"].some(h => header.includes(h));
+
+            for (let R = range.s.r; R <= range.e.r; ++R) {
+                const address = XLSX.utils.encode_col(C) + (R + 1);
+                const cell = ws[address];
+                if (!cell) continue;
+
+                cell.s = {
+                    font: { name: "Arial", sz: 10 },
+                    alignment: { vertical: "center", horizontal: "center" },
+                    border: {
+                        top: { style: "thin", color: { rgb: "94A3B8" } },
+                        bottom: { style: "thin", color: { rgb: "94A3B8" } },
+                        left: { style: "thin", color: { rgb: "94A3B8" } },
+                        right: {
+                            style: hasStrongSeparator ? "medium" : "thin",
+                            color: { rgb: hasStrongSeparator ? "000000" : "94A3B8" }
+                        }
+                    }
+                };
+
+                const isFooterRow = (R === range.e.r);
+
+                if (R === 0 || isFooterRow) {
+                    // Header or Footer Style (now symmetrical)
+                    if (isGlovoCol) {
+                        cell.s.font = { bold: true, color: { rgb: "000000" }, sz: 11 };
+                        cell.s.fill = { fgColor: { rgb: "FFFF00" } };
+                    } else if (isOrangeCol) {
+                        cell.s.font = { bold: true, color: { rgb: "000000" }, sz: 11 };
+                        cell.s.fill = { fgColor: { rgb: "FF9900" } }; // Strong Orange
+                    } else {
+                        cell.s.font = { bold: true, color: { rgb: "FFFFFF" }, sz: 11 };
+                        cell.s.fill = { fgColor: { rgb: viewMode === "Compta" ? "451A03" : "1E293B" } };
+                    }
+
+                    if (isFooterRow && header !== "Date") {
+                        cell.s.alignment.horizontal = "right";
+                        cell.z = '#,##0.00';
+                    }
+                } else {
+                    // Body style
+                    if (isGlovoCol) {
+                        cell.s.fill = { fgColor: { rgb: "FFFFE0" } }; // Pale yellow (LightYellow)
+                    } else if (isOrangeCol) {
+                        cell.s.fill = { fgColor: { rgb: "FFF4E6" } }; // Clearly tinted pale orange
+                    }
+
+                    if (header !== "Date") {
+                        cell.s.alignment.horizontal = "right";
+                        cell.z = '#,##0.00';
+                    }
+                }
+            }
+        }
+
+        // Column widths
+        ws['!cols'] = [{ wch: 15 }, ...Array(range.e.c).fill({ wch: 12 })];
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, `Ventes_${viewMode}`);
+        XLSX.writeFile(wb, `Journal_Ventes_${viewMode}_${selectedMonth + 1}_${selectedYear}.xlsx`);
+    };
 
 
     // Keyboard Listener
@@ -812,32 +956,43 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                     {/* FILTERS SECTION */}
                     {/* FILTERS & VIEW MODE SECTION - Reorganized */}
                     <div className="flex items-center justify-between p-2.5">
-                        {/* LEFT: View Mode Toggles */}
-                        <div className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200">
-                            <button
-                                onClick={() => setViewMode("Saisie")}
-                                className={cn(
-                                    "px-4 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
-                                    viewMode === "Saisie"
-                                        ? "bg-[#1E293B] text-white shadow-md ring-1 ring-black/5"
-                                        : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
-                                )}
-                            >
-                                <TrendingUp className="w-4 h-4" />
-                                Saisie
-                            </button>
-                            <button
-                                onClick={() => setViewMode("Compta")}
-                                className={cn(
-                                    "px-4 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
-                                    viewMode === "Compta"
-                                        ? "bg-[#451a03] text-white shadow-md ring-1 ring-[#451a03]/20"
-                                        : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
-                                )}
-                            >
-                                <ShieldCheck className="w-4 h-4" />
-                                Compta
-                            </button>
+                        <div className="flex items-center gap-3">
+                            <div className="flex items-center bg-slate-100/80 p-1 rounded-xl border border-slate-200">
+                                <button
+                                    onClick={() => setViewMode("Saisie")}
+                                    className={cn(
+                                        "px-4 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
+                                        viewMode === "Saisie"
+                                            ? "bg-[#1E293B] text-white shadow-md ring-1 ring-black/5"
+                                            : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                                    )}
+                                >
+                                    <TrendingUp className="w-4 h-4" />
+                                    Saisie
+                                </button>
+                                <button
+                                    onClick={() => setViewMode("Compta")}
+                                    className={cn(
+                                        "px-4 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
+                                        viewMode === "Compta"
+                                            ? "bg-[#451a03] text-white shadow-md ring-1 ring-[#451a03]/20"
+                                            : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                                    )}
+                                >
+                                    <ShieldCheck className="w-4 h-4" />
+                                    Compta
+                                </button>
+                            </div>
+
+                            {viewMode === "Compta" && (
+                                <button
+                                    onClick={handleExportExcel}
+                                    className="px-4 py-1.5 rounded-xl text-sm font-bold transition-all border flex items-center gap-2 shadow-sm bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                                >
+                                    <Download className="w-4 h-4" />
+                                    Excel
+                                </button>
+                            )}
                         </div>
 
                         {/* RIGHT: Date Controls (Moved here) */}
@@ -870,17 +1025,31 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                 </div>
 
                                 <div className="flex flex-col">
-                                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Mois</label>
-                                    <select
-                                        value={selectedMonth}
-                                        onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                                        className="bg-transparent border-none text-slate-700 text-sm font-bold rounded-lg px-0 py-0 focus:ring-0 cursor-pointer hover:text-blue-600 transition-colors min-w-[100px]"
-                                    >
-                                        {Array.from({ length: 12 }, (_, i) => {
-                                            const date = new Date(2000, i, 1);
-                                            return <option key={i} value={i}>{date.toLocaleDateString('fr-FR', { month: 'long' }).toUpperCase()}</option>
-                                        })}
-                                    </select>
+                                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5 ml-8">Mois</label>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={handlePrevMonth}
+                                            className="p-1 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+                                        >
+                                            <ChevronLeft className="w-4 h-4" />
+                                        </button>
+                                        <select
+                                            value={selectedMonth}
+                                            onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                                            className="bg-transparent border-none text-slate-700 text-sm font-bold rounded-lg px-0 py-0 focus:ring-0 cursor-pointer hover:text-blue-600 transition-colors min-w-[100px] text-center"
+                                        >
+                                            {Array.from({ length: 12 }, (_, i) => {
+                                                const date = new Date(2000, i, 1);
+                                                return <option key={i} value={i}>{date.toLocaleDateString('fr-FR', { month: 'long' }).toUpperCase()}</option>
+                                            })}
+                                        </select>
+                                        <button
+                                            onClick={handleNextMonth}
+                                            className="p-1 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+                                        >
+                                            <ChevronRight className="w-4 h-4" />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div className="flex flex-col">
@@ -946,7 +1115,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                 {/* 8: Chèques */}
                                                 <th className="px-3 py-3 text-right text-emerald-400 min-w-[70px]">Chèques</th>
                                                 {/* 8b: Espèces (D) */}
-                                                <th className="px-3 py-3 text-right text-orange-400 font-bold min-w-[85px]">Espèces (D)</th>
+                                                <th className="px-3 py-3 text-right text-orange-400 font-bold min-w-[85px] border-r-2 border-[#451a03]">Espèces (D)</th>
                                                 {/* 9: Glovo Brut */}
                                                 <th className="px-2 py-3 text-right text-yellow-400 w-16 min-w-[70px]">Glv Brut</th>
                                                 {/* 10: Incid */}
@@ -1054,7 +1223,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                     {/* 8: Chèques */}
                                                     <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[70px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
                                                     {/* 8b: Espèces (D) */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[85px]", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredEsp !== "0.00" ? row.declaredEsp : "-"}</td>
+                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[85px] border-r-2 border-[#451a03]", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredEsp !== "0.00" ? row.declaredEsp : "-"}</td>
                                                     {/* 9: Glovo Brut */}
                                                     <td className="px-2 py-1 text-right w-16 min-w-[70px] font-mono text-xs font-bold">
                                                         <span className={focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600"}>
@@ -1257,13 +1426,19 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                 {/* 8: Chèques */}
                                                 <td className="px-3 py-4 text-right text-emerald-400 font-mono min-w-[80px]">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 8b: Espèces (D) */}
-                                                <td className="px-3 py-4 text-right text-orange-400 font-bold font-mono min-w-[90px]">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-3 py-4 text-right text-orange-400 font-bold font-mono min-w-[90px] border-r-2 border-[#451a03]">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 9: Glovo Brut */}
                                                 <td className="px-3 py-4 text-right font-black text-yellow-400 font-mono min-w-[80px]">
                                                     {periodTotals.glovoBrut.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
-                                                {/* 10, 11: Incid/Cash (Labels) */}
-                                                <td className="px-2 py-4 text-right text-yellow-500/80" colSpan={2}>Détails Glovo Net</td>
+                                                {/* 10: Incid */}
+                                                <td className="px-2 py-4 text-right text-yellow-500 font-mono min-w-[60px]">
+                                                    {periodTotals.glovoIncid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                                {/* 11: Cash */}
+                                                <td className="px-2 py-4 text-right text-yellow-600 font-mono min-w-[60px]">
+                                                    {periodTotals.glovoCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
                                                 {/* 12: Glovo Net */}
                                                 <td className="px-3 py-4 text-right font-black text-yellow-300 font-mono border-r-2 border-[#451a03] min-w-[100px]">
                                                     {periodTotals.glovo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { ArticlesContent } from "@/components/articles/ArticlesContent";
-import { getArticles } from "@/lib/data-service";
+import { getArticles, ensureArticlesExist } from "@/lib/data-service";
 import { Article } from "@/lib/types";
 
 export default function ArticlesPage() {
@@ -10,6 +10,7 @@ export default function ArticlesPage() {
 
     useEffect(() => {
         async function fetchData() {
+            await ensureArticlesExist();
             setArticles(await getArticles());
         }
         fetchData();

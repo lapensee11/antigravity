@@ -836,12 +836,12 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                             <table className="w-full text-sm">
                                 <thead className="bg-[#F8FAFC]/50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200">
                                     <tr>
-                                        <th className="px-8 py-5 text-center">Date</th>
-                                        <th className="px-4 py-5 text-center">Fournisseur</th>
-                                        <th className="px-4 py-5 text-center">Quantité</th>
-                                        <th className="px-4 py-5 text-center">PU HT</th>
-                                        <th className="px-4 py-5 text-center">Prix Pivot</th>
-                                        <th className="px-8 py-5 text-center">Total TTC</th>
+                                        <th className="px-6 py-2 text-center">Date</th>
+                                        <th className="px-4 py-2 text-center">Fournisseur</th>
+                                        <th className="px-4 py-2 text-center">Quantité</th>
+                                        <th className="px-4 py-2 text-center">PU HT</th>
+                                        <th className="px-4 py-2 text-center">Prix Pivot</th>
+                                        <th className="px-6 py-2 text-center">Total TTC</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-50">
@@ -854,24 +854,24 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                     ) : (
                                         historyList.map((item, idx) => (
                                             <tr key={idx} className={cn("group transition-colors hover:bg-blue-50/30", item.status === "Draft" && "opacity-60 grayscale")}>
-                                                <td className="px-8 py-5 text-slate-500 font-bold text-center">
+                                                <td className="px-6 py-2 text-slate-500 font-bold text-center">
                                                     {new Date(item.date).toLocaleDateString('fr-FR')}
                                                     {item.status === "Draft" && <span className="ml-2 text-[9px] bg-slate-100 px-1 rounded">Brouillon</span>}
                                                 </td>
-                                                <td className="px-4 py-5 font-bold text-slate-800 text-center">
+                                                <td className="px-4 py-2 font-bold text-slate-800 text-center">
                                                     {item.supplier}
                                                 </td>
-                                                <td className="px-4 py-5 text-center">
+                                                <td className="px-4 py-2 text-center">
                                                     <span className="font-black text-slate-700">{item.quantity}</span>
                                                     <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">{item.unit}</span>
                                                 </td>
-                                                <td className="px-4 py-5 font-black text-slate-600 text-center">
+                                                <td className="px-4 py-2 font-black text-slate-600 text-center">
                                                     {item.price.toFixed(2).replace('.', ',')} Dh
                                                 </td>
-                                                <td className="px-4 py-5 font-black text-blue-600 text-center">
+                                                <td className="px-4 py-2 font-black text-blue-600 text-center">
                                                     {item.prixPivot.toFixed(2).replace('.', ',')} <span className="text-[10px]">/{article?.unitPivot || ""}</span>
                                                 </td>
-                                                <td className="px-8 py-5 font-black text-[#D69E2E] text-center">
+                                                <td className="px-6 py-2 font-black text-[#D69E2E] text-center">
                                                     {(item.total || (item.price * item.quantity)).toFixed(2).replace('.', ',')} Dh
                                                 </td>
                                             </tr>

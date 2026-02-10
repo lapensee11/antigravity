@@ -418,6 +418,18 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                 </div>
             </div>
 
+            {/* Quick Add Button Below Payments Table */}
+            <div className="mt-2 flex justify-start">
+                <button
+                    type="button"
+                    onClick={handleAddPayment}
+                    className="w-8 h-8 bg-[#1E293B] text-white rounded-lg flex items-center justify-center hover:bg-slate-700 transition-all shadow-md shadow-slate-200 group active:scale-95 translate-x-1"
+                    title="Ajouter un paiement rapidement"
+                >
+                    <Plus className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                </button>
+            </div>
+
             {/* Financial Summary */}
             <div className="flex justify-end mt-4">
                 <div className="bg-[#1E293B] text-white rounded-xl py-3 px-6 flex items-center gap-8 shadow-lg shadow-gray-400/20 h-16">
