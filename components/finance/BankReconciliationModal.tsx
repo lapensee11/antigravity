@@ -1,15 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { X, Calendar, Download, RefreshCcw, Building2, Receipt, CheckCircle2, Plus, Trash2, ChevronLeft, ChevronRight, FileUp, FileSpreadsheet, Layers } from "lucide-react";
-import { getCMIEntries, saveCMIEntries } from "@/lib/data-service";
-import { CMIEntry as CMIDbEntry } from "@/lib/types";
+import { useState, useEffect, useMemo } from "react";
+import { X, Calendar, Download, RefreshCcw, Building2, Receipt, CheckCircle2, Plus, Trash2, ChevronLeft, ChevronRight, FileUp, FileSpreadsheet, Layers, Check } from "lucide-react";
+import { getCMIEntries, saveCMIEntries, getTransactions, saveTransaction } from "@/lib/data-service";
+import { CMIEntry as CMIDbEntry, Transaction } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx-js-style";
 
 interface ReconModalProps {
     isOpen: boolean;
     onClose: () => void;
+    onTransactionsUpdated?: () => void;
 }
 
 interface CMIEntry {
@@ -21,7 +22,7 @@ interface CMIEntry {
     net: string;
 }
 
-export function BankReconciliationModal({ isOpen, onClose }: ReconModalProps) {
+export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated }: ReconModalProps) {
     const [activeTab, setActiveTab] = useState<"CMI" | "Relevé" | "Rapprochement">("CMI");
 
     // Month/Year Navigation State
@@ -42,8 +43,74 @@ export function BankReconciliationModal({ isOpen, onClose }: ReconModalProps) {
     const [isValidated, setIsValidated] = useState(false);
     const [isCompressed, setIsCompressed] = useState(false);
 
+    // Bank transactions state
+    const [bankTransactions, setBankTransactions] = useState<Transaction[]>([]);
+    
+    // Track reconciled dates (where CMI Net has replaced bank amount)
+    const [reconciledDates, setReconciledDates] = useState<Set<string>>(new Set());
+
     const currentMonthKey = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
     const cmiEntries = (allCmiData[currentMonthKey] || []).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Prepare reconciliation table data (filtered by selected month)
+    const reconciliationData = useMemo(() => {
+        // Get CMI entries for the selected month
+        const monthCmiEntries = allCmiData[currentMonthKey] || [];
+        
+        // Get CMI bank transactions (from Banque account) for the selected month
+        const cmiBankTransactions = bankTransactions.filter(tx => {
+            if (tx.account !== "Banque") return false;
+            if (!(tx.label.toLowerCase().includes("cmi") || tx.tier === "CMI")) return false;
+            
+            // Filter by selected month
+            const txDate = new Date(tx.date);
+            return txDate.getFullYear() === selectedYear && txDate.getMonth() === selectedMonth;
+        });
+        
+        // Create a map of dates to CMI entries
+        const cmiByDate = new Map<string, CMIEntry>();
+        monthCmiEntries.forEach(entry => {
+            if (entry.brut && parseFloat(entry.brut) > 0) {
+                cmiByDate.set(entry.date, entry);
+            }
+        });
+        
+        // Create a map of dates to bank transactions
+        const bankTxByDate = new Map<string, Transaction[]>();
+        cmiBankTransactions.forEach(tx => {
+            if (!bankTxByDate.has(tx.date)) {
+                bankTxByDate.set(tx.date, []);
+            }
+            bankTxByDate.get(tx.date)!.push(tx);
+        });
+        
+        // Combine all unique dates
+        const allDates = new Set<string>();
+        cmiByDate.forEach((_, date) => allDates.add(date));
+        bankTxByDate.forEach((_, date) => allDates.add(date));
+        
+        // Sort dates
+        const sortedDates = Array.from(allDates).sort((a, b) => a.localeCompare(b));
+        
+        return sortedDates.map(date => {
+            const cmiEntry = cmiByDate.get(date);
+            const bankTxs = bankTxByDate.get(date) || [];
+            const totalBankAmount = bankTxs.reduce((sum, tx) => sum + tx.amount, 0);
+            const isReconciled = reconciledDates.has(date);
+            const displayAmount = isReconciled && cmiEntry && parseFloat(cmiEntry.net) > 0 
+                ? parseFloat(cmiEntry.net) 
+                : totalBankAmount;
+            
+            return {
+                date,
+                cmiEntry,
+                bankTxs,
+                totalBankAmount,
+                displayAmount,
+                isReconciled
+            };
+        });
+    }, [allCmiData, bankTransactions, currentMonthKey, selectedYear, selectedMonth, reconciledDates]);
 
     // 1. Load data from DB on open
     useEffect(() => {
@@ -66,6 +133,70 @@ export function BankReconciliationModal({ isOpen, onClose }: ReconModalProps) {
             });
         }
     }, [isOpen, isLoaded]);
+
+    // Load bank transactions when opening modal or switching to Rapprochement tab
+    useEffect(() => {
+        if (isOpen && isLoaded) {
+            getTransactions().then(txs => {
+                setBankTransactions(txs);
+                // Check which dates are already reconciled (CMI Net matches bank amount)
+                const reconciled = new Set<string>();
+                txs.forEach(tx => {
+                    if (tx.account === "Banque" && (tx.label.toLowerCase().includes("cmi") || tx.tier === "CMI")) {
+                        // Find corresponding CMI entry for this date
+                        const allCmiEntries = Object.values(allCmiData).flat();
+                        const cmiEntry = allCmiEntries.find(e => e.date === tx.date);
+                        if (cmiEntry && parseFloat(cmiEntry.net) > 0) {
+                            const cmiNet = parseFloat(cmiEntry.net);
+                            // If bank amount matches CMI Net, it's already reconciled
+                            if (Math.abs(tx.amount - cmiNet) < 0.01) {
+                                reconciled.add(tx.date);
+                            }
+                        }
+                    }
+                });
+                setReconciledDates(reconciled);
+            });
+        }
+    }, [isOpen, activeTab, isLoaded, allCmiData]);
+    
+    // Handle reconciliation action
+    const handleReconcileCMI = async (date: string, cmiNet: number) => {
+        if (cmiNet <= 0) return;
+        
+        // Find CMI bank transactions for this date
+        const cmiBankTxs = bankTransactions.filter(tx => 
+            tx.account === "Banque" && 
+            tx.date === date &&
+            (tx.label.toLowerCase().includes("cmi") || tx.tier === "CMI")
+        );
+        
+        if (cmiBankTxs.length === 0) {
+            alert("Aucune transaction CMI trouvée pour cette date dans le journal de banque.");
+            return;
+        }
+        
+        // Update all CMI transactions for this date with CMI Net amount
+        for (const tx of cmiBankTxs) {
+            const updatedTx: Transaction = {
+                ...tx,
+                amount: cmiNet
+            };
+            await saveTransaction(updatedTx);
+        }
+        
+        // Reload transactions
+        const updatedTxs = await getTransactions();
+        setBankTransactions(updatedTxs);
+        
+        // Mark as reconciled
+        setReconciledDates(prev => new Set(prev).add(date));
+        
+        // Notify parent component to refresh transactions
+        if (onTransactionsUpdated) {
+            onTransactionsUpdated();
+        }
+    };
 
     // 2. Persist any change to DB
     const persistToDb = async (newData: Record<string, CMIEntry[]>) => {
@@ -589,8 +720,8 @@ export function BankReconciliationModal({ isOpen, onClose }: ReconModalProps) {
                         })}
                     </div>
 
-                    {/* Month Selector - Only for CMI */}
-                    {activeTab === "CMI" && (
+                    {/* Month Selector - For CMI and Rapprochement */}
+                    {(activeTab === "CMI" || activeTab === "Rapprochement") && (
                         <div className="flex items-center gap-4 bg-white/50 p-1.5 rounded-2xl border border-white/50 shadow-sm">
                             <button
                                 onClick={handlePrevMonth}
@@ -985,20 +1116,122 @@ export function BankReconciliationModal({ isOpen, onClose }: ReconModalProps) {
                         )}
 
                         {activeTab === "Rapprochement" && (
-                            <div className="flex flex-col items-center justify-center h-full text-center py-20 space-y-6">
-                                <div className="w-20 h-20 bg-amber-50 rounded-3xl flex items-center justify-center text-amber-500">
-                                    <RefreshCcw className="w-10 h-10" />
+                            <div className="space-y-6 flex-1 flex flex-col print:space-y-0 print:block">
+                                <div className="flex justify-between items-center print:hidden">
+                                    <h3 className="text-xl font-bold text-slate-800">Rapprochement CMI</h3>
                                 </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-slate-800">Assistant de Rapprochement</h3>
-                                    <p className="text-slate-500 max-w-sm mx-auto mt-2">
-                                        L'algorithme de lettrage automatique va lier vos opérations bancaires aux factures correspondantes.
-                                    </p>
-                                </div>
-                                <div className="flex gap-4">
-                                    <button className="bg-amber-500 hover:bg-amber-600 text-white px-8 py-3 rounded-2xl font-bold transition-all shadow-lg shadow-amber-100">
-                                        Lancer le Rapprochement
-                                    </button>
+                                
+                                {/* Reconciliation Table */}
+                                <div className="border border-slate-200/60 rounded-2xl overflow-hidden shadow-sm max-h-[700px] overflow-y-auto custom-scrollbar relative flex-1 print:overflow-visible print:max-h-none print:border-none print:shadow-none print:rounded-none print:m-0 print:p-0">
+                                    <table className="w-full text-sm border-collapse print:text-xs">
+                                        <thead className="sticky top-0 z-20 bg-[#EDD1B6] border-b border-[#C8A890]/50 text-[10px] font-black text-[#5D4037] uppercase tracking-widest shadow-md text-center print:static print:shadow-none">
+                                            <tr>
+                                                <th className="px-4 py-1.5 text-left w-[100px]">Date</th>
+                                                <th className="px-4 py-1.5 text-right w-[120px]">CMI Brut</th>
+                                                <th className="px-4 py-1.5 text-right w-[120px]">CMI Net</th>
+                                                <th className="px-4 py-1.5 text-right w-[140px]">Encaissement CMI</th>
+                                                <th className="px-4 py-1.5 text-center w-[80px]">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {reconciliationData.length > 0 ? (
+                                                reconciliationData.map(({ date, cmiEntry, displayAmount, isReconciled }) => {
+                                                    const cmiNet = cmiEntry && parseFloat(cmiEntry.net) > 0 ? parseFloat(cmiEntry.net) : 0;
+                                                    
+                                                    return (
+                                                        <tr
+                                                            key={date}
+                                                            className="group transition-all duration-200 border-l-4 hover:bg-slate-50/50 border-l-transparent"
+                                                        >
+                                                            <td className="px-4 py-1">
+                                                                <div className="text-slate-700 font-bold text-sm min-w-[90px]">
+                                                                    {new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-1 text-right">
+                                                                <div className="text-slate-900 font-black text-sm">
+                                                                    {cmiEntry && parseFloat(cmiEntry.brut) > 0 
+                                                                        ? parseFloat(cmiEntry.brut).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                                                        : <span className="text-slate-300">-</span>}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-1 text-right">
+                                                                <div className="text-slate-900 font-black text-sm">
+                                                                    {cmiNet > 0 
+                                                                        ? cmiNet.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                                                        : <span className="text-slate-300">-</span>}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-1 text-right">
+                                                                <div className={cn(
+                                                                    "font-black text-sm",
+                                                                    isReconciled ? "text-emerald-700" : "text-emerald-600"
+                                                                )}>
+                                                                    {displayAmount > 0 
+                                                                        ? displayAmount.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                                                        : <span className="text-slate-300">-</span>}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-1 text-center">
+                                                                <button
+                                                                    onClick={() => cmiNet > 0 && handleReconcileCMI(date, cmiNet)}
+                                                                    disabled={cmiNet <= 0}
+                                                                    className={cn(
+                                                                        "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
+                                                                        isReconciled
+                                                                            ? "bg-emerald-100 text-emerald-600 border-2 border-emerald-300"
+                                                                            : "bg-slate-100 hover:bg-[#F2DAC3] text-slate-600 hover:text-[#5D4037] border-2 border-transparent hover:border-[#C8A890]",
+                                                                        cmiNet <= 0 && "opacity-50 cursor-not-allowed"
+                                                                    )}
+                                                                    title={isReconciled ? "Rapproché" : "Rapprocher avec CMI Net"}
+                                                                >
+                                                                    {isReconciled ? (
+                                                                        <Check className="w-4 h-4" />
+                                                                    ) : (
+                                                                        <Layers className="w-4 h-4" />
+                                                                    )}
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan={5} className="px-4 py-12 text-center text-slate-400">
+                                                        <div className="flex flex-col items-center">
+                                                            <RefreshCcw className="w-12 h-12 mb-3 opacity-30" />
+                                                            <p className="text-sm font-medium">Aucune donnée CMI disponible</p>
+                                                            <p className="text-xs mt-1">Les données apparaîtront après la saisie manuelle de CMI</p>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                        {reconciliationData.length > 0 && (
+                                            <tfoot className="sticky bottom-0 z-10 bg-[#F2DAC3] border-t-2 border-[#C8A890] print:static">
+                                                <tr>
+                                                    <td className="px-4 py-2 text-left text-sm font-black text-[#5D4037] uppercase">
+                                                        TOTAUX
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-sm font-black text-[#5D4037]">
+                                                        {reconciliationData.reduce((sum, { cmiEntry }) => 
+                                                            sum + (cmiEntry && parseFloat(cmiEntry.brut) > 0 ? parseFloat(cmiEntry.brut) : 0), 0
+                                                        ).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-sm font-black text-[#5D4037]">
+                                                        {reconciliationData.reduce((sum, { cmiEntry }) => 
+                                                            sum + (cmiEntry && parseFloat(cmiEntry.net) > 0 ? parseFloat(cmiEntry.net) : 0), 0
+                                                        ).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right text-sm font-black text-emerald-700">
+                                                        {reconciliationData.reduce((sum, { displayAmount }) => sum + displayAmount, 0)
+                                                            .toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td className="px-4 py-2"></td>
+                                                </tr>
+                                            </tfoot>
+                                        )}
+                                    </table>
                                 </div>
                             </div>
                         )}

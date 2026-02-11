@@ -31,7 +31,8 @@ export default function DashboardPage() {
                     { name: "VEN", revenue: stats.totalSales / 20, margin: stats.totalSales / 40 },
                     { name: "SAM", revenue: stats.totalSales / 15, margin: stats.totalSales / 35 },
                     { name: "DIM", revenue: stats.totalSales / 18, margin: stats.totalSales / 38 },
-                ]
+                ],
+                monthlyComparison: stats.monthlyComparison || []
             });
         }
         fetchData();

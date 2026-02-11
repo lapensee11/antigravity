@@ -6,14 +6,19 @@ import { StructureType, Family, SubFamily, AccountingAccount } from "@/lib/types
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
-    getFamilies, saveFamily, deleteFamily,
-    getSubFamilies, saveSubFamily, deleteSubFamily,
-    getAccountingAccounts, saveAccountingAccount, deleteAccountingAccount,
-    getSettings, saveSetting,
-    getPartners, savePartner, deletePartner,
-    reconcileStructureWithMaster, moveArticlesBetweenFamilies
+    getStructureTypes,
+    reconcileStructureWithMaster
 } from "@/lib/data-service";
 import { Partner } from "@/lib/types";
+import {
+    useFamilies, useFamilyMutation, useFamilyDeletion,
+    useSubFamilies, useSubFamilyMutation, useSubFamilyDeletion,
+    useAccountingAccounts, useAccountingAccountMutation, useAccountingAccountDeletion,
+    useSettings, useSettingsMutation,
+    usePartners, usePartnerMutation, usePartnerDeletion
+} from "@/lib/hooks/use-data";
+import { useQuery } from "@tanstack/react-query";
+import { db } from "@/lib/db";
 
 import {
     Wheat,
@@ -76,10 +81,38 @@ export function StructureContent({
     initialFamilies: Family[],
     initialSubFamilies: SubFamily[]
 }) {
-    const [types] = useState<StructureType[]>(initialTypes);
-    const [families, setFamilies] = useState<Family[]>(initialFamilies);
-    const [subFamilies, setSubFamilies] = useState<SubFamily[]>(initialSubFamilies);
-    const [accountingAccounts, setAccountingAccounts] = useState<AccountingAccount[]>([]);
+    // Use React Query hooks for reactive data
+    const { data: types = [], isLoading: typesLoading } = useQuery<StructureType[]>({
+        queryKey: ["structureTypes"],
+        queryFn: async () => {
+            // Ensure DB is ready
+            if (typeof window !== "undefined" && !db.isOpen()) {
+                await db.open();
+            }
+            return await getStructureTypes();
+        },
+        initialData: initialTypes.length > 0 ? initialTypes : undefined, // Use initialData if available
+        retry: 2,
+        retryDelay: 500,
+    });
+    
+    const { data: families = [], isLoading: familiesLoading } = useFamilies();
+    const { data: subFamilies = [], isLoading: subFamiliesLoading } = useSubFamilies();
+    const { data: accountingAccounts = [], isLoading: accountsLoading } = useAccountingAccounts();
+    const { data: settings = {}, isLoading: settingsLoading } = useSettings();
+    const { data: partnersData = [], isLoading: partnersLoading } = usePartners();
+    
+    // Mutations
+    const familyMutation = useFamilyMutation();
+    const familyDeletion = useFamilyDeletion();
+    const subFamilyMutation = useSubFamilyMutation();
+    const subFamilyDeletion = useSubFamilyDeletion();
+    const accountMutation = useAccountingAccountMutation();
+    const accountDeletion = useAccountingAccountDeletion();
+    const settingsMutation = useSettingsMutation();
+    const partnerMutation = usePartnerMutation();
+    const partnerDeletion = usePartnerDeletion();
+    
     const [accountingSearch, setAccountingSearch] = useState("");
     const [activeTab, setActiveTab] = useState(1);
     const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -91,11 +124,9 @@ export function StructureContent({
         class: "6",
         type: "Charge"
     });
-    const [loading, setLoading] = useState(true);
+    const loading = typesLoading || familiesLoading || subFamiliesLoading || accountsLoading || settingsLoading || partnersLoading;
 
     // Settings & Partners State
-    const [settings, setSettings] = useState<Record<string, string>>({});
-    const [partners, setPartners] = useState<Partner[]>([]);
     const [isSettingsSaving, setIsSettingsSaving] = useState(false);
     const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
     const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
@@ -110,45 +141,30 @@ export function StructureContent({
         color: "#D69E2E"
     });
 
+    // Migration Logic: If no partners but old glovo settings exist, create Glovo partner
     useEffect(() => {
-        const load = async () => {
-            const [accounts, s, p] = await Promise.all([
-                getAccountingAccounts(),
-                getSettings(),
-                getPartners()
-            ]);
-            setAccountingAccounts(accounts);
-            setSettings(s);
-
-            // Migration Logic: If no partners but old glovo settings exist, create Glovo partner
-            if (p.length === 0 && (s.glovo_commission || s.glovo_exo || s.glovo_imp)) {
-                const glovoPartner: Partner = {
-                    id: "p-glovo",
-                    name: "Glovo",
-                    commissionHT: s.glovo_commission || "1.00",
-                    commissionVAT: "20",
-                    commissionTTC: (parseFloat(s.glovo_commission || "1") * 1.2).toFixed(2),
-                    exoneratedPercentage: s.glovo_exo || "10",
-                    taxablePercentage: s.glovo_imp || "90",
-                    color: "#D69E2E"
-                };
-                await savePartner(glovoPartner);
-                setPartners([glovoPartner]);
-            } else {
-                // Default values for existing partners missing the new fields
-                const updatedPartners = p.map(partner => ({
-                    ...partner,
-                    commissionHT: partner.commissionHT || (partner as any).commissionRate || "0",
-                    commissionVAT: partner.commissionVAT || "20",
-                    commissionTTC: partner.commissionTTC || (parseFloat(partner.commissionHT || (partner as any).commissionRate || "0") * 1.2).toFixed(2)
-                }));
-                setPartners(updatedPartners);
-            }
-
-            setLoading(false);
-        };
-        load();
-    }, []);
+        if (!partnersLoading && !settingsLoading && partnersData.length === 0 && (settings.glovo_commission || settings.glovo_exo || settings.glovo_imp)) {
+            const glovoPartner: Partner = {
+                id: "p-glovo",
+                name: "Glovo",
+                commissionHT: settings.glovo_commission || "1.00",
+                commissionVAT: "20",
+                commissionTTC: (parseFloat(settings.glovo_commission || "1") * 1.2).toFixed(2),
+                exoneratedPercentage: settings.glovo_exo || "10",
+                taxablePercentage: settings.glovo_imp || "90",
+                color: "#D69E2E"
+            };
+            partnerMutation.mutate(glovoPartner);
+        }
+    }, [partnersLoading, settingsLoading, partnersData.length, settings, partnerMutation]);
+    
+    // Default values for existing partners missing the new fields
+    const partners = partnersData.map(partner => ({
+        ...partner,
+        commissionHT: partner.commissionHT || (partner as any).commissionRate || "0",
+        commissionVAT: partner.commissionVAT || "20",
+        commissionTTC: partner.commissionTTC || (parseFloat(partner.commissionHT || (partner as any).commissionRate || "0") * 1.2).toFixed(2)
+    }));
 
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -222,29 +238,20 @@ export function StructureContent({
                 accountingCode: formData.accountingCode
             };
 
-            const result = await saveFamily(familyToSave);
-            if (result.success) {
-                // Update local families state
-                setFamilies(prev => {
-                    if (editMode) return prev.map(f => f.id === familyToSave.id ? familyToSave : f);
-                    return [...prev, familyToSave];
-                });
-
+            try {
+                await familyMutation.mutateAsync(familyToSave);
+                
                 // Proactively propagate to sub-families if a code is set
                 if (familyToSave.accountingCode) {
                     const affectedSubFamilies = subFamilies.filter(s => s.familyId === familyToSave.id);
                     for (const sub of affectedSubFamilies) {
                         const updatedSub = { ...sub, accountingCode: familyToSave.accountingCode };
-                        await saveSubFamily(updatedSub);
+                        await subFamilyMutation.mutateAsync(updatedSub);
                     }
-                    // Update local subFamilies state
-                    setSubFamilies(prev => prev.map(s =>
-                        s.familyId === familyToSave.id
-                            ? { ...s, accountingCode: familyToSave.accountingCode }
-                            : s
-                    ));
                 }
-            } else {
+                setIsModalOpen(false);
+            } catch (error) {
+                console.error("Erreur lors de la sauvegarde de la famille:", error);
                 alert("Erreur lors de la sauvegarde de la famille");
             }
         } else {
@@ -257,17 +264,14 @@ export function StructureContent({
                 accountingCode: formData.accountingCode
             };
 
-            const result = await saveSubFamily(subToSave);
-            if (result.success) {
-                setSubFamilies(prev => {
-                    if (editMode) return prev.map(s => s.id === subToSave.id ? subToSave : s);
-                    return [...prev, subToSave];
-                });
-            } else {
+            try {
+                await subFamilyMutation.mutateAsync(subToSave);
+                setIsModalOpen(false);
+            } catch (error) {
+                console.error("Erreur lors de la sauvegarde de la sous-famille:", error);
                 alert("Erreur lors de la sauvegarde de la sous-famille");
             }
         }
-        setIsModalOpen(false);
     };
 
 
@@ -295,20 +299,26 @@ export function StructureContent({
             ...accountFormData,
             id: accountFormData.id || accountFormData.code
         };
-        if (editingAccount && editingAccount.id !== accountToSave.id) {
-            await deleteAccountingAccount(editingAccount.id);
+        try {
+            if (editingAccount && editingAccount.id !== accountToSave.id) {
+                await accountDeletion.mutateAsync(editingAccount.id);
+            }
+            await accountMutation.mutateAsync(accountToSave);
+            setIsAccountModalOpen(false);
+        } catch (error) {
+            console.error("Erreur lors de la sauvegarde du compte:", error);
+            alert("Erreur lors de la sauvegarde du compte");
         }
-        await saveAccountingAccount(accountToSave);
-        const data = await getAccountingAccounts();
-        setAccountingAccounts(data);
-        setIsAccountModalOpen(false);
     };
 
     const handleDeleteAccount = async (id: string) => {
         if (confirm("Supprimer ce compte comptable ?")) {
-            await deleteAccountingAccount(id);
-            const data = await getAccountingAccounts();
-            setAccountingAccounts(data);
+            try {
+                await accountDeletion.mutateAsync(id);
+            } catch (error) {
+                console.error("Erreur lors de la suppression du compte:", error);
+                alert("Erreur lors de la suppression du compte");
+            }
         }
     };
 
@@ -319,22 +329,23 @@ export function StructureContent({
 
     const handleDeleteFamily = async (id: string) => {
         if (!window.confirm("Supprimer cette famille ?")) return;
-        const result = await deleteFamily(id);
-        if (result.success) {
-            setFamilies(prev => prev.filter(f => f.id !== id));
-        } else {
-            alert("Erreur lors de la suppression");
+        try {
+            await familyDeletion.mutateAsync(id);
+        } catch (error) {
+            console.error("Erreur lors de la suppression:", error);
+            const message = error instanceof Error ? error.message : "Erreur lors de la suppression";
+            alert(message);
         }
     };
 
-
     const handleDeleteSubFamily = async (id: string) => {
         if (!window.confirm("Supprimer cette sous-famille ?")) return;
-        const result = await deleteSubFamily(id);
-        if (result.success) {
-            setSubFamilies(prev => prev.filter(s => s.id !== id));
-        } else {
-            alert("Erreur lors de la suppression");
+        try {
+            await subFamilyDeletion.mutateAsync(id);
+        } catch (error) {
+            console.error("Erreur lors de la suppression:", error);
+            const message = error instanceof Error ? error.message : "Erreur lors de la suppression";
+            alert(message);
         }
     };
 
@@ -342,9 +353,12 @@ export function StructureContent({
         setIsSettingsSaving(true);
         try {
             await Promise.all(
-                Object.entries(settings).map(([key, value]) => saveSetting(key, value))
+                Object.entries(settings).map(([key, value]) => 
+                    settingsMutation.mutateAsync({ key, value })
+                )
             );
         } catch (e) {
+            console.error("Erreur lors de la sauvegarde des paramètres:", e);
             alert("Erreur lors de la sauvegarde des paramètres");
         } finally {
             setIsSettingsSaving(false);
@@ -373,27 +387,33 @@ export function StructureContent({
 
     const handleSavePartner = async () => {
         if (!partnerFormData.name) return;
-        await savePartner(partnerFormData);
-        const data = await getPartners();
-        setPartners(data);
-        setIsPartnerModalOpen(false);
+        try {
+            await partnerMutation.mutateAsync(partnerFormData);
+            setIsPartnerModalOpen(false);
+        } catch (error) {
+            console.error("Erreur lors de la sauvegarde du partenaire:", error);
+            alert("Erreur lors de la sauvegarde du partenaire");
+        }
     };
 
     const handleDeletePartner = async (id: string) => {
         if (confirm("Supprimer ce partenaire ?")) {
-            await deletePartner(id);
-            const data = await getPartners();
-            setPartners(data);
+            try {
+                await partnerDeletion.mutateAsync(id);
+            } catch (error) {
+                console.error("Erreur lors de la suppression du partenaire:", error);
+                alert("Erreur lors de la suppression du partenaire");
+            }
         }
     };
 
     const handleRepairStructure = async () => {
-        if (!confirm("Voulez-vous vérifier l'intégrité de la structure ?\n\nCela rajoute les familles manquantes sans modifier vos renommages ou vos créations personnelles.")) return;
+        if (!confirm("Voulez-vous vérifier l'intégrité de la structure ?\n\nCela ajoute uniquement les familles manquantes (pas les sous-familles).\nVos renommages et créations personnelles sont préservés.")) return;
 
-        // 1. Sync structures (additive only)
+        // 1. Sync structures (families only, not sub-families)
         await reconcileStructureWithMaster();
 
-        alert("Structure vérifiée. Vos personnalisations sont préservées.");
+        alert("Structure vérifiée. Seules les familles manquantes ont été ajoutées.\nLes sous-familles doivent être créées manuellement.");
         window.location.reload();
     };
 
@@ -524,6 +544,21 @@ export function StructureContent({
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [focusedFamilyId, families, types]);
+
+    // Show loading state if types are not loaded yet
+    if (loading || types.length === 0) {
+        return (
+            <div className="flex min-h-screen bg-[#F6F8FC] font-outfit">
+                <Sidebar />
+                <main className="flex-1 ml-64 min-h-screen flex items-center justify-center">
+                    <div className="text-center">
+                        <div className="text-2xl font-bold text-slate-400 mb-2">Chargement des structures...</div>
+                        <div className="text-sm text-slate-300">Veuillez patienter</div>
+                    </div>
+                </main>
+            </div>
+        );
+    }
 
     return (
         <div className="flex min-h-screen bg-[#F6F8FC] font-outfit">

@@ -17,6 +17,7 @@ import {
     Zap
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 interface DashboardProps {
     data: {
@@ -30,6 +31,7 @@ interface DashboardProps {
         recipeCount: number;
         staffCount: number;
         chartData: { name: string; revenue: number; margin: number }[];
+        monthlyComparison: { month: string; currentYear: number; prevYear: number }[];
     } | null;
 }
 
@@ -149,6 +151,95 @@ export function DashboardContent({ data }: DashboardProps) {
                         </motion.div>
                     ))}
                 </div>
+
+                {/* Monthly Comparison Chart - 3D Effect */}
+                <GlassCard className="mb-8 p-8 border-none shadow-xl shadow-slate-200/50">
+                    <div className="flex justify-between items-center mb-8">
+                        <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5 text-blue-500" />
+                            Comparaison Mensuelle
+                        </h3>
+                        <div className="flex gap-4 text-xs font-bold">
+                            <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 bg-blue-300 rounded-full shadow-lg" style={{ boxShadow: '0 2px 8px rgba(59, 130, 246, 0.5)' }} />
+                                <span className="text-slate-500">{new Date().getFullYear()}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 bg-amber-300 rounded-full shadow-lg" style={{ boxShadow: '0 2px 8px rgba(217, 119, 6, 0.5)' }} />
+                                <span className="text-slate-500">{new Date().getFullYear() - 1}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="h-80">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                                data={data.monthlyComparison}
+                                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                            >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.3} />
+                                <XAxis 
+                                    dataKey="month" 
+                                    stroke="#64748b"
+                                    fontSize={12}
+                                    fontWeight="bold"
+                                />
+                                <YAxis 
+                                    stroke="#64748b"
+                                    fontSize={12}
+                                    fontWeight="bold"
+                                    tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+                                />
+                                <Tooltip 
+                                    contentStyle={{
+                                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '8px',
+                                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+                                    }}
+                                    formatter={(value: number) => `${value.toLocaleString('fr-FR')} DH`}
+                                />
+                                <Legend 
+                                    wrapperStyle={{ paddingTop: '20px' }}
+                                    iconType="circle"
+                                />
+                                <Bar 
+                                    dataKey="currentYear" 
+                                    name={`${new Date().getFullYear()}`}
+                                    fill="url(#currentYearGradient)"
+                                    radius={[8, 8, 0, 0]}
+                                    style={{
+                                        filter: 'drop-shadow(0 4px 6px rgba(59, 130, 246, 0.3))',
+                                    }}
+                                >
+                                    <defs>
+                                        <linearGradient id="currentYearGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="0%" stopColor="#93c5fd" stopOpacity={1} />
+                                            <stop offset="50%" stopColor="#60a5fa" stopOpacity={1} />
+                                            <stop offset="100%" stopColor="#3b82f6" stopOpacity={1} />
+                                        </linearGradient>
+                                    </defs>
+                                </Bar>
+                                <Bar 
+                                    dataKey="prevYear" 
+                                    name={`${new Date().getFullYear() - 1}`}
+                                    fill="url(#prevYearGradient)"
+                                    radius={[8, 8, 0, 0]}
+                                    style={{
+                                        filter: 'drop-shadow(0 4px 6px rgba(217, 119, 6, 0.3))',
+                                    }}
+                                >
+                                    <defs>
+                                        <linearGradient id="prevYearGradient" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="0%" stopColor="#fcd34d" stopOpacity={1} />
+                                            <stop offset="50%" stopColor="#fbbf24" stopOpacity={1} />
+                                            <stop offset="100%" stopColor="#d97706" stopOpacity={1} />
+                                        </linearGradient>
+                                    </defs>
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </GlassCard>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Evolution Chart (Custom SVG Implementation) */}

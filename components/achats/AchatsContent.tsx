@@ -778,6 +778,7 @@ export function AchatsContent({
                 isOpen={isSummaryOpen}
                 onClose={() => setIsSummaryOpen(false)}
                 invoices={invoices}
+                tiers={tiers}
                 onSync={handleSync}
             />
         </div>

@@ -553,6 +553,45 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
     };
 
     // --- HELPERS ---
+    
+    /**
+     * Calculate base salary for a specific month based on history
+     * Returns the salary that was effective at the start of the given month
+     */
+    const getBaseSalaryForMonth = (emp: StaffMember, monthKey: string): number => {
+        if (!emp.history || emp.history.length === 0) {
+            return emp.contract?.baseSalary || 0;
+        }
+
+        // Parse month key (e.g., "JANVIER_2025")
+        const [monthName, yearStr] = monthKey.split('_');
+        const year = parseInt(yearStr);
+        const monthIndex = MONTHS.indexOf(monthName);
+        
+        if (monthIndex === -1) {
+            return emp.contract?.baseSalary || 0;
+        }
+
+        // Get the first day of the month
+        const monthStartDate = new Date(year, monthIndex, 1);
+        
+        // Sort history by date (oldest first)
+        const sortedHistory = [...emp.history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        // Find the last salary change that occurred before or on the first day of this month
+        let effectiveSalary = emp.contract?.baseSalary || 0;
+        
+        for (const event of sortedHistory) {
+            const eventDate = new Date(event.date);
+            // Only consider AUGMENTATION or EMBAUCHE events
+            if ((event.type === "AUGMENTATION" || event.type === "EMBAUCHE") && eventDate <= monthStartDate) {
+                effectiveSalary = event.amount || effectiveSalary;
+            }
+        }
+        
+        return effectiveSalary;
+    };
+
     const getMonthlyData = (emp: StaffMember) => {
         // Find latest undeclared bonus from history
         let latestBonus = 0;
@@ -595,7 +634,9 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
     const calculateNet = (emp: StaffMember) => {
         const data = getMonthlyData(emp);
-        const base = emp.contract?.baseSalary || 0;
+        const monthKey = `${currentMonth}_${currentYear}`;
+        // Use dynamic base salary based on month and history
+        const base = getBaseSalaryForMonth(emp, monthKey);
         const dailyRate = base / 26;
         const hourlyRate = dailyRate / 8;
         const proratedBase = dailyRate * data.jours;
@@ -675,7 +716,9 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
     const calculateCompta = (emp: StaffMember) => {
         const data = getMonthlyData(emp);
-        const baseTarget = emp.contract?.baseSalary || 0;
+        const monthKey = `${currentMonth}_${currentYear}`;
+        // Use dynamic base salary based on month and history
+        const baseTarget = getBaseSalaryForMonth(emp, monthKey);
         const referenceDays = data.jours; // Use actual days from Saisie
         const totalHours = referenceDays * 8;
 
@@ -724,10 +767,12 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             const compta = calculateCompta(emp);
 
             if (journalSubView === "SAISIE") {
+                const monthKey = `${currentMonth}_${currentYear}`;
+                const baseSalaryForMonth = getBaseSalaryForMonth(emp, monthKey);
                 return {
                     "Matricule": emp.matricule || `M00${emp.id}`,
                     "Salarié": `${emp.lastName.toUpperCase()} ${emp.firstName}`,
-                    "Net Cible": emp.contract?.baseSalary || 0,
+                    "Net Cible": baseSalaryForMonth,
                     "Jours": mData.jours,
                     "H. Sup": mData.hSup,
                     "P. Régul": mData.pRegul || 0,
@@ -739,10 +784,12 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                 };
             } else {
                 if (emp.declarationStatus === "ND") return null;
+                const monthKey = `${currentMonth}_${currentYear}`;
+                const baseSalaryForMonth = getBaseSalaryForMonth(emp, monthKey);
                 return {
                     "Matricule": emp.matricule || `M00${emp.id}`,
                     "Salarié": `${emp.lastName.toUpperCase()} ${emp.firstName}`,
-                    "Net Cible": emp.contract?.baseSalary || 0,
+                    "Net Cible": baseSalaryForMonth,
                     "Nb Jours": compta.days,
                     "Heures": Math.round(compta.hours),
                     "Taux H": compta.hourlyRate,
@@ -815,13 +862,15 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
     };
 
     const totals = useMemo(() => {
-
+        const monthKey = `${currentMonth}_${currentYear}`;
         return localEmployees.reduce((acc, emp) => {
             const mData = getMonthlyData(emp);
             const net = calculateNet(emp);
             const compta = calculateCompta(emp);
+            // Use dynamic base salary for this month
+            const baseSalaryForMonth = getBaseSalaryForMonth(emp, monthKey);
             return {
-                netCible: acc.netCible + (emp.contract?.baseSalary || 0),
+                netCible: acc.netCible + baseSalaryForMonth,
                 virement: acc.virement + (mData.virement || 0),
                 avances: acc.avances + (mData.avances || 0),
                 retenuePret: acc.retenuePret + (mData.monthlyDeduction || 0),
@@ -920,7 +969,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             }
         }
 
-        // Find the chronologically latest event in the updated history to sync baseSalary
+        // Find the chronologically latest event in the updated history
         const latestEvent = [...updatedHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
         const latestBonus = latestEvent?.undeclaredBonus || 0;
 
@@ -938,12 +987,23 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
             newMData.pRegul = Math.round(prorated * 100) / 100;
         }
 
+        // IMPORTANT: Do NOT update contract.baseSalary here
+        // The baseSalary should remain as the latest salary for reference,
+        // but calculations will use getBaseSalaryForMonth() which respects dates
+        // Only update baseSalary if this is the latest event chronologically
+        const allHistorySorted = [...updatedHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const absoluteLatest = allHistorySorted[0];
+        
         const updatedEmployee = {
             ...selectedEmployee,
             history: updatedHistory,
             contract: {
                 ...selectedEmployee.contract,
-                baseSalary: latestEvent ? latestEvent.amount : selectedEmployee.contract?.baseSalary
+                // Only update baseSalary if this is the absolute latest event (for display purposes)
+                // But actual calculations will use getBaseSalaryForMonth() for each month
+                baseSalary: absoluteLatest && (absoluteLatest.type === "AUGMENTATION" || absoluteLatest.type === "EMBAUCHE") 
+                    ? absoluteLatest.amount 
+                    : selectedEmployee.contract?.baseSalary
             },
             monthlyData: {
                 ...selectedEmployee.monthlyData,
@@ -1002,6 +1062,16 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
     };
 
     const updateMonthlyValue = (empId: number, field: string, value: any) => {
+        const key = `${currentMonth}_${currentYear}`;
+        const emp = localEmployees.find(e => e.id === empId);
+        const mData = emp?.monthlyData?.[key];
+        
+        // Prevent modification of closed months
+        if (mData?.isClosed) {
+            alert("Ce mois est clôturé. Veuillez le réouvrir avant de le modifier.");
+            return;
+        }
+
         setLocalEmployees(prev => prev.map(emp => {
             if (emp.id === empId) {
                 const currentData = getMonthlyData(emp);
@@ -1023,8 +1093,6 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                         updates.pRegul = Math.round(prorated * 100) / 100; // Round to 2 decimals
                     }
                 }
-
-                const key = `${currentMonth}_${currentYear}`;
 
                 const updatedEmp = {
                     ...emp,
@@ -1289,7 +1357,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         {/* Salarié */}
-                                                        <div className="w-[10%] flex items-center pr-2 h-full border-r border-[#2C3E50]/20">
+                                                        <div className="w-[13.5%] flex items-center pr-2 h-full border-r border-[#2C3E50]/20">
 
                                                             <div className="flex items-center min-w-0">
                                                                 <div className="text-[12px] font-black text-slate-800 leading-none truncate">
@@ -1309,7 +1377,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         <div className="w-[7.5%] text-center text-[13px] font-black text-slate-700">
-                                                            {(emp.contract?.baseSalary || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[11px] font-black opacity-70">Dh</span>
+                                                            {getBaseSalaryForMonth(emp, `${currentMonth}_${currentYear}`).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[11px] font-black opacity-70">Dh</span>
                                                         </div>
 
                                                         {/* Mois / Année */}
@@ -1386,7 +1454,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         {/* Virement */}
-                                                        <div className="w-[8%] flex justify-center h-full items-center">
+                                                        <div className="w-[7%] flex justify-center h-full items-center">
                                                             <div className="w-full max-w-[70px]">
                                                                 <PayrollInput
                                                                     value={mData.virement || 0}
@@ -1399,7 +1467,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         </div>
 
                                                         {/* Avances */}
-                                                        <div className="w-[8%] flex justify-center">
+                                                        <div className="w-[7%] flex justify-center">
                                                             <div className="w-full max-w-[70px]">
                                                                 <PayrollInput
                                                                     id={`input-avances-${emp.id}`}
@@ -1492,7 +1560,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
                                                         {/* Net Cible */}
                                                         <div className="w-[8%] flex items-center justify-center text-[12px] font-bold text-slate-600">
-                                                            {(emp.contract?.baseSalary || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                            {getBaseSalaryForMonth(emp, `${currentMonth}_${currentYear}`).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                         </div>
 
                                                         {/* Jours */}
@@ -1563,35 +1631,48 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                 {/* Table Footer / Summary */}
                                 {journalSubView === "SAISIE" ? (
                                     <div className="h-14 bg-[#2C3E50] border-t border-slate-700 flex items-center px-4 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.1)] z-10">
-                                        <div className="w-[5%]" />
-                                        <div className="w-[15%] flex items-center gap-2 pl-4">
+                                        {/* Matr - Empty */}
+                                        <div className="w-[3.5%]" />
+                                        
+                                        {/* Salarié */}
+                                        <div className="w-[13.5%] flex items-center gap-2 pl-4 border-r border-[#34495E]">
                                             <Users className="w-4 h-4 text-slate-400" />
                                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{employees.length} Salaries</span>
                                         </div>
 
                                         {/* Net Cible Total */}
-                                        <div className="w-[8%] text-center">
+                                        <div className="w-[7.5%] text-center">
                                             <div className="text-[11px] font-black text-[#2ECC71]">
                                                 {totals.netCible.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
                                             </div>
                                         </div>
 
-                                        {/* Masse Salariale Centrale */}
-                                        <div className="flex-1 flex justify-center items-center gap-3">
-                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">La Masse salariale est de</span>
-                                            <div className="bg-slate-700/30 px-4 py-1.5 rounded-xl border border-slate-700/50 flex items-center gap-1.5 shadow-inner">
-                                                <span className="text-[13px] font-black text-white">
+                                        {/* Mois / Année - Masse Salariale */}
+                                        <div className="w-[10%] text-center border-r border-[#34495E]">
+                                            <div className="flex flex-col items-center gap-1">
+                                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Masse</span>
+                                                <div className="text-[11px] font-black text-white">
                                                     {(totals.netPayer + totals.retenuePret + totals.avances + totals.virement).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </span>
-                                                <span className="text-[10px] font-bold text-slate-400 italic">Dh</span>
+                                                    <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        <div className="w-px self-stretch bg-slate-700/50 mx-1" />
+                                        {/* Jours - Empty */}
+                                        <div className="w-[7%]" />
+
+                                        {/* H. Sup - Empty */}
+                                        <div className="w-[7%]" />
+
+                                        {/* P. Régul - Empty */}
+                                        <div className="w-[8%]" />
+
+                                        {/* P. Occas - Empty */}
+                                        <div className="w-[8%] border-r border-[#34495E]" />
 
                                         {/* Virement Total */}
-                                        <div className="w-[8%] text-center">
+                                        <div className="w-[7%] text-center">
                                             <div className="text-[11px] font-black text-[#F39C12]">
                                                 {totals.virement.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
@@ -1599,7 +1680,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         </div>
 
                                         {/* Avances Total */}
-                                        <div className="w-[8%] text-center">
+                                        <div className="w-[7%] text-center">
                                             <div className="text-[11px] font-black text-[#F39C12]">
                                                 {totals.avances.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
@@ -1607,65 +1688,79 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         </div>
 
                                         {/* Retenue Prêt Total */}
-                                        <div className="w-[8%] text-center">
+                                        <div className="w-[8%] text-center border-r border-[#34495E]">
                                             <div className="text-[11px] font-black text-[#F39C12]">
                                                 {totals.retenuePret.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
                                             </div>
                                         </div>
 
-                                        <div className="w-px self-stretch bg-slate-700/50 mx-1" />
-
                                         {/* Net à Payer Total */}
-                                        <div className="w-[10%] text-right pr-4">
+                                        <div className="w-[8%] text-right pr-4">
                                             <div className="text-[13px] font-black text-white">
                                                 {totals.netPayer.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 <span className="text-[10px] ml-0.5 opacity-70 italic font-medium">Dh</span>
                                             </div>
                                         </div>
+
+                                        {/* Payé - Empty */}
+                                        <div className="w-[5%]" />
                                     </div>
                                 ) : (
                                     <div className="h-14 bg-[#A67C00] text-white/90 border-t border-[#8C6900] flex items-stretch px-4 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.1)] z-10">
+                                        {/* Matr - Empty */}
                                         <div className="w-[5%]" />
-                                        <div className="w-[22%] flex items-center gap-2 border-r border-white/20">
+                                        
+                                        {/* Salarié */}
+                                        <div className="w-[14%] flex items-center gap-2 border-r border-[#8C6900]">
                                             <Users className="w-4 h-4 text-white/70" />
                                             <span className="text-[9px] font-black uppercase tracking-widest">{employees.length} Salaries</span>
                                         </div>
 
                                         {/* Net Cible Total */}
-                                        <div className="w-[9%] flex items-center justify-center text-[11px] font-black">
+                                        <div className="w-[8%] flex items-center justify-center text-[11px] font-black">
                                             {totals.netCible.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
-                                        <div className="w-[6%] flex items-center justify-center text-[11px] font-black opacity-60">-</div>
+                                        {/* Nb Jours - Empty */}
+                                        <div className="w-[5%]" />
+
+                                        {/* Heures - Empty */}
+                                        <div className="w-[5%]" />
+
+                                        {/* Taux H - Empty */}
+                                        <div className="w-[5%] border-r border-[#8C6900]/30" />
+
+                                        {/* Ancienneté - Empty */}
+                                        <div className="w-[6%]" />
 
                                         {/* Brut Total */}
-                                        <div className="w-[8%] flex items-center justify-center text-[10px] font-bold opacity-80">
+                                        <div className="w-[7%] flex items-center justify-center text-[10px] font-bold opacity-80">
                                             {totals.brut.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
-                                        {/* Bru Imp */}
-                                        <div className="w-[9%] flex items-center justify-center text-[10px] font-bold opacity-80">
+                                        {/* Brut Imp */}
+                                        <div className="w-[8%] flex items-center justify-center text-[10px] font-bold opacity-80">
                                             {totals.brutImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
                                         {/* Net Imp */}
-                                        <div className="w-[9%] flex items-center justify-center text-[10px] font-bold opacity-80 border-r border-white/20">
+                                        <div className="w-[8%] flex items-center justify-center text-[10px] font-bold opacity-80 border-r border-[#8C6900]/30">
                                             {totals.netImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
                                         {/* CNSS */}
-                                        <div className="w-[7%] flex items-center justify-center text-[10px] font-bold opacity-80">
+                                        <div className="w-[6%] flex items-center justify-center text-[10px] font-bold opacity-80">
                                             {totals.cnss.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
                                         {/* AMO */}
-                                        <div className="w-[7%] flex items-center justify-center text-[10px] font-bold opacity-80">
+                                        <div className="w-[6%] flex items-center justify-center text-[10px] font-bold opacity-80">
                                             {totals.amo.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
                                         {/* IR */}
-                                        <div className="w-[7%] flex items-center justify-center text-[10px] font-bold opacity-80 border-r border-white/20">
+                                        <div className="w-[6%] flex items-center justify-center text-[10px] font-bold opacity-80 border-r border-[#8C6900]/30">
                                             {totals.ir.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 

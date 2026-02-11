@@ -187,10 +187,18 @@ export async function deleteRecipe(id: string): Promise<{ success: true }> {
 
 // STRUCTURE (Families, SubFamilies, Types)
 export async function getStructureTypes(): Promise<StructureType[]> {
+    // Ensure DB is open
+    if (typeof window !== "undefined" && !db.isOpen()) {
+        await db.open();
+    }
     return await db.structureTypes.toArray();
 }
 
 export async function getFamilies(): Promise<Family[]> {
+    // Ensure DB is open
+    if (typeof window !== "undefined" && !db.isOpen()) {
+        await db.open();
+    }
     return await db.families.toArray();
 }
 
@@ -199,12 +207,28 @@ export async function saveFamily(family: Family): Promise<{ success: true }> {
     return { success: true };
 }
 
-export async function deleteFamily(id: string): Promise<{ success: true }> {
+export async function deleteFamily(id: string): Promise<{ success: true; message?: string }> {
+    // Check for sub-families referencing this family
+    const subFamilies = await db.subFamilies.where('familyId').equals(id).toArray();
+    if (subFamilies.length > 0) {
+        throw new Error(`Impossible de supprimer cette famille : ${subFamilies.length} sous-famille(s) y sont associées. Veuillez d'abord supprimer ou réassigner les sous-familles.`);
+    }
+    
+    // Check for recipes referencing this family
+    const recipes = await db.recipes.where('familyId').equals(id).toArray();
+    if (recipes.length > 0) {
+        throw new Error(`Impossible de supprimer cette famille : ${recipes.length} recette(s) y sont associées. Veuillez d'abord supprimer ou réassigner les recettes.`);
+    }
+    
     await db.families.delete(id);
     return { success: true };
 }
 
 export async function getSubFamilies(): Promise<SubFamily[]> {
+    // Ensure DB is open
+    if (typeof window !== "undefined" && !db.isOpen()) {
+        await db.open();
+    }
     return await db.subFamilies.toArray();
 }
 
@@ -213,29 +237,38 @@ export async function saveSubFamily(subFamily: SubFamily): Promise<{ success: tr
     return { success: true };
 }
 
-export async function deleteSubFamily(id: string): Promise<{ success: true }> {
+export async function deleteSubFamily(id: string): Promise<{ success: true; message?: string }> {
+    // Check for articles referencing this sub-family
+    const articles = await db.articles.where('subFamilyId').equals(id).toArray();
+    if (articles.length > 0) {
+        throw new Error(`Impossible de supprimer cette sous-famille : ${articles.length} article(s) y sont associés. Veuillez d'abord supprimer ou réassigner les articles.`);
+    }
+    
+    // Check for recipes referencing this sub-family
+    const recipes = await db.recipes.where('subFamilyId').equals(id).toArray();
+    if (recipes.length > 0) {
+        throw new Error(`Impossible de supprimer cette sous-famille : ${recipes.length} recette(s) y sont associées. Veuillez d'abord supprimer ou réassigner les recettes.`);
+    }
+    
     await db.subFamilies.delete(id);
     return { success: true };
 }
 
+import { syncStructure } from './structure-sync';
+
 export async function reconcileStructureWithMaster(): Promise<{ success: true }> {
-    await db.transaction('rw', [db.families, db.subFamilies], async () => {
-        // 1. Ensure all standard families exist, but DON'T overwrite their names
-        for (const family of initialFamilies) {
-            const existing = await db.families.get(family.id);
-            if (!existing) {
-                await db.families.add(family);
-            }
-            // Optional: if (existing && !existing.name) await db.families.update(family.id, { name: family.name });
-        }
-        // 2. Ensure all standard sub-families exist
-        for (const sub of initialSubFamilies) {
-            const existing = await db.subFamilies.get(sub.id);
-            if (!existing) {
-                await db.subFamilies.add(sub);
-            }
-        }
+    // Only sync families, not sub-families (to prevent unwanted additions)
+    // Sub-families should be added manually by the user
+    const result = await syncStructure({
+        syncFamilies: true,
+        syncSubFamilies: false, // Disabled - user must add sub-families manually
+        syncArticles: false, // Disabled - user must add articles manually
+        deduplicate: true,
+        migrateIds: false
     });
+    if (!result.success && result.errors.length > 0) {
+        throw new Error(result.errors.join(', '));
+    }
     return { success: true };
 }
 
@@ -439,6 +472,36 @@ export async function getDashboardStats() {
         amount: inv.totalTTC || 0
     }));
 
+    // Monthly comparison data for current year and previous year
+    const currentYear = now.getFullYear();
+    const prevYear = currentYear - 1;
+    const monthlyData: { month: string; currentYear: number; prevYear: number }[] = [];
+    
+    const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+    
+    for (let month = 0; month < 12; month++) {
+        const monthStr = String(month + 1).padStart(2, '0');
+        const currentYearPrefix = `${currentYear}-${monthStr}`;
+        const prevYearPrefix = `${prevYear}-${monthStr}`;
+        
+        const currentYearSales = await db.salesData.where('id').startsWith(currentYearPrefix).toArray();
+        const prevYearSales = await db.salesData.where('id').startsWith(prevYearPrefix).toArray();
+        
+        const currentYearTotal = currentYearSales.reduce((sum, day) => {
+            return sum + (parseFloat(day.real?.calculated?.ttc) || 0);
+        }, 0);
+        
+        const prevYearTotal = prevYearSales.reduce((sum, day) => {
+            return sum + (parseFloat(day.real?.calculated?.ttc) || 0);
+        }, 0);
+        
+        monthlyData.push({
+            month: monthNames[month],
+            currentYear: currentYearTotal,
+            prevYear: prevYearTotal
+        });
+    }
+
     return {
         totalSales,
         prevTotalSales,
@@ -447,7 +510,8 @@ export async function getDashboardStats() {
         pendingAmount: totalPendingAmount,
         articleCount,
         recipeCount,
-        recentActivity
+        recentActivity,
+        monthlyComparison: monthlyData
     };
 }
 
@@ -553,7 +617,7 @@ export async function closePayrollMonth(monthKey: string, nextMonthKey: string, 
             await db.transactions.put({
                 id: generateId(),
                 date: timestamp,
-                label: `Salaires Espèces (Déclaré) ${monthKey}`,
+                label: `Salaires Espèces ${monthKey}`,
                 amount: caisseAmount,
                 type: 'Depense',
                 category: 'Salaires & Charges',
@@ -569,7 +633,7 @@ export async function closePayrollMonth(monthKey: string, nextMonthKey: string, 
             await db.transactions.put({
                 id: generateId(),
                 date: timestamp,
-                label: `Complément Salaires (Non Déclaré) ${monthKey}`,
+                label: `Complément Salaires ${monthKey}`,
                 amount: coffreAmount,
                 type: 'Depense',
                 category: 'Salaires & Charges',
@@ -614,6 +678,10 @@ export async function unclosePayrollMonth(monthKey: string): Promise<{ success: 
         const allTx = await db.transactions.toArray();
         const txToDelete = allTx.filter(tx =>
         (tx.label === `Virements Salaires ${monthKey}` ||
+            tx.label === `Salaires Espèces ${monthKey}` ||
+            tx.label === `Complément Salaires ${monthKey}` ||
+            // Support old format for backward compatibility
+            tx.label === `Salaires Espèces (D) ${monthKey}` ||
             tx.label === `Salaires Espèces (Déclaré) ${monthKey}` ||
             tx.label === `Complément Salaires (Non Déclaré) ${monthKey}`)
         );
@@ -624,6 +692,53 @@ export async function unclosePayrollMonth(monthKey: string): Promise<{ success: 
     });
 
     return { success: true };
+}
+
+// MIGRATION: Remove (D) and (Déclaré) from transaction labels
+export async function migrateTransactionLabels(): Promise<{ updated: number }> {
+    if (typeof window === "undefined") return { updated: 0 };
+    
+    try {
+        const allTransactions = await db.transactions.toArray();
+        let updatedCount = 0;
+        
+        for (const tx of allTransactions) {
+            let newLabel = tx.label;
+            let hasChanges = false;
+            
+            // Remove (D) from labels
+            if (newLabel.includes("(D)")) {
+                newLabel = newLabel.replace(/\s*\(D\)\s*/g, " ").trim();
+                hasChanges = true;
+            }
+            
+            // Remove (Déclaré) from labels
+            if (newLabel.includes("(Déclaré)")) {
+                newLabel = newLabel.replace(/\s*\(Déclaré\)\s*/g, " ").trim();
+                hasChanges = true;
+            }
+            
+            // Remove (Non Déclaré) from labels
+            if (newLabel.includes("(Non Déclaré)")) {
+                newLabel = newLabel.replace(/\s*\(Non Déclaré\)\s*/g, " ").trim();
+                hasChanges = true;
+            }
+            
+            // Clean up multiple spaces
+            newLabel = newLabel.replace(/\s+/g, " ");
+            
+            if (hasChanges && newLabel !== tx.label) {
+                await db.transactions.update(tx.id, { label: newLabel });
+                updatedCount++;
+            }
+        }
+        
+        console.log(`Migration: Updated ${updatedCount} transaction labels`);
+        return { updated: updatedCount };
+    } catch (error) {
+        console.error("Error migrating transaction labels:", error);
+        return { updated: 0 };
+    }
 }
 
 // GLOBAL UNIT MANAGEMENT

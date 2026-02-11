@@ -233,12 +233,41 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
 
     // Dynamic Last Price from History
     const displayPrice = useMemo(() => {
+        // First, try to get from the latest transaction (invoice line)
+        if (article && invoices.length > 0) {
+            const articleLines: { date: string; prixPivot: number }[] = [];
+            invoices.forEach(inv => {
+                inv.lines.forEach(line => {
+                    if (line.articleId === article.id || (line.articleName === article.name && !line.articleId)) {
+                        // Prix Pivot Calculation (same logic as historyList)
+                        let prixPivot = line.priceHT;
+                        if (line.unit === article.unitAchat && article.contenace > 0) {
+                            prixPivot = line.priceHT / article.contenace;
+                        }
+                        articleLines.push({
+                            date: inv.date,
+                            prixPivot: prixPivot
+                        });
+                    }
+                });
+            });
+            
+            if (articleLines.length > 0) {
+                // Sort by date descending and get the latest
+                articleLines.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                return articleLines[0].prixPivot;
+            }
+        }
+        
+        // Fallback to priceHistory if available
         if (formData.priceHistory && formData.priceHistory.length > 0) {
             const sorted = [...formData.priceHistory].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             return sorted[0].price;
         }
+        
+        // Last fallback to lastPivotPrice
         return formData.lastPivotPrice || 0;
-    }, [formData.priceHistory, formData.lastPivotPrice]);
+    }, [article, invoices, formData.priceHistory, formData.lastPivotPrice]);
 
     // Icon (Placeholder logic based on family?)
     const typeName = family ? families.find(f => f.id === family.id)?.typeId === "1" ? "ACHAT" : "FONCT." : "";

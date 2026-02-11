@@ -364,7 +364,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                 // C. Sync Esp (D) (Caisse)
                 if (mtEspD > 0) {
                     const res = await syncToFinance(dateKey, mtEspD, updatedData.caisseEntryId, {
-                        label: `Ventes Esp (D) ${dateLabel}`,
+                        label: `Ventes Esp ${dateLabel}`,
                         account: "Caisse",
                         tier: "COMPTOIR",
                         pieceNumber: "AUTO-ESP-D"

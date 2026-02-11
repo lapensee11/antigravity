@@ -6,10 +6,11 @@ import { Transaction } from "@/lib/types";
 import { useState, useMemo } from "react";
 import { Wallet, Landmark, Archive, Search, Calendar, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { saveTransaction, deleteTransaction } from "@/lib/data-service";
+import { saveTransaction, deleteTransaction, getTransactions } from "@/lib/data-service";
 import { useInvoices } from "@/lib/hooks/use-data";
 import { BankReconciliationModal } from "./BankReconciliationModal";
 import { Scale } from "lucide-react";
+import { useEffect } from "react";
 
 export function FinanceContent({ initialTransactions }: { initialTransactions: Transaction[] }) {
     const { data: invoices = [] } = useInvoices();
@@ -17,6 +18,21 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
     const [activeAccount, setActiveAccount] = useState<"Banque" | "Caisse" | "Coffre">("Banque");
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [isReconModalOpen, setIsReconModalOpen] = useState(false);
+
+    // Refresh transactions function
+    const refreshTransactions = async () => {
+        const updatedTransactions = await getTransactions();
+        setTransactions(updatedTransactions);
+    };
+
+    const handleReconModalClose = () => {
+        setIsReconModalOpen(false);
+    };
+
+    const handleTransactionsUpdated = async () => {
+        // Refresh transactions immediately when reconciliation happens
+        await refreshTransactions();
+    };
 
     const [searchQuery, setSearchQuery] = useState("");
     const [periodFilter, setPeriodFilter] = useState<"Toutes" | "Quinzaine" | "Mois" | "Période">("Toutes");
@@ -361,7 +377,8 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
                 {/* Bank Reconciliation Modal */}
                 <BankReconciliationModal
                     isOpen={isReconModalOpen}
-                    onClose={() => setIsReconModalOpen(false)}
+                    onClose={handleReconModalClose}
+                    onTransactionsUpdated={handleTransactionsUpdated}
                 />
             </main>
         </div>

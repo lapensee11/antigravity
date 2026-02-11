@@ -19,12 +19,13 @@ import {
     Activity,
     Save,
     MoreHorizontal,
-    Leaf
+    Leaf,
+    Printer
 } from "lucide-react";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { Recipe, Family, SubFamily, Ingredient, Article } from "@/lib/types";
-import { saveRecipe, deleteRecipe } from "@/lib/data-service";
+import { Recipe, Family, SubFamily, Ingredient, Article, Invoice } from "@/lib/types";
+import { saveRecipe, deleteRecipe, getInvoices } from "@/lib/data-service";
 
 export function ProductionContent({
     initialRecipes,
@@ -39,9 +40,16 @@ export function ProductionContent({
 }) {
     const [articles] = useState<Article[]>(initialArticles);
     const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
+    const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(recipes.length > 0 ? recipes[0].id : null);
     const [searchQuery, setSearchQuery] = useState("");
     const [filterFamily, setFilterFamily] = useState<string>("Tous");
+    const [familySearch, setFamilySearch] = useState("");
+    const [subFamilySearch, setSubFamilySearch] = useState("");
+    const [showFamilyDropdown, setShowFamilyDropdown] = useState(false);
+    const [showSubFamilyDropdown, setShowSubFamilyDropdown] = useState(false);
+    const [familySearchFocusIndex, setFamilySearchFocusIndex] = useState(0);
+    const [subFamilySearchFocusIndex, setSubFamilySearchFocusIndex] = useState(0);
     const [activeTab, setActiveTab] = useState<"ingredients" | "steps" | "nutrition" | "costing">("ingredients");
     const [isEditing, setIsEditing] = useState(false);
     const [editData, setEditData] = useState<Recipe | null>(null);
@@ -53,29 +61,255 @@ export function ProductionContent({
     const nameInputRefs = useRef<(HTMLInputElement | null)[]>([]);
     const quantityInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+    // Load invoices to calculate pivot prices from latest transactions
+    useEffect(() => {
+        getInvoices().then(setInvoices);
+    }, []);
+
+    // Function to get pivot price from latest transaction (same logic as ArticleEditor)
+    const getPivotPriceFromLatestTransaction = (article: Article | undefined): number => {
+        if (!article || invoices.length === 0) {
+            return article?.lastPivotPrice || 0;
+        }
+
+        const articleLines: { date: string; prixPivot: number }[] = [];
+        invoices.forEach(inv => {
+            inv.lines.forEach(line => {
+                if (line.articleId === article.id || (line.articleName === article.name && !line.articleId)) {
+                    // Prix Pivot Calculation (same logic as ArticleEditor)
+                    let prixPivot = line.priceHT;
+                    if (line.unit === article.unitAchat && article.contenace > 0) {
+                        prixPivot = line.priceHT / article.contenace;
+                    }
+                    articleLines.push({
+                        date: inv.date,
+                        prixPivot: prixPivot
+                    });
+                }
+            });
+        });
+
+        if (articleLines.length > 0) {
+            // Sort by date descending and get the latest
+            articleLines.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            return articleLines[0].prixPivot;
+        }
+
+        // Fallback to lastPivotPrice
+        return article.lastPivotPrice || 0;
+    };
+
+    // Function to convert quantity from any unit to production unit (in grams)
+    // This calculates the total weight in grams for the ingredient
+    const convertToProductionWeight = (article: Article | undefined, quantity: number, unit: string): number => {
+        if (!article || quantity <= 0) return 0;
+
+        // Normalize unit strings for comparison
+        const normalizeUnit = (u: string) => u.trim().toUpperCase();
+        const normalizedUnit = normalizeUnit(unit);
+        const unitAchat = normalizeUnit(article.unitAchat);
+        const unitPivot = normalizeUnit(article.unitPivot);
+        const unitProduction = normalizeUnit(article.unitProduction);
+
+        // If unit is already production unit, extract weight value
+        if (normalizedUnit === unitProduction) {
+            // Extract numeric value from unit (e.g., "50g" -> 50, "100ml" -> 100)
+            const match = article.unitProduction.match(/(\d+(?:\.\d+)?)/);
+            if (match) {
+                const unitValue = parseFloat(match[1]);
+                return quantity * unitValue;
+            }
+            // If no number found, assume it's already in grams
+            return quantity;
+        }
+
+        // Convert to pivot first
+        let quantityInPivot = quantity;
+        if (normalizedUnit === unitAchat && article.contenace > 0) {
+            quantityInPivot = quantity / article.contenace;
+        }
+        // If unit is already pivot, quantityInPivot stays as is
+
+        // Convert from pivot to production (weight in grams)
+        if (article.coeffProd > 0) {
+            // Extract numeric value from production unit if it contains a number
+            const prodUnitMatch = article.unitProduction.match(/(\d+(?:\.\d+)?)/);
+            if (prodUnitMatch) {
+                const prodUnitValue = parseFloat(prodUnitMatch[1]);
+                return quantityInPivot * prodUnitValue;
+            }
+            // If no number in production unit, use coeffProd directly
+            return quantityInPivot * article.coeffProd;
+        }
+
+        return 0;
+    };
+
+    // Function to calculate cost based on unit
+    // Logic: Convert quantity to pivot unit, then calculate production cost
+    // The cost represents the total cost for the quantity in the selected unit
+    const calculateCostFromUnit = (article: Article | undefined, quantity: number, unit: string): number => {
+        if (!article || quantity <= 0) return 0;
+        
+        // If unit is empty or undefined, try to use default unit
+        if (!unit || unit.trim() === "") {
+            unit = article.unitProduction || article.unitPivot || article.unitAchat || "";
+            if (!unit) {
+                console.warn("No unit found for article", article.name);
+                return 0;
+            }
+        }
+
+        const pivotPrice = getPivotPriceFromLatestTransaction(article);
+        if (pivotPrice <= 0) {
+            // If no pivot price, return 0
+            console.warn("No pivot price for article", article.name, "pivotPrice:", pivotPrice, "lastPivotPrice:", article.lastPivotPrice);
+            return 0;
+        }
+        
+        // Normalize unit strings for comparison (trim and case-insensitive)
+        const normalizeUnit = (u: string) => u?.trim().toUpperCase() || "";
+        const normalizedUnit = normalizeUnit(unit);
+        const unitAchat = normalizeUnit(article.unitAchat);
+        const unitPivot = normalizeUnit(article.unitPivot);
+        const unitProduction = normalizeUnit(article.unitProduction);
+        
+        // Step 1: Convert quantity to pivot unit
+        let quantityInPivot = quantity;
+        
+        if (normalizedUnit === unitAchat) {
+            // Convert from achat to pivot using contenace
+            // Example: if contenace = 1, 1 unité achat = 1 unité pivot
+            if (article.contenace > 0) {
+                quantityInPivot = quantity / article.contenace;
+            }
+        } else if (normalizedUnit === unitProduction) {
+            // Convert from production to pivot
+            // Example: if unitProduction = "50g" and coeffProd = 50, then 50g = 1 unité pivot
+            if (article.coeffProd > 0) {
+                // Extract numeric value from production unit (e.g., "50g" -> 50)
+                const prodUnitMatch = article.unitProduction.match(/(\d+(?:\.\d+)?)/);
+                if (prodUnitMatch) {
+                    const prodUnitValue = parseFloat(prodUnitMatch[1]);
+                    if (prodUnitValue > 0) {
+                        // quantity in production unit / value per pivot = quantity in pivot
+                        quantityInPivot = quantity / prodUnitValue;
+                    }
+                } else {
+                    // If no number in unit, use coeffProd directly
+                    quantityInPivot = quantity / article.coeffProd;
+                }
+            }
+        }
+        // If unit is already pivot, quantityInPivot stays as is
+
+        // Step 2: Calculate total cost
+        // Formula: cost = quantity in pivot * pivot price
+        // The pivot price is the price per pivot unit, so we just multiply
+        // Example for eggs: 10 unités pivot * 1.30 Dh = 13.00 Dh
+        // Example for eggs in grams: 100g = 2 unités pivot * 1.30 Dh = 2.60 Dh
+        return quantityInPivot * pivotPrice;
+    };
+
+    // Get available units for an article
+    const getAvailableUnits = (article: Article | undefined): string[] => {
+        if (!article) return [];
+        const units = [article.unitAchat, article.unitPivot, article.unitProduction];
+        // Remove duplicates
+        return [...new Set(units)];
+    };
+
     const productionFamilies = initialFamilies.filter(f => f.typeId === "3");
     const families = ["Tous", ...productionFamilies.map(f => f.name)];
 
+    // Filter families by search query, sorted by code
+    const filteredFamilies = useMemo(() => {
+        if (!familySearch.trim()) {
+            return productionFamilies.sort((a, b) => a.code.localeCompare(b.code));
+        }
+        return productionFamilies
+            .filter(f => 
+                f.name.toLowerCase().includes(familySearch.toLowerCase()) ||
+                f.code.toLowerCase().includes(familySearch.toLowerCase())
+            )
+            .sort((a, b) => a.code.localeCompare(b.code));
+    }, [familySearch, productionFamilies]);
+
+    // Filter sub-families by search query and selected family, sorted by code
+    const filteredSubFamilies = useMemo(() => {
+        const selectedFamily = productionFamilies.find(f => f.name === filterFamily && filterFamily !== "Tous");
+        if (!selectedFamily) {
+            return initialSubFamilies
+                .filter(sf => {
+                    const fam = productionFamilies.find(f => f.id === sf.familyId);
+                    return fam !== undefined;
+                })
+                .filter(sf => 
+                    !subFamilySearch.trim() ||
+                    sf.name.toLowerCase().includes(subFamilySearch.toLowerCase()) ||
+                    sf.code.toLowerCase().includes(subFamilySearch.toLowerCase())
+                )
+                .sort((a, b) => a.code.localeCompare(b.code));
+        }
+        return initialSubFamilies
+            .filter(sf => sf.familyId === selectedFamily.id)
+            .filter(sf => 
+                !subFamilySearch.trim() ||
+                sf.name.toLowerCase().includes(subFamilySearch.toLowerCase()) ||
+                sf.code.toLowerCase().includes(subFamilySearch.toLowerCase())
+            )
+            .sort((a, b) => a.code.localeCompare(b.code));
+    }, [subFamilySearch, filterFamily, productionFamilies, initialSubFamilies]);
+
     const getFilteredArticles = (search: string) => {
-        const rawMaterialFamilies = ["FA01", "FA02", "FA03", "FA04", "FA05", "FA06"];
-        return articles.filter(a =>
-            a.name.toLowerCase().includes(search.toLowerCase()) &&
-            rawMaterialFamilies.includes(a.subFamilyId.substring(0, 4))
-        );
+        const rawMaterialCodes = ["FA01", "FA02", "FA03", "FA04", "FA05", "FA06"];
+        return articles.filter(a => {
+            const matchesSearch = a.name.toLowerCase().includes(search.toLowerCase());
+            if (!matchesSearch) return false;
+
+            const subFam = initialSubFamilies.find(sf => sf.id === a.subFamilyId);
+            if (!subFam) return false;
+
+            const fam = initialFamilies.find(f => f.id === subFam.familyId);
+            return fam && rawMaterialCodes.includes(fam.code);
+        });
     };
 
-    const calculateRecipeTotals = (recipe: Recipe) => {
+    // Convert time string (H:MM) to hours
+    const convertTimeToHours = (timeStr: string): number => {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours + (minutes || 0) / 60;
+    };
+
+    const calculateRecipeTotals = (recipe: Recipe, multiplierValue: number = 1) => {
+        // Material cost is multiplied by the recipe coefficient
         const materialCost = (recipe.ingredients || []).reduce((sum, ing) => {
             const article = articles.find(a => a.id === ing.articleId);
-            const prodPrice = article ? (article.lastPivotPrice || 0) / (article.coeffProd || 1) : 0;
-            return sum + (ing.quantity * prodPrice);
+            return sum + calculateCostFromUnit(article, ing.quantity, ing.unit) * multiplierValue;
         }, 0);
 
-        const totalCost = materialCost + (recipe.costing.laborCost || 0) + (recipe.costing.storageCost || 0);
-        const totalWithLoss = totalCost * (1 + (recipe.costing.lossRate || 0) / 100);
-        const costPerUnit = recipe.yield > 0 ? totalWithLoss / recipe.yield : 0;
+        // Recalculate labor, machine, and storage costs dynamically
+        // These costs are also multiplied by the coefficient since they represent time/cost for the entire batch
+        const laborTime = (recipe.costing as any).laborTime || "0:20";
+        const laborHours = convertTimeToHours(laborTime);
+        const laborCostPerHour = (recipe.costing as any).laborCostPerHour || 0;
+        const laborCost = laborHours * laborCostPerHour * multiplierValue;
 
-        return { materialCost, totalCost: totalWithLoss, costPerUnit };
+        const machineTime = (recipe.costing as any).machineTime || "0:00";
+        const machineHours = convertTimeToHours(machineTime);
+        const machineCostPerHour = (recipe.costing as any).machineCostPerHour || 0;
+        const machineCost = machineHours * machineCostPerHour * multiplierValue;
+
+        const storageTime = (recipe.costing as any).storageTime || "00:0";
+        const storageHours = convertTimeToHours(storageTime);
+        const storageCostPerHour = (recipe.costing as any).storageCostPerHour || 0;
+        const storageCost = storageHours * storageCostPerHour * multiplierValue;
+
+        const totalCost = materialCost + laborCost + machineCost + storageCost;
+        const totalWithLoss = totalCost * (1 + (recipe.costing.lossRate || 0) / 100);
+        const costPerUnit = recipe.yield > 0 ? totalWithLoss / (recipe.yield * multiplierValue) : 0;
+
+        return { materialCost, laborCost, machineCost, storageCost, totalCost: totalWithLoss, costPerUnit };
     };
 
     const updateEditData = (field: keyof Recipe, value: any) => {
@@ -106,13 +340,15 @@ export function ProductionContent({
     const handleUpdateIngredientFromSearch = (index: number, article: Article) => {
         if (!editData) return;
         const currentIng = editData.ingredients[index];
+        const defaultUnit = article.unitProduction || article.unitPivot || article.unitAchat || "";
         const newIngs = [...editData.ingredients];
+        const calculatedCost = calculateCostFromUnit(article, currentIng.quantity || 0, defaultUnit);
         newIngs[index] = {
             ...currentIng,
             articleId: article.id,
             name: article.name,
-            unit: article.unitProduction || article.unitPivot,
-            cost: currentIng.quantity * ((article.lastPivotPrice || 0) / (article.coeffProd || 1))
+            unit: defaultUnit,
+            cost: calculatedCost
         };
         updateEditData('ingredients', newIngs);
         setActiveRowSearch(null);
@@ -269,24 +505,173 @@ export function ProductionContent({
                                 <p className="text-slate-400 text-sm font-light mt-1">Recettes & Engineering</p>
                             </div>
 
-                            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide -mx-1 px-1">
-                                {families.map((fam) => {
-                                    const isActive = filterFamily === fam;
-                                    return (
+                            {/* Family Search */}
+                            <div className="relative">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        value={familySearch}
+                                        onChange={(e) => {
+                                            setFamilySearch(e.target.value);
+                                            setShowFamilyDropdown(true);
+                                            setFamilySearchFocusIndex(0);
+                                        }}
+                                        onFocus={() => setShowFamilyDropdown(true)}
+                                        onBlur={() => setTimeout(() => setShowFamilyDropdown(false), 200)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "ArrowDown") {
+                                                e.preventDefault();
+                                                setFamilySearchFocusIndex(prev => Math.min(prev + 1, filteredFamilies.length - 1));
+                                            } else if (e.key === "ArrowUp") {
+                                                e.preventDefault();
+                                                setFamilySearchFocusIndex(prev => Math.max(prev - 1, 0));
+                                            } else if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                if (filteredFamilies[familySearchFocusIndex]) {
+                                                    setFilterFamily(filteredFamilies[familySearchFocusIndex].name);
+                                                    setFamilySearch(filteredFamilies[familySearchFocusIndex].name);
+                                                    setShowFamilyDropdown(false);
+                                                }
+                                            } else if (e.key === "Escape") {
+                                                setShowFamilyDropdown(false);
+                                            }
+                                        }}
+                                        placeholder="Rechercher par famille..."
+                                        className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-8 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all shadow-sm placeholder:text-slate-300"
+                                    />
+                                    {familySearch && (
                                         <button
-                                            key={fam}
-                                            onClick={() => setFilterFamily(fam)}
-                                            className={cn(
-                                                "px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide transition-all whitespace-nowrap border",
-                                                isActive
-                                                    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-                                                    : "bg-white text-slate-500 border-slate-200 hover:border-emerald-200 hover:text-emerald-600"
-                                            )}
+                                            onClick={() => {
+                                                setFamilySearch("");
+                                                setFilterFamily("Tous");
+                                            }}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-full"
                                         >
-                                            {fam.toUpperCase()}
+                                            <X className="w-3.5 h-3.5" />
                                         </button>
-                                    );
-                                })}
+                                    )}
+                                </div>
+                                {showFamilyDropdown && filteredFamilies.length > 0 && (
+                                    <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                        {filteredFamilies.map((fam, idx) => (
+                                            <div
+                                                key={fam.id}
+                                                onClick={() => {
+                                                    setFilterFamily(fam.name);
+                                                    setFamilySearch(fam.name);
+                                                    setShowFamilyDropdown(false);
+                                                }}
+                                                className={cn(
+                                                    "px-4 py-2 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group",
+                                                    idx === familySearchFocusIndex ? "bg-emerald-100" : "hover:bg-emerald-50",
+                                                    filterFamily === fam.name && "bg-emerald-50"
+                                                )}
+                                            >
+                                                <span className={cn(
+                                                    "font-medium text-sm",
+                                                    idx === familySearchFocusIndex ? "text-emerald-800" : "text-slate-700 group-hover:text-emerald-700"
+                                                )}>{fam.name}</span>
+                                                <span className={cn(
+                                                    "text-xs font-bold px-2 py-0.5 rounded",
+                                                    idx === familySearchFocusIndex ? "bg-emerald-200 text-emerald-700" : "text-slate-400 bg-slate-100 group-hover:bg-emerald-100 group-hover:text-emerald-600"
+                                                )}>{fam.code}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Sub-Family Search */}
+                            <div className="relative">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        value={subFamilySearch}
+                                        onChange={(e) => {
+                                            setSubFamilySearch(e.target.value);
+                                            setShowSubFamilyDropdown(true);
+                                            setSubFamilySearchFocusIndex(0);
+                                        }}
+                                        onFocus={() => setShowSubFamilyDropdown(true)}
+                                        onBlur={() => setTimeout(() => setShowSubFamilyDropdown(false), 200)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "ArrowDown") {
+                                                e.preventDefault();
+                                                setSubFamilySearchFocusIndex(prev => Math.min(prev + 1, filteredSubFamilies.length - 1));
+                                            } else if (e.key === "ArrowUp") {
+                                                e.preventDefault();
+                                                setSubFamilySearchFocusIndex(prev => Math.max(prev - 1, 0));
+                                            } else if (e.key === "Enter") {
+                                                e.preventDefault();
+                                                if (filteredSubFamilies[subFamilySearchFocusIndex]) {
+                                                    const selectedSubFam = filteredSubFamilies[subFamilySearchFocusIndex];
+                                                    setSubFamilySearch(selectedSubFam.name);
+                                                    setShowSubFamilyDropdown(false);
+                                                    // Filter recipes by sub-family
+                                                    const filtered = recipes.filter(r => r.subFamilyId === selectedSubFam.name);
+                                                    if (filtered.length > 0) {
+                                                        setSelectedRecipeId(filtered[0].id);
+                                                    }
+                                                }
+                                            } else if (e.key === "Escape") {
+                                                setShowSubFamilyDropdown(false);
+                                            }
+                                        }}
+                                        placeholder="Rechercher par sous-famille..."
+                                        className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-8 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all shadow-sm placeholder:text-slate-300"
+                                    />
+                                    {subFamilySearch && (
+                                        <button
+                                            onClick={() => {
+                                                setSubFamilySearch("");
+                                            }}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-full"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+                                {showSubFamilyDropdown && filteredSubFamilies.length > 0 && (
+                                    <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+                                        {filteredSubFamilies.map((subFam, idx) => {
+                                            const parentFamily = productionFamilies.find(f => f.id === subFam.familyId);
+                                            return (
+                                                <div
+                                                    key={subFam.id}
+                                                    onClick={() => {
+                                                        setSubFamilySearch(subFam.name);
+                                                        setShowSubFamilyDropdown(false);
+                                                        // Filter recipes by sub-family
+                                                        const filtered = recipes.filter(r => r.subFamilyId === subFam.name);
+                                                        if (filtered.length > 0) {
+                                                            setSelectedRecipeId(filtered[0].id);
+                                                        }
+                                                    }}
+                                                    className={cn(
+                                                        "px-4 py-2 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group",
+                                                        idx === subFamilySearchFocusIndex ? "bg-emerald-100" : "hover:bg-emerald-50"
+                                                    )}
+                                                >
+                                                    <div className="flex flex-col">
+                                                        <span className={cn(
+                                                            "font-medium text-sm",
+                                                            idx === subFamilySearchFocusIndex ? "text-emerald-800" : "text-slate-700 group-hover:text-emerald-700"
+                                                        )}>{subFam.name}</span>
+                                                        {parentFamily && (
+                                                            <span className="text-xs text-slate-400">{parentFamily.name}</span>
+                                                        )}
+                                                    </div>
+                                                    <span className={cn(
+                                                        "text-xs font-bold px-2 py-0.5 rounded",
+                                                        idx === subFamilySearchFocusIndex ? "bg-emerald-200 text-emerald-700" : "text-slate-400 bg-slate-100 group-hover:bg-emerald-100 group-hover:text-emerald-600"
+                                                    )}>{subFam.code}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -373,13 +758,22 @@ export function ProductionContent({
                                                     {recipe.name}
                                                 </h3>
                                                 <span className="text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded text-slate-500 font-medium">
-                                                    {calculateRecipeTotals(recipe).costPerUnit.toFixed(2)} Dh
+                                                    {(() => {
+                                                        const totals = calculateRecipeTotals(recipe, 1);
+                                                        const totalWeight = (recipe.ingredients || []).reduce((sum, ing) => {
+                                                            const article = articles.find(a => a.id === ing.articleId);
+                                                            const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                            return sum + convertToProductionWeight(article, ing.quantity || 0, unit);
+                                                        }, 0);
+                                                        const lossRate = recipe.costing.lossRate || 0;
+                                                        const weightAfterLoss = totalWeight * (1 - lossRate / 100);
+                                                        const costPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
+                                                        return `${costPerKg.toFixed(2)} Dh / kg`;
+                                                    })()}
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium uppercase tracking-wider">
                                                 <span>{recipe.subFamilyId}</span>
-                                                <span>•</span>
-                                                <span>{recipe.yield} {recipe.yieldUnit}</span>
                                             </div>
                                         </div>
 
@@ -546,37 +940,37 @@ export function ProductionContent({
                                                         <Scale className="w-5 h-5 text-emerald-500" />
                                                         Liste des Ingrédients
                                                     </h3>
-                                                    <div className="flex items-center gap-3 bg-slate-50 rounded-lg p-1 border border-slate-200">
+                                                    <div className="flex items-center gap-3 bg-emerald-900 rounded-lg p-1 border border-emerald-700">
                                                         <button
                                                             onClick={() => setMultiplier(Math.max(1, multiplier - 1))}
-                                                            className="w-8 h-8 flex items-center justify-center rounded-md bg-white border border-slate-200 text-slate-600 hover:text-emerald-600 hover:border-emerald-200 shadow-sm transition-all"
+                                                            className="w-8 h-8 flex items-center justify-center rounded-md bg-emerald-200 border border-emerald-300 text-emerald-800 hover:text-emerald-900 hover:bg-emerald-100 shadow-sm transition-all disabled:cursor-not-allowed"
                                                             disabled={multiplier <= 1}
                                                         >
                                                             <Minus className="w-3.5 h-3.5" />
                                                         </button>
-                                                        <span className="text-sm font-black text-slate-700 w-16 text-center">
+                                                        <span className="text-sm font-black text-white w-16 text-center">
                                                             Coeff: {multiplier}
                                                         </span>
                                                         <button
                                                             onClick={() => setMultiplier(multiplier + 1)}
-                                                            className="w-8 h-8 flex items-center justify-center rounded-md bg-white border border-slate-200 text-slate-600 hover:text-emerald-600 hover:border-emerald-200 shadow-sm transition-all"
+                                                            className="w-8 h-8 flex items-center justify-center rounded-md bg-emerald-200 border border-emerald-300 text-emerald-800 hover:text-emerald-900 hover:bg-emerald-100 shadow-sm transition-all"
                                                         >
                                                             <Plus className="w-3.5 h-3.5" />
                                                         </button>
                                                     </div>
                                                 </div>
                                                 <table className="w-full border-collapse">
-                                                    <thead className="bg-[#F0FDF4] border-t-2 border-[#16A34A]/20">
-                                                        <tr className="text-[10px] font-black uppercase text-[#16A34A] tracking-wider">
-                                                            <th className="text-left px-6 py-4">Ingrédient</th>
-                                                            <th className="text-right px-4 py-4">Quantité</th>
-                                                            <th className="text-center px-4 py-4">Unité</th>
-                                                            <th className="text-right px-4 py-4">PU (Pivot)</th>
-                                                            <th className="text-right px-4 py-4">Poids (g)</th>
-                                                            <th className="text-right px-4 py-4 w-[80px]">% Poids</th>
-                                                            <th className="text-right px-4 py-4">Coût</th>
-                                                            <th className="text-right px-6 py-4 w-[80px]">% Coût</th>
-                                                            {isEditing && <th className="w-10"></th>}
+                                                    <thead className="bg-emerald-100 border-t-2 border-emerald-300">
+                                                        <tr className="text-[10px] font-black uppercase text-emerald-800 tracking-wider">
+                                                            <th className="text-left px-4 py-3 w-[25%] bg-transparent">Ingrédient</th>
+                                                            <th className="text-right px-2 py-3 w-[8%] bg-transparent">Quantité</th>
+                                                            <th className="text-center px-2 py-3 w-[8%] border-l border-emerald-200">Unité</th>
+                                                            <th className="text-right px-3 py-3 w-[10%] border-l border-emerald-200">PU (Pivot)</th>
+                                                            <th className="text-right px-3 py-3 w-[12%] border-l border-emerald-200">Poids (g)</th>
+                                                            <th className="text-right px-2 py-3 w-[8%] border-l border-emerald-200">% Poids</th>
+                                                            <th className="text-right px-3 py-3 w-[12%] border-l border-emerald-200">Coût</th>
+                                                            <th className="text-right px-3 py-3 w-[8%] border-l border-emerald-200">% Coût</th>
+                                                            {isEditing && <th className="w-[7%]"></th>}
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100">
@@ -584,9 +978,9 @@ export function ProductionContent({
                                                             const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
                                                             const ingsWithCalculations = currentIngs.map(ing => {
                                                                 const article = articles.find(a => a.id === ing.articleId);
-                                                                const prodPrice = article ? (article.lastPivotPrice || 0) / (article.coeffProd || 1) : 0;
-                                                                const cost = ing.quantity * prodPrice * multiplier;
-                                                                const weight = ing.quantity * multiplier;
+                                                                const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                const cost = calculateCostFromUnit(article, ing.quantity || 0, unit) * multiplier;
+                                                                const weight = convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
                                                                 return { ...ing, weight, calculatedCost: cost };
                                                             });
 
@@ -599,11 +993,11 @@ export function ProductionContent({
                                                                 const weightPct = totalWeight > 0 ? (weight / totalWeight) * 100 : 0;
                                                                 const costPct = totalCost > 0 ? (cost / totalCost) * 100 : 0;
                                                                 const article = articles.find(a => a.id === ing.articleId);
-                                                                const pu = article?.lastPivotPrice || 0;
+                                                                const pu = getPivotPriceFromLatestTransaction(article);
 
                                                                 return (
                                                                     <tr key={ing.id} className="hover:bg-[#F0FDF4]/50 transition-colors group">
-                                                                        <td className="px-6 py-4 text-sm font-bold text-slate-700">
+                                                                        <td className="px-4 py-3 text-sm font-bold text-slate-700 bg-transparent">
                                                                             {isEditing && editData ? (
                                                                                 <div className="relative">
                                                                                     <input
@@ -667,7 +1061,7 @@ export function ProductionContent({
                                                                                 </div>
                                                                             ) : ing.name}
                                                                         </td>
-                                                                        <td className="px-4 py-4 text-sm font-medium text-slate-600 text-right">
+                                                                        <td className="px-2 py-3 text-sm font-medium text-slate-600 text-right bg-transparent">
                                                                             {isEditing && editData ? (
                                                                                 <input
                                                                                     ref={el => { quantityInputRefs.current[idx] = el; }}
@@ -682,32 +1076,49 @@ export function ProductionContent({
                                                                                     onChange={(e) => {
                                                                                         const qty = Number(e.target.value);
                                                                                         const article = articles.find(a => a.id === ing.articleId);
-                                                                                        const prodPrice = article ? (article.lastPivotPrice || 0) / (article.coeffProd || 1) : 0;
-                                                                                        const newCost = qty * prodPrice * multiplier;
+                                                                                        const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                                        const newCost = calculateCostFromUnit(article, qty, unit) * multiplier;
                                                                                         const newIngs = [...(editData?.ingredients || [])];
-                                                                                        newIngs[idx] = { ...ing, quantity: qty, cost: newCost };
+                                                                                        newIngs[idx] = { ...ing, quantity: qty, unit: unit, cost: newCost };
                                                                                         updateEditData('ingredients', newIngs);
                                                                                     }}
-                                                                                    className="w-full text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-emerald-500"
+                                                                                    className="w-full text-right bg-slate-50 border border-slate-200 rounded px-1.5 py-1 text-sm focus:outline-none focus:border-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                                                 />
                                                                             ) : (ing.quantity * multiplier).toLocaleString()}
                                                                         </td>
-                                                                        <td className="px-4 py-4 text-xs font-bold text-slate-400 text-center uppercase">
-                                                                            {ing.unit}
+                                                                        <td className="px-2 py-3 text-xs font-bold text-slate-400 text-center uppercase border-l border-slate-100">
+                                                                            {isEditing && editData ? (
+                                                                                <select
+                                                                                    value={ing.unit}
+                                                                                    onChange={(e) => {
+                                                                                        const newUnit = e.target.value;
+                                                                                        const article = articles.find(a => a.id === ing.articleId);
+                                                                                        const newCost = calculateCostFromUnit(article, ing.quantity, newUnit) * multiplier;
+                                                                                        const newIngs = [...(editData.ingredients || [])];
+                                                                                        newIngs[idx] = { ...ing, unit: newUnit, cost: newCost };
+                                                                                        updateEditData('ingredients', newIngs);
+                                                                                    }}
+                                                                                    className="w-full bg-transparent border-none p-0 text-xs font-bold text-slate-600 text-center uppercase focus:ring-0 focus:outline-none cursor-pointer hover:text-emerald-600 [appearance:none] [-webkit-appearance:none] [-moz-appearance:none]"
+                                                                                >
+                                                                                    {getAvailableUnits(articles.find(a => a.id === ing.articleId)).map(unit => (
+                                                                                        <option key={unit} value={unit}>{unit}</option>
+                                                                                    ))}
+                                                                                </select>
+                                                                            ) : ing.unit}
                                                                         </td>
-                                                                        <td className="px-4 py-4 text-sm font-medium text-slate-500 text-right font-mono">
+                                                                        <td className="px-3 py-3 text-sm font-medium text-slate-500 text-right font-mono border-l border-slate-100">
                                                                             {pu.toFixed(2)}
                                                                         </td>
-                                                                        <td className="px-4 py-4 text-sm font-bold text-slate-700 text-right">
+                                                                        <td className="px-3 py-3 text-sm font-bold text-slate-700 text-right border-l border-slate-100">
                                                                             {weight.toLocaleString()}
                                                                         </td>
-                                                                        <td className="px-4 py-4 text-[11px] font-black text-[#16A34A] text-right bg-[#F0FDF4]/30">
+                                                                        <td className="px-2 py-3 text-[11px] font-black text-[#16A34A] text-right bg-[#F0FDF4]/30 border-l border-slate-100">
                                                                             {weightPct.toFixed(1)}%
                                                                         </td>
-                                                                        <td className="px-4 py-4 text-sm font-black text-slate-800 text-right">
+                                                                        <td className="px-3 py-3 text-sm font-black text-slate-800 text-right border-l border-slate-100">
                                                                             {cost.toFixed(2)}
                                                                         </td>
-                                                                        <td className="px-6 py-4 text-[11px] font-black text-emerald-700 text-right bg-emerald-50/50">
+                                                                        <td className="px-3 py-3 text-[11px] font-black text-emerald-700 text-right bg-emerald-50/50 border-l border-slate-100">
                                                                             {costPct.toFixed(1)}%
                                                                         </td>
                                                                         {isEditing && (
@@ -746,29 +1157,569 @@ export function ProductionContent({
                                                             const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
                                                             const ingsCalculated = currentIngs.map(ing => {
                                                                 const article = articles.find(a => a.id === ing.articleId);
-                                                                const prodPrice = article ? (article.lastPivotPrice || 0) / (article.coeffProd || 1) : 0;
                                                                 return {
-                                                                    weight: ing.quantity * multiplier,
-                                                                    cost: ing.quantity * prodPrice * multiplier
+                                                                    weight: convertToProductionWeight(article, ing.quantity, ing.unit) * multiplier,
+                                                                    cost: calculateCostFromUnit(article, ing.quantity, ing.unit) * multiplier
                                                                 };
                                                             });
                                                             const totalWeight = ingsCalculated.reduce((acc, curr) => acc + curr.weight, 0);
                                                             const totalCost = ingsCalculated.reduce((acc, curr) => acc + curr.cost, 0);
 
                                                             return (
-                                                                <tr className="text-slate-800 font-black">
-                                                                    <td className="px-6 py-4 text-right text-[10px] uppercase text-slate-400">Totaux Engineering</td>
-                                                                    <td colSpan={3}></td>
-                                                                    <td className="px-4 py-4 text-right text-base">{totalWeight.toLocaleString()} <span className="text-[10px] text-slate-400">g</span></td>
-                                                                    <td className="px-4 py-4 text-right text-xs text-[#16A34A] bg-[#F0FDF4]/50 border-x border-[#F0FDF4]">100%</td>
-                                                                    <td className="px-4 py-4 text-right text-base">{totalCost.toLocaleString()} <span className="text-[10px] text-slate-400">Dh</span></td>
-                                                                    <td className="px-6 py-4 text-right text-xs text-emerald-700 bg-emerald-100/30">100%</td>
+                                                                <tr className="text-slate-800 font-black bg-emerald-100">
+                                                                    <td className="px-4 py-3 text-left text-xs font-bold text-emerald-800 bg-transparent">TOTAUX</td>
+                                                                    <td colSpan={2} className="px-2 py-3 bg-transparent"></td>
+                                                                    <td className="px-3 py-3 text-right text-sm font-mono text-emerald-800 border-l border-emerald-200"></td>
+                                                                    <td className="px-3 py-3 text-right text-sm text-emerald-800 border-l border-emerald-200">{totalWeight.toLocaleString()} <span className="text-[10px] text-emerald-600">g</span></td>
+                                                                    <td className="px-2 py-3 text-right text-xs text-emerald-800 border-l border-emerald-200">100%</td>
+                                                                    <td className="px-3 py-3 text-right text-sm text-emerald-800 border-l border-emerald-200">{totalCost.toFixed(2)} <span className="text-[10px] text-emerald-600">Dh</span></td>
+                                                                    <td className="px-3 py-3 text-right text-xs text-emerald-800 border-l border-emerald-200">100%</td>
                                                                     {isEditing && <td></td>}
                                                                 </tr>
                                                             );
                                                         })()}
                                                     </tfoot>
                                                 </table>
+                                            </div>
+                                        )}
+
+                                        {/* Costing Section - Integrated into Ingredients tab */}
+                                        {activeTab === "ingredients" && (
+                                            <div className="grid grid-cols-2 gap-4 mt-6">
+                                                {/* Left: Costing Table (50%) */}
+                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                                    {/* Header */}
+                                                    <div className="bg-emerald-50 border-b border-emerald-100 px-3 py-2 flex items-center justify-between">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <div className="w-5 h-5 rounded-full bg-emerald-600 text-white font-black flex items-center justify-center text-xs">
+                                                                1
+                                                            </div>
+                                                            <h3 className="font-black text-sm text-emerald-900">RECETTES</h3>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <button className="p-1 hover:bg-emerald-100 rounded-lg transition-colors" title="Imprimer A4">
+                                                                <div className="flex flex-col items-center gap-0.5">
+                                                                    <Printer className="w-3.5 h-3.5 text-emerald-700" />
+                                                                    <span className="text-[8px] font-bold text-emerald-700">A4</span>
+                                                                </div>
+                                                            </button>
+                                                            <button className="p-1 hover:bg-emerald-100 rounded-lg transition-colors" title="Imprimer A5">
+                                                                <div className="flex flex-col items-center gap-0.5">
+                                                                    <Printer className="w-3.5 h-3.5 text-emerald-700" />
+                                                                    <span className="text-[8px] font-bold text-emerald-700">A5</span>
+                                                                </div>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="p-3">
+                                                        {(() => {
+                                                            const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier);
+                                                            const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
+                                                            const totalWeight = currentIngs.reduce((sum, ing) => {
+                                                                const article = articles.find(a => a.id === ing.articleId);
+                                                                const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
+                                                            }, 0);
+                                                            const lossRate = isEditing && editData ? (editData.costing.lossRate || 0) : (selectedRecipe.costing.lossRate || 0);
+                                                            const weightAfterLoss = totalWeight * (1 - lossRate / 100);
+                                                            const costPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
+
+                                                            return (
+                                                                <div className="space-y-4">
+                                                                    {/* Summary Row */}
+                                                                    <div className="grid grid-cols-3 gap-3">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-xs font-bold text-slate-600">Vérifié</span>
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                                                            />
+                                                                        </div>
+                                                                        <div className="flex items-center justify-end gap-1.5">
+                                                                            <span className="text-xs font-bold text-slate-600">Poids Brut</span>
+                                                                            <input
+                                                                                type="text"
+                                                                                value={`${totalWeight.toLocaleString('fr-FR')} g`}
+                                                                                readOnly
+                                                                                className="w-[89.6px] text-right bg-blue-50 border border-blue-200 rounded px-2 py-1 text-xs font-bold text-blue-900"
+                                                                            />
+                                                                        </div>
+                                                                        <div className="flex items-center justify-end gap-1.5">
+                                                                            <span className="text-xs font-bold text-slate-600">Coût Matière</span>
+                                                                            <input
+                                                                                type="text"
+                                                                                value={`${totals.materialCost.toFixed(2).replace('.', ',')} Dh`}
+                                                                                readOnly
+                                                                                className="w-[89.6px] text-right bg-blue-50 border border-blue-200 rounded px-2 py-1 text-xs font-bold text-blue-900"
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Cost Breakdown */}
+                                                                    <div className="space-y-1.5">
+                                                                    {/* Taux Perte */}
+                                                                    <div className="grid grid-cols-4 gap-1 items-center">
+                                                                        <span className="text-xs font-bold text-slate-700">Taux Perte</span>
+                                                                        {isEditing && editData ? (
+                                                                            <input
+                                                                                type="number"
+                                                                                value={editData.costing.lossRate || 0}
+                                                                                onChange={(e) => {
+                                                                                    const newLossRate = Number(e.target.value);
+                                                                                    updateEditData('costing', { ...editData.costing, lossRate: newLossRate });
+                                                                                }}
+                                                                                className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                placeholder="0"
+                                                                            />
+                                                                        ) : (
+                                                                            <input
+                                                                                type="text"
+                                                                                value={`${selectedRecipe.costing.lossRate || 0} %`}
+                                                                                readOnly
+                                                                                className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                            />
+                                                                        )}
+                                                                        <div></div>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={`${weightAfterLoss.toLocaleString('fr-FR')} g`}
+                                                                            readOnly
+                                                                            className="w-[89.6px] bg-blue-50 border border-blue-200 rounded px-2 py-1 text-xs font-bold text-blue-900 text-right ml-auto"
+                                                                        />
+                                                                    </div>
+
+                                                                        {/* Personnel */}
+                                                                        <div className="grid grid-cols-4 gap-1 items-center">
+                                                                            <span className="text-xs font-bold text-slate-700">Personnel</span>
+                                                                            {isEditing && editData ? (
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={(editData.costing as any).laborTime || "0:20"}
+                                                                                    onChange={(e) => {
+                                                                                        const newCosting = { ...editData.costing, laborTime: e.target.value };
+                                                                                        updateEditData('costing', newCosting);
+                                                                                    }}
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                    placeholder="0:00"
+                                                                                />
+                                                                            ) : (
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={(selectedRecipe.costing as any).laborTime || "0:20"}
+                                                                                    readOnly
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                />
+                                                                            )}
+                                                                            {isEditing && editData ? (
+                                                                                <input
+                                                                                    type="number"
+                                                                                    step="0.01"
+                                                                                    value={(editData.costing as any).laborCostPerHour || 0}
+                                                                                    onChange={(e) => {
+                                                                                        const costPerHour = Number(e.target.value);
+                                                                                        const timeStr = (editData.costing as any).laborTime || "0:20";
+                                                                                        const [hours, minutes] = timeStr.split(':').map(Number);
+                                                                                        const totalHours = hours + (minutes || 0) / 60;
+                                                                                        const totalCost = totalHours * costPerHour;
+                                                                                        const newCosting = { 
+                                                                                            ...editData.costing, 
+                                                                                            laborCostPerHour: costPerHour,
+                                                                                            laborCost: totalCost
+                                                                                        };
+                                                                                        updateEditData('costing', newCosting);
+                                                                                    }}
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                    placeholder="0"
+                                                                                />
+                                                                            ) : (
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={`${((selectedRecipe.costing as any).laborCostPerHour || 0).toFixed(2).replace('.', ',')} Dh/h`}
+                                                                                    readOnly
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                />
+                                                                            )}
+                                                                            <input
+                                                                                type="text"
+                                                                                value={(() => {
+                                                                                    const timeStr = (isEditing && editData ? editData.costing : selectedRecipe.costing) as any;
+                                                                                    const time = timeStr.laborTime || "0:20";
+                                                                                    const costPerHour = timeStr.laborCostPerHour || 0;
+                                                                                    const [hours, minutes] = time.split(':').map(Number);
+                                                                                    const totalHours = hours + (minutes || 0) / 60;
+                                                                                    const totalCost = totalHours * costPerHour;
+                                                                                    return `${totalCost.toFixed(2).replace('.', ',')} Dh`;
+                                                                                })()}
+                                                                                readOnly
+                                                                                className="w-[89.6px] bg-blue-50 border border-blue-200 rounded px-2 py-1 text-xs font-bold text-blue-900 text-right ml-auto"
+                                                                            />
+                                                                        </div>
+
+                                                                        {/* Machines */}
+                                                                        <div className="grid grid-cols-4 gap-1 items-center">
+                                                                            <span className="text-xs font-bold text-slate-700">Machines</span>
+                                                                            {isEditing && editData ? (
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={(editData.costing as any).machineTime || "0:00"}
+                                                                                    onChange={(e) => {
+                                                                                        const timeStr = e.target.value;
+                                                                                        const costPerHour = (editData.costing as any).machineCostPerHour || 0;
+                                                                                        const [hours, minutes] = timeStr.split(':').map(Number);
+                                                                                        const totalHours = hours + (minutes || 0) / 60;
+                                                                                        const totalCost = totalHours * costPerHour;
+                                                                                        const newCosting = { 
+                                                                                            ...editData.costing, 
+                                                                                            machineTime: timeStr,
+                                                                                            machineCost: totalCost
+                                                                                        };
+                                                                                        updateEditData('costing', newCosting);
+                                                                                    }}
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                    placeholder="0:00"
+                                                                                />
+                                                                            ) : (
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={(selectedRecipe.costing as any).machineTime || "0:00"}
+                                                                                    readOnly
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                />
+                                                                            )}
+                                                                            {isEditing && editData ? (
+                                                                                <input
+                                                                                    type="number"
+                                                                                    step="0.01"
+                                                                                    value={(editData.costing as any).machineCostPerHour || 0}
+                                                                                    onChange={(e) => {
+                                                                                        const costPerHour = Number(e.target.value);
+                                                                                        const timeStr = (editData.costing as any).machineTime || "0:00";
+                                                                                        const [hours, minutes] = timeStr.split(':').map(Number);
+                                                                                        const totalHours = hours + (minutes || 0) / 60;
+                                                                                        const totalCost = totalHours * costPerHour;
+                                                                                        const newCosting = { 
+                                                                                            ...editData.costing, 
+                                                                                            machineCostPerHour: costPerHour,
+                                                                                            machineCost: totalCost
+                                                                                        };
+                                                                                        updateEditData('costing', newCosting);
+                                                                                    }}
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                    placeholder="0"
+                                                                                />
+                                                                            ) : (
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={`${((selectedRecipe.costing as any).machineCostPerHour || 0).toFixed(2).replace('.', ',')} Dh/h`}
+                                                                                    readOnly
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                />
+                                                                            )}
+                                                                            <input
+                                                                                type="text"
+                                                                                value={(() => {
+                                                                                    const timeStr = (isEditing && editData ? editData.costing : selectedRecipe.costing) as any;
+                                                                                    const time = timeStr.machineTime || "0:00";
+                                                                                    const costPerHour = timeStr.machineCostPerHour || 0;
+                                                                                    const [hours, minutes] = time.split(':').map(Number);
+                                                                                    const totalHours = hours + (minutes || 0) / 60;
+                                                                                    const totalCost = totalHours * costPerHour;
+                                                                                    return `${totalCost.toFixed(2).replace('.', ',')} Dh`;
+                                                                                })()}
+                                                                                readOnly
+                                                                                className="w-[89.6px] bg-blue-50 border border-blue-200 rounded px-2 py-1 text-xs font-bold text-blue-900 text-right ml-auto"
+                                                                            />
+                                                                        </div>
+
+                                                                        {/* Stockage */}
+                                                                        <div className="grid grid-cols-4 gap-1 items-center">
+                                                                            <span className="text-xs font-bold text-slate-700">Stockage</span>
+                                                                            {isEditing && editData ? (
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={(editData.costing as any).storageTime || "00:0"}
+                                                                                    onChange={(e) => {
+                                                                                        const timeStr = e.target.value;
+                                                                                        const costPerHour = (editData.costing as any).storageCostPerHour || 0;
+                                                                                        const [hours, minutes] = timeStr.split(':').map(Number);
+                                                                                        const totalHours = hours + (minutes || 0) / 60;
+                                                                                        const totalCost = totalHours * costPerHour;
+                                                                                        const newCosting = { 
+                                                                                            ...editData.costing, 
+                                                                                            storageTime: timeStr,
+                                                                                            storageCost: totalCost
+                                                                                        };
+                                                                                        updateEditData('costing', newCosting);
+                                                                                    }}
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                    placeholder="00:0"
+                                                                                />
+                                                                            ) : (
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={(selectedRecipe.costing as any).storageTime || "00:0"}
+                                                                                    readOnly
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                />
+                                                                            )}
+                                                                            {isEditing && editData ? (
+                                                                                <input
+                                                                                    type="number"
+                                                                                    step="0.01"
+                                                                                    value={(editData.costing as any).storageCostPerHour || 0}
+                                                                                    onChange={(e) => {
+                                                                                        const costPerHour = Number(e.target.value);
+                                                                                        const timeStr = (editData.costing as any).storageTime || "00:0";
+                                                                                        const [hours, minutes] = timeStr.split(':').map(Number);
+                                                                                        const totalHours = hours + (minutes || 0) / 60;
+                                                                                        const totalCost = totalHours * costPerHour;
+                                                                                        const newCosting = { 
+                                                                                            ...editData.costing, 
+                                                                                            storageCostPerHour: costPerHour,
+                                                                                            storageCost: totalCost
+                                                                                        };
+                                                                                        updateEditData('costing', newCosting);
+                                                                                    }}
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                    placeholder="0"
+                                                                                />
+                                                                            ) : (
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={`${((selectedRecipe.costing as any).storageCostPerHour || 0).toFixed(2).replace('.', ',')} Dh/h`}
+                                                                                    readOnly
+                                                                                    className="w-[89.6px] bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 text-right ml-auto"
+                                                                                />
+                                                                            )}
+                                                                            <input
+                                                                                type="text"
+                                                                                value={(() => {
+                                                                                    const timeStr = (isEditing && editData ? editData.costing : selectedRecipe.costing) as any;
+                                                                                    const time = timeStr.storageTime || "00:0";
+                                                                                    const costPerHour = timeStr.storageCostPerHour || 0;
+                                                                                    const [hours, minutes] = time.split(':').map(Number);
+                                                                                    const totalHours = hours + (minutes || 0) / 60;
+                                                                                    const totalCost = totalHours * costPerHour;
+                                                                                    return `${totalCost.toFixed(2).replace('.', ',')} Dh`;
+                                                                                })()}
+                                                                                readOnly
+                                                                                className="w-[89.6px] bg-blue-50 border border-blue-200 rounded px-2 py-1 text-xs font-bold text-blue-900 text-right ml-auto"
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Totals */}
+                                                                    <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                                                                        <div className="grid grid-cols-4 gap-1 items-center">
+                                                                            <div></div>
+                                                                            <div></div>
+                                                                            <span className="text-sm font-bold text-slate-800 text-right">Coût Global</span>
+                                                                            <input
+                                                                                type="text"
+                                                                                value={`${totals.totalCost.toFixed(2).replace('.', ',')} Dh`}
+                                                                                readOnly
+                                                                                className="w-[89.6px] bg-emerald-50 border border-emerald-200 rounded px-2 py-1 text-sm font-black text-emerald-900 text-right ml-auto"
+                                                                            />
+                                                                        </div>
+                                                                        <div className="grid grid-cols-4 gap-1 items-center">
+                                                                            <div></div>
+                                                                            <div></div>
+                                                                            <span className="text-sm font-bold text-slate-800 text-right">Coût / Kg</span>
+                                                                            <input
+                                                                                type="text"
+                                                                                value={`${costPerKg.toFixed(2).replace('.', ',')} Dh`}
+                                                                                readOnly
+                                                                                className="w-[89.6px] bg-emerald-50 border border-emerald-200 rounded px-2 py-1 text-sm font-black text-emerald-900 text-right ml-auto"
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </div>
+
+                                                {/* Right: Summary Card (50%) */}
+                                                <div className="bg-emerald-900 rounded-2xl p-6 shadow-xl relative overflow-hidden flex flex-col">
+                                                    <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-800/20 rounded-full -translate-y-1/2 translate-x-1/2" />
+                                                    <div className="relative mb-6">
+                                                        <h3 className="text-emerald-300 font-bold text-xs uppercase tracking-[0.2em] mb-4">Prix / kg</h3>
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-5xl font-black text-white tracking-tighter">
+                                                                {(() => {
+                                                                    const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier);
+                                                                    const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
+                                                                    const totalWeight = currentIngs.reduce((sum, ing) => {
+                                                                        const article = articles.find(a => a.id === ing.articleId);
+                                                                        const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                        return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
+                                                                    }, 0);
+                                                                    const lossRate = isEditing && editData ? (editData.costing.lossRate || 0) : (selectedRecipe.costing.lossRate || 0);
+                                                                    const weightAfterLoss = totalWeight * (1 - lossRate / 100);
+                                                                    const baseCostPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
+                                                                    return baseCostPerKg.toFixed(2);
+                                                                })()}
+                                                            </span>
+                                                            <span className="text-lg font-bold text-emerald-400">Dh</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="relative flex-1">
+                                                        <table className="w-full">
+                                                            <thead>
+                                                                <tr className="border-b border-emerald-700/30">
+                                                                    <th className="text-left py-2 text-emerald-300 text-[10px] font-bold uppercase tracking-wider">Nom</th>
+                                                                    <th className="text-right py-2 text-emerald-300 text-[10px] font-bold uppercase tracking-wider">Poids</th>
+                                                                    <th className="text-right py-2 text-emerald-300 text-[10px] font-bold uppercase tracking-wider">Prix</th>
+                                                                    {isEditing && editData && <th className="w-8"></th>}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {(() => {
+                                                                    const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier);
+                                                                    const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
+                                                                    const totalWeight = currentIngs.reduce((sum, ing) => {
+                                                                        const article = articles.find(a => a.id === ing.articleId);
+                                                                        const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                        return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
+                                                                    }, 0);
+                                                                    const lossRate = isEditing && editData ? (editData.costing.lossRate || 0) : (selectedRecipe.costing.lossRate || 0);
+                                                                    const weightAfterLoss = totalWeight * (1 - lossRate / 100);
+                                                                    const baseCostPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
+                                                                    const recipeName = isEditing && editData ? editData.name : selectedRecipe.name;
+                                                                    
+                                                                    // Get display items from costing or create default
+                                                                    const displayItems = (editData?.costing as any)?.displayItems || (selectedRecipe.costing as any)?.displayItems || [
+                                                                        {
+                                                                            id: 'default',
+                                                                            name: recipeName,
+                                                                            weight: weightAfterLoss,
+                                                                            price: totals.totalCost
+                                                                        }
+                                                                    ];
+
+                                                                    return displayItems.map((item: any, idx: number) => {
+                                                                        const calculatedPrice = baseCostPerKg > 0 ? (item.weight / 1000) * baseCostPerKg : 0;
+                                                                        const itemPrice = item.price !== undefined ? item.price : calculatedPrice;
+                                                                        
+                                                                        return (
+                                                                            <tr key={item.id || idx} className="border-b border-emerald-700/20 last:border-0">
+                                                                                <td className="text-white text-sm font-bold py-2">
+                                                                                    {isEditing && editData ? (
+                                                                                        <input
+                                                                                            type="text"
+                                                                                            value={item.name || ""}
+                                                                                            onChange={(e) => {
+                                                                                                const newItems = [...displayItems];
+                                                                                                newItems[idx] = { ...item, name: e.target.value };
+                                                                                                const newCosting = { ...editData.costing, displayItems: newItems };
+                                                                                                updateEditData('costing', newCosting);
+                                                                                            }}
+                                                                                            className="w-full bg-emerald-800/40 border border-emerald-700/50 rounded px-2 py-1 text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                                                            placeholder="Nom"
+                                                                                        />
+                                                                                    ) : (
+                                                                                        item.name
+                                                                                    )}
+                                                                                </td>
+                                                                                <td className="text-white text-sm font-bold text-right py-2">
+                                                                                    {isEditing && editData ? (
+                                                                                        <input
+                                                                                            type="number"
+                                                                                            step="1"
+                                                                                            value={item.weight || 0}
+                                                                                            onChange={(e) => {
+                                                                                                const newWeight = Number(e.target.value);
+                                                                                                const newPrice = baseCostPerKg > 0 ? (newWeight / 1000) * baseCostPerKg : 0;
+                                                                                                const newItems = [...displayItems];
+                                                                                                newItems[idx] = { ...item, weight: newWeight, price: newPrice };
+                                                                                                const newCosting = { ...editData.costing, displayItems: newItems };
+                                                                                                updateEditData('costing', newCosting);
+                                                                                            }}
+                                                                                            className="w-full bg-emerald-800/40 border border-emerald-700/50 rounded px-2 py-1 text-sm font-bold text-white text-right focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                                                                            placeholder="0"
+                                                                                        />
+                                                                                    ) : (
+                                                                                        `${item.weight.toLocaleString('fr-FR')} g`
+                                                                                    )}
+                                                                                </td>
+                                                                                <td className="text-white text-sm font-bold text-right py-2">
+                                                                                    {isEditing && editData ? (
+                                                                                        <span className="text-emerald-300">
+                                                                                            {itemPrice.toFixed(2)} Dh
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        `${itemPrice.toFixed(2)} Dh`
+                                                                                    )}
+                                                                                </td>
+                                                                                {isEditing && editData && (
+                                                                                    <td className="py-2">
+                                                                                        <button
+                                                                                            onClick={() => {
+                                                                                                const newItems = displayItems.filter((_: any, i: number) => i !== idx);
+                                                                                                if (newItems.length === 0) {
+                                                                                                    // If all items deleted, add default
+                                                                                                    const defaultItem = {
+                                                                                                        id: 'default',
+                                                                                                        name: recipeName,
+                                                                                                        weight: weightAfterLoss,
+                                                                                                        price: totals.totalCost
+                                                                                                    };
+                                                                                                    newItems.push(defaultItem);
+                                                                                                }
+                                                                                                const newCosting = { ...editData.costing, displayItems: newItems };
+                                                                                                updateEditData('costing', newCosting);
+                                                                                            }}
+                                                                                            className="p-1 text-emerald-300 hover:text-white hover:bg-emerald-800/50 rounded transition-colors"
+                                                                                        >
+                                                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                                                        </button>
+                                                                                    </td>
+                                                                                )}
+                                                                            </tr>
+                                                                        );
+                                                                    });
+                                                                })()}
+                                                                {isEditing && editData && (
+                                                                    <tr>
+                                                                        <td colSpan={isEditing && editData ? 4 : 3} className="py-2">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    const totals = calculateRecipeTotals(editData, multiplier);
+                                                                                    const currentIngs = editData.ingredients || [];
+                                                                                    const totalWeight = currentIngs.reduce((sum, ing) => {
+                                                                                        const article = articles.find(a => a.id === ing.articleId);
+                                                                                        const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                                        return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
+                                                                                    }, 0);
+                                                                                    const lossRate = editData.costing.lossRate || 0;
+                                                                                    const weightAfterLoss = totalWeight * (1 - lossRate / 100);
+                                                                                    const baseCostPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
+                                                                                    
+                                                                                    const currentItems = (editData.costing as any)?.displayItems || [];
+                                                                                    const newItem = {
+                                                                                        id: `item-${Date.now()}`,
+                                                                                        name: "",
+                                                                                        weight: 0,
+                                                                                        price: 0
+                                                                                    };
+                                                                                    const newItems = [...currentItems, newItem];
+                                                                                    const newCosting = { ...editData.costing, displayItems: newItems };
+                                                                                    updateEditData('costing', newCosting);
+                                                                                }}
+                                                                                className="w-full py-1.5 text-xs font-bold text-emerald-300 hover:text-white hover:bg-emerald-800/50 rounded border border-dashed border-emerald-700/50 transition-colors flex items-center justify-center gap-1"
+                                                                            >
+                                                                                <Plus className="w-3.5 h-3.5" />
+                                                                                Ajouter une ligne
+                                                                            </button>
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
                                             </div>
                                         )}
 
@@ -868,7 +1819,7 @@ export function ProductionContent({
                                                     </h3>
                                                     <div className="space-y-4">
                                                         {(() => {
-                                                            const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe);
+                                                            const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier);
                                                             return (
                                                                 <>
                                                                     <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
@@ -940,7 +1891,7 @@ export function ProductionContent({
                                                         <h3 className="text-emerald-300 font-bold text-xs uppercase tracking-[0.2em] mb-4">Prix de Revient Final</h3>
                                                         <div className="flex items-baseline gap-3">
                                                             <span className="text-6xl font-black text-white tracking-tighter">
-                                                                {calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe).costPerUnit.toFixed(2)}
+                                                                {calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier).costPerUnit.toFixed(2)}
                                                             </span>
                                                             <span className="text-xl font-bold text-emerald-400">Dh / {selectedRecipe.yieldUnit}</span>
                                                         </div>
@@ -949,11 +1900,11 @@ export function ProductionContent({
                                                     <div className="relative mt-12 grid grid-cols-2 gap-4">
                                                         <div className="bg-emerald-800/40 rounded-xl p-4 border border-emerald-700/30">
                                                             <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest block mb-1">Total Matériel</span>
-                                                            <span className="text-white font-bold text-lg">{calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe).materialCost.toFixed(2)} Dh</span>
+                                                            <span className="text-white font-bold text-lg">{calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier).materialCost.toFixed(2)} Dh</span>
                                                         </div>
                                                         <div className="bg-emerald-800/40 rounded-xl p-4 border border-emerald-700/30">
                                                             <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest block mb-1">Coût Total</span>
-                                                            <span className="text-white font-bold text-lg">{calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe).totalCost.toFixed(2)} Dh</span>
+                                                            <span className="text-white font-bold text-lg">{calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier).totalCost.toFixed(2)} Dh</span>
                                                         </div>
                                                     </div>
                                                 </div>
