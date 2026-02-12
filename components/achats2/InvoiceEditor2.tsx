@@ -2,7 +2,7 @@
 
 import { useRef, forwardRef } from "react";
 import { GlassCard } from "@/components/ui/GlassComponents";
-import { Invoice, InvoiceLine, Article, Tier } from "@/lib/types";
+import { Invoice, InvoiceLine } from "@/lib/types";
 import { InvoiceDocuments } from "../achats/editor/InvoiceDocuments";
 import { InvoiceFinancials } from "../achats/editor/InvoiceFinancials";
 import { InvoicePayments } from "../achats/editor/InvoicePayments";
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { UnitSelector } from "@/components/ui/UnitSelector";
 import { useAccountingAccounts, useArticles, usePartners, useTiers } from "@/lib/hooks/use-data";
 
-interface InvoiceEditorProps {
+interface InvoiceEditor2Props {
     invoice: Invoice | null;
     invoices: Invoice[];
     articles: Article[];
@@ -62,7 +62,7 @@ const DecimalInput = forwardRef<HTMLInputElement, { value: number; onChange: (va
 );
 DecimalInput.displayName = "DecimalInput";
 
-export function InvoiceEditor({
+export function InvoiceEditor2({
     invoice,
     invoices,
     articles: articlesProp,
@@ -135,7 +135,7 @@ export function InvoiceEditor({
     // Autocomplete State for Supplier
     const [supplierSearch, setSupplierSearch] = useState("");
     const [showSuggestions, setShowSuggestions] = useState(false);
-    const [filteredSuppliers, setFilteredSuppliers] = useState<{ id: string; name: string; code: string }[]>([]);
+    const [filteredSuppliers, setFilteredSuppliers] = useState<{ id: string; name: string; code: string }[]>(suppliers);
     const [focusIndex, setFocusIndex] = useState(-1);
     const supplierInputRef = useRef<HTMLInputElement>(null);
 
@@ -156,7 +156,6 @@ export function InvoiceEditor({
     const prevLinesLength = useRef(0);
     const supplierListRef = useRef<HTMLDivElement>(null);
     const articleListRef = useRef<HTMLDivElement>(null);
-    const isTypingRef = useRef(false);
 
     useEffect(() => {
         if (formData.lines && formData.lines.length > prevLinesLength.current) {
@@ -235,6 +234,8 @@ export function InvoiceEditor({
             });
             setSupplierSearch("");
         }
+        // Initialize filtered suppliers with all suppliers
+        setFilteredSuppliers(suppliers);
     }, [invoice, suppliers]);
 
     useEffect(() => {
@@ -297,17 +298,23 @@ export function InvoiceEditor({
         }
     }, [supplierSearch, suppliers]);
 
-    // Sync supplierSearch with formData.supplierId only when invoice changes, not during typing
+    // Initialize filteredSuppliers on mount and when suppliers change
     useEffect(() => {
-        if (!isTypingRef.current && invoice && formData.supplierId) {
+        if (suppliers && suppliers.length > 0) {
+            setFilteredSuppliers(suppliers);
+        }
+    }, [suppliers]);
+
+    useEffect(() => {
+        if (formData.supplierId) {
             const supplier = suppliers.find(s => s.id === formData.supplierId);
             if (supplier && supplierSearch !== supplier.name) {
                 setSupplierSearch(supplier.name);
             }
-        } else if (!isTypingRef.current && invoice && !formData.supplierId && supplierSearch !== "") {
+        } else if (!formData.supplierId && supplierSearch !== "") {
             setSupplierSearch("");
         }
-    }, [invoice?.id, formData.supplierId, suppliers]);
+    }, [formData.supplierId, suppliers, supplierSearch]);
 
     const handleNumberChange = (val: string) => {
         const newData = { ...formData, number: val };
@@ -652,15 +659,14 @@ export function InvoiceEditor({
                                         value={supplierSearch}
                                         onChange={(e) => {
                                             const value = e.target.value;
-                                            isTypingRef.current = true;
                                             setSupplierSearch(value);
                                             setFocusIndex(-1);
-                                            // Always show suggestions when typing
-                                            setShowSuggestions(true);
-                                            setTimeout(() => { isTypingRef.current = false; }, 300);
+                                            // Show suggestions when typing
+                                            if (value.trim() !== "") {
+                                                setShowSuggestions(true);
+                                            }
                                         }}
                                         onFocus={() => {
-                                            // Always show suggestions when focused
                                             setShowSuggestions(true);
                                         }}
                                         onBlur={() => {
@@ -845,7 +851,6 @@ export function InvoiceEditor({
                                                             value={line.details || ""}
                                                             onChange={e => handleLineChange(index, "details", e.target.value)}
                                                             onFocus={(e) => setTimeout(() => e.target.select(), 0)}
-                                                            onClick={(e) => (e.target as HTMLInputElement).select()}
                                                             onKeyDown={(e) => handleLineKeyDown(e, index, "details")}
                                                             className="w-full bg-transparent font-normal text-slate-500 italic text-[11px] outline-none placeholder:text-slate-300"
                                                             placeholder="Détails..."
@@ -894,7 +899,6 @@ export function InvoiceEditor({
                                                                 value={line.vatRate !== undefined ? line.vatRate : 0}
                                                                 onChange={e => handleLineChange(index, "vatRate", e.target.value)}
                                                                 onFocus={(e) => setTimeout(() => e.target.select(), 0)}
-                                                                onClick={(e) => (e.target as HTMLInputElement).select()}
                                                                 onKeyDown={(e) => handleLineKeyDown(e, index, "vatRate")}
                                                                 className="w-full text-right bg-transparent outline-none font-medium text-slate-500 pr-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                             />
@@ -909,7 +913,6 @@ export function InvoiceEditor({
                                                                 value={line.discount}
                                                                 onChange={e => handleLineChange(index, "discount", e.target.value)}
                                                                 onFocus={(e) => setTimeout(() => e.target.select(), 0)}
-                                                                onClick={(e) => (e.target as HTMLInputElement).select()}
                                                                 onKeyDown={(e) => handleLineKeyDown(e, index, "discount")}
                                                                 className="w-full text-right bg-transparent outline-none font-medium text-slate-500 pr-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                             />

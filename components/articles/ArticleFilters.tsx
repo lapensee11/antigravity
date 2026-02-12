@@ -47,7 +47,12 @@ export function ArticleFilters({ onSearch, articles, onSelectArticle, selectedAr
                                 }`}
                         >
                             <div className="flex justify-between items-start">
-                                <span className="font-semibold text-slate-800">{article.name}</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-slate-800">{article.name}</span>
+                                    {article.isSubRecipe && (
+                                        <span className="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-bold">Sous-recette</span>
+                                    )}
+                                </div>
                                 <span className="text-xs font-mono bg-slate-200/50 px-1.5 py-0.5 rounded text-slate-600">{article.code}</span>
                             </div>
                             <div className="flex justify-between mt-1">

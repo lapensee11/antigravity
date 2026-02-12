@@ -8,6 +8,8 @@ import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/
 import { UnitSelector } from "@/components/ui/UnitSelector";
 import { AccountingAccount } from "@/lib/types";
 import { useFamilies, useSubFamilies, useAccountingAccounts, useTiers } from "@/lib/hooks/use-data";
+import { getRecipes } from "@/lib/data-service";
+import { Recipe } from "@/lib/types";
 
 interface ArticleEditorProps {
     article?: Article | null;
@@ -30,10 +32,45 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     const { data: subFamilies = [] } = useSubFamilies();
     const { data: accountingAccounts = [] } = useAccountingAccounts();
     const { data: tiers = [] } = useTiers();
+    
+    // Check if article should display nutritional values (FA01-FA07 or FP families)
+    const shouldShowNutritionalValues = useMemo(() => {
+        if (!formData.subFamilyId) return false;
+        const subFamily = subFamilies.find(sf => sf.id === formData.subFamilyId);
+        if (!subFamily) return false;
+        const family = families.find(f => f.id === subFamily.familyId);
+        if (!family) return false;
+        
+        // Production type (FP)
+        if (family.typeId === "3") return true;
+        
+        // Achat type families FA01 to FA07
+        if (family.typeId === "1") {
+            const familyCode = family.code || "";
+            // Check if code starts with FA01, FA02, FA03, FA04, FA05, FA06, or FA07
+            return /^FA0[1-7]$/.test(familyCode);
+        }
+        
+        return false;
+    }, [formData.subFamilyId, subFamilies, families]);
+    
+    // Check if article is Production type (recipe or sub-recipe) - for recipes display
+    const isProductionArticle = useMemo(() => {
+        if (!formData.subFamilyId) return false;
+        const subFamily = subFamilies.find(sf => sf.id === formData.subFamilyId);
+        if (!subFamily) return false;
+        const family = families.find(f => f.id === subFamily.familyId);
+        return family?.typeId === "3"; // Production type
+    }, [formData.subFamilyId, subFamilies, families]);
+    
+    // Check if article is a recipe (has linkedRecipeId or id starts with RECIPE-)
+    const isRecipe = formData.id?.startsWith("RECIPE-") || !!(formData as any).linkedRecipeId;
+    const isSubRecipe = formData.isSubRecipe === true;
 
     const [availableVatRates, setAvailableVatRates] = usePersistedState<number[]>("article_vat_rates", [0, 7, 10, 14, 20]);
     const [isAddingVat, setIsAddingVat] = useState(false);
     const [newVatInput, setNewVatInput] = useState("");
+    const [recipes, setRecipes] = useState<Recipe[]>([]);
 
     // Derived state for the "Compte Général" selector
     const selectedGeneralAccount = formData.accountingCode ? formData.accountingCode.substring(0, 4) : "";
@@ -104,7 +141,16 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
             setFormData({});
             prevArticleIdRef.current = null;
         }
-    }, [article, subFamilies]); // subFamilies dependency is important for the first load
+    }, [article, subFamilies]);
+    
+    // Load recipes for Production articles
+    useEffect(() => {
+        if (isProductionArticle) {
+            getRecipes().then(setRecipes);
+        } else {
+            setRecipes([]);
+        }
+    }, [isProductionArticle]); // subFamilies dependency is important for the first load
 
     // Auto-fill accounting code from SubFamily default if missing
     // This handles initial load (when subFamilies are fetched) and when opening an article without a code.
@@ -458,6 +504,39 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                             </div>
                         </div>
 
+                        {/* Production Articles: Recipes & Sub-Recipes Section */}
+                        {isProductionArticle && (
+                            <div className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-xl rounded-2xl p-4 w-full">
+                                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Recettes & Sous-Recettes</h4>
+                                <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                                    {recipes.filter(r => r.subFamilyId === formData.subFamilyId).map(recipe => (
+                                        <div key={recipe.id} className="text-xs p-2 bg-slate-50 rounded-lg border border-slate-200">
+                                            <div className="font-bold text-slate-700">{recipe.name}</div>
+                                            {recipe.isSubRecipe && (
+                                                <span className="text-[9px] text-green-600 font-bold">Sous-recette</span>
+                                            )}
+                                        </div>
+                                    ))}
+                                    {recipes.filter(r => r.subFamilyId === formData.subFamilyId).length === 0 && (
+                                        <p className="text-xs text-slate-400 italic">Aucune recette</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Function of Product Section */}
+                        {isProductionArticle && (
+                            <div className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-xl rounded-2xl p-4 w-full">
+                                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Fonction du Produit</h4>
+                                <textarea
+                                    value={(formData as any).productFunction || ""}
+                                    onChange={(e) => handleChange("productFunction" as any, e.target.value)}
+                                    placeholder="Décrire la fonction du produit..."
+                                    className="w-full text-xs p-2 bg-slate-50 rounded-lg border border-slate-200 resize-none min-h-[80px] focus:outline-none focus:border-blue-500"
+                                />
+                            </div>
+                        )}
+
                         {/* Buttons Control */}
                         <div className="flex gap-2 w-full mt-2">
                             <div className="flex-1 bg-blue-50/50 border border-blue-100 rounded-xl px-4 py-2 flex items-center justify-center gap-2 shadow-sm">
@@ -732,10 +811,10 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                     <section className="flex flex-col h-full">
                         <h3 className="text-sm font-bold text-slate-900 uppercase tracking-widest mb-6 flex items-center gap-2">
                             <div className="w-1.5 h-6 rounded-full bg-[#1E293B] transition-colors" />
-                            {formData.accountingCode?.startsWith("6121") ? "Valeurs Nutritionnelles pour 100g" : "Logistique & Stockage"}
+                            {shouldShowNutritionalValues ? "Valeurs Nutritionnelles pour 100g" : "Logistique & Stockage"}
                         </h3>
                         <div className="bg-[#F8FAFC] rounded-2xl px-6 py-4 border border-blue-500/20 shadow-2xl shadow-blue-500/5 transition-all duration-300 flex-1 flex flex-col min-h-[300px]">
-                            {formData.accountingCode?.startsWith("6121") ? (
+                            {shouldShowNutritionalValues ? (
                                 <div className="space-y-3">
                                     {/* Row 1: Energy & Water */}
                                     <div className="flex items-center gap-4 p-3 bg-white rounded-lg border border-slate-100 shadow-sm">

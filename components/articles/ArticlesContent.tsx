@@ -32,6 +32,9 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                 getFamilies(),
                 getSubFamilies()
             ]);
+            console.log(`[ArticlesContent] Loaded ${liveArticles.length} articles (including recipes)`);
+            const recipeArticles = liveArticles.filter(a => a.id.startsWith('RECIPE-'));
+            console.log(`[ArticlesContent] Recipe articles:`, recipeArticles.map(a => ({ id: a.id, name: a.name, subFamilyId: a.subFamilyId })));
             setArticles(liveArticles || []);
             setInvoices(liveInvoices || []);
             if (liveFamilies?.length) setFamilies(liveFamilies);
@@ -114,7 +117,7 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
         });
     };
 
-    const [selectedType, setSelectedType] = useState<"TOUS" | "1" | "2">("TOUS");
+    const [selectedType, setSelectedType] = useState<"TOUS" | "1" | "2" | "3" | "4">("TOUS");
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
     const [selectedSubFamilyId, setSelectedSubFamilyId] = useState<string | null>(null);
@@ -124,7 +127,8 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
         if (selectedType !== "TOUS") {
             filtered = families.filter(f => f.typeId === selectedType);
         } else {
-            filtered = families.filter(f => f.typeId === "1" || f.typeId === "2");
+            // Inclure tous les types quand "TOUS" est sélectionné
+            filtered = families.filter(f => f.typeId === "1" || f.typeId === "2" || f.typeId === "3" || f.typeId === "4");
         }
         return filtered.sort((a, b) => a.code.localeCompare(b.code));
     }, [selectedType, families]);
@@ -142,7 +146,8 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
             const typeSubs = new Set(subFamilies.filter(s => typeFamilies.has(s.familyId)).map(s => s.id));
             filtered = filtered.filter(a => typeSubs.has(a.subFamilyId));
         } else {
-            const validFamilies = new Set(families.filter(f => f.typeId === "1" || f.typeId === "2").map(f => f.id));
+            // Inclure tous les types quand "TOUS" est sélectionné
+            const validFamilies = new Set(families.filter(f => f.typeId === "1" || f.typeId === "2" || f.typeId === "3" || f.typeId === "4").map(f => f.id));
             const validSubs = new Set(subFamilies.filter(s => validFamilies.has(s.familyId)).map(s => s.id));
             filtered = filtered.filter(a => validSubs.has(a.subFamilyId));
         }
@@ -192,7 +197,7 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
             } else {
                 return;
             }
-            const typeSteps: ("TOUS" | "1" | "2")[] = ["TOUS", "1", "2"];
+            const typeSteps: ("TOUS" | "1" | "2" | "3" | "4")[] = ["TOUS", "1", "2", "3", "4"];
             const currentTypeIndex = typeSteps.indexOf(selectedType);
             if (e.key === "ArrowRight") {
                 const nextIndex = Math.min(currentTypeIndex + 1, typeSteps.length - 1);
@@ -251,8 +256,8 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                             <p className="text-slate-400 text-sm font-light">Catalogue & Prix</p>
                         </div>
                         <div className="bg-white p-1 rounded-xl flex gap-1 shadow-sm">
-                            {["TOUS", "ACHATS", "FONCT."].map((label) => {
-                                const mapType = { "TOUS": "TOUS", "ACHATS": "1", "FONCT.": "2" };
+                            {["Tout", "FA", "FF", "FP", "FV"].map((label) => {
+                                const mapType = { "Tout": "TOUS", "FA": "1", "FF": "2", "FP": "3", "FV": "4" };
                                 const typeValue = mapType[label as keyof typeof mapType] as any;
                                 const isActive = selectedType === typeValue;
                                 return (
@@ -303,7 +308,7 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                                 </button>
                                 <button
                                     onClick={async () => {
-                                        const validFamilies = new Set(families.filter(f => f.typeId === "1" || f.typeId === "2").map(f => f.id));
+                                        const validFamilies = new Set(families.filter(f => f.typeId === "1" || f.typeId === "2" || f.typeId === "3" || f.typeId === "4").map(f => f.id));
                                         const validSubs = new Set(subFamilies.filter(s => validFamilies.has(s.familyId)).map(s => s.id));
 
                                         const toDelete = articles.filter(a =>
@@ -434,9 +439,16 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                                                 {article.code}
                                             </span>
                                         </div>
-                                        <span className={cn("text-xs font-black truncate transition-colors", isSelected ? "text-blue-700" : "text-slate-700")}>
-                                            {article.name}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <span className={cn("text-xs font-black truncate transition-colors", isSelected ? "text-blue-700" : "text-slate-700")}>
+                                                {article.name}
+                                            </span>
+                                            {article.isSubRecipe && (
+                                                <GlassBadge color="green" className="text-[8px] px-1.5 py-0.5">
+                                                    Sous-recette
+                                                </GlassBadge>
+                                            )}
+                                        </div>
                                         <span className="text-xs font-bold text-slate-500">
                                             {(article.lastPivotPrice || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-[10px]">MAD</span>
                                         </span>

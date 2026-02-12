@@ -16,6 +16,10 @@ interface TypeColumnProps {
     structureType: StructureType;
     families: Family[];
     subFamilies: SubFamily[];
+    articleCounts?: {
+        bySubFamily: Record<string, number>;
+        byFamily: Record<string, number>;
+    };
     pastelTheme: PastelTheme;
     focusedFamilyId?: string | null;
     setFocusedFamilyId?: (id: string) => void;
@@ -33,6 +37,7 @@ export function TypeColumn({
     structureType,
     families,
     subFamilies,
+    articleCounts = { bySubFamily: {}, byFamily: {} },
     pastelTheme,
     focusedFamilyId,
     setFocusedFamilyId,
@@ -126,7 +131,7 @@ export function TypeColumn({
                                         "font-bold text-xs sm:text-[13px] truncate",
                                         isFocused ? "text-blue-700" : "text-slate-700"
                                     )}>
-                                        {family.name}
+                                        {family.name} ({articleCounts.byFamily[family.id] || 0})
                                     </span>
                                 </div>
 
@@ -173,7 +178,7 @@ export function TypeColumn({
                                                     {sub.code}
                                                 </span>
                                                 {/* Name */}
-                                                <span className="font-bold text-slate-600 text-xs truncate">{sub.name}</span>
+                                                <span className="font-bold text-slate-600 text-xs truncate">{sub.name} ({articleCounts.bySubFamily[sub.id] || 0})</span>
                                             </div>
 
                                             <div className="flex items-center gap-0.5 opacity-0 group-hover/sub:opacity-100 transition-all">

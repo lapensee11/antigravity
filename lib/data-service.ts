@@ -61,7 +61,112 @@ export async function deleteEmployee(id: number): Promise<{ success: true }> {
 
 // ARTICLES
 export async function getArticles(): Promise<Article[]> {
-    return await db.articles.toArray();
+    const articles = await db.articles.toArray();
+    const recipes = await db.recipes.toArray();
+    const subFamilies = await db.subFamilies.toArray();
+    const subFamilyIds = new Set(subFamilies.map(sf => sf.id));
+    
+    // Corriger les articles qui ont un subFamilyId qui est un nom au lieu d'un ID UUID
+    const correctedArticles = await Promise.all(articles.map(async (article) => {
+        if (!article.subFamilyId) return article;
+        
+        // Vérifier si c'est un ID UUID valide
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(article.subFamilyId);
+        
+        if (!isUUID) {
+            // C'est probablement un nom, chercher l'ID UUID correspondant
+            const subFamilyByName = subFamilies.find(sf => sf.name === article.subFamilyId);
+            if (subFamilyByName) {
+                console.log(`[getArticles] Fixing article "${article.name}": subFamilyId "${article.subFamilyId}" -> "${subFamilyByName.id}"`);
+                // Corriger l'article dans la base de données
+                await db.articles.update(article.id, { subFamilyId: subFamilyByName.id });
+                return { ...article, subFamilyId: subFamilyByName.id };
+            }
+        }
+        return article;
+    }));
+    
+    // Obtenir les familles pour vérifier le type
+    const families = await db.families.toArray();
+    const productionFamilyIds = new Set(families.filter(f => f.typeId === "3").map(f => f.id));
+    const productionSubFamilyIds = new Set(subFamilies.filter(sf => productionFamilyIds.has(sf.familyId)).map(sf => sf.id));
+    
+    // Corriger les recettes qui ont un subFamilyId qui est un nom au lieu d'un ID UUID
+    const correctedRecipes = await Promise.all(recipes.map(async (recipe) => {
+        if (!recipe.subFamilyId) return recipe;
+        
+        // Vérifier si c'est un ID UUID valide
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipe.subFamilyId);
+        
+        if (!isUUID) {
+            // C'est probablement un nom, chercher l'ID UUID correspondant
+            const subFamilyByName = subFamilies.find(sf => sf.name === recipe.subFamilyId);
+            if (subFamilyByName) {
+                console.log(`[getArticles] Fixing recipe "${recipe.name}": subFamilyId "${recipe.subFamilyId}" -> "${subFamilyByName.id}"`);
+                // Corriger la recette dans la base de données
+                await db.recipes.update(recipe.id, { subFamilyId: subFamilyByName.id });
+                return { ...recipe, subFamilyId: subFamilyByName.id };
+            }
+        }
+        return recipe;
+    }));
+    
+    // Convertir toutes les recettes en articles de type Production
+    // Filtrer uniquement les recettes avec un subFamilyId valide de type Production
+    console.log(`[getArticles] Found ${correctedRecipes.length} recipes`);
+    console.log(`[getArticles] Production family IDs:`, Array.from(productionFamilyIds));
+    console.log(`[getArticles] Production subFamily IDs:`, Array.from(productionSubFamilyIds));
+    
+    const recipeArticles: Article[] = correctedRecipes
+        .filter(recipe => {
+            const hasValidSubFamily = recipe.subFamilyId && subFamilyIds.has(recipe.subFamilyId);
+            const isProductionSubFamily = recipe.subFamilyId && productionSubFamilyIds.has(recipe.subFamilyId);
+            
+            console.log(`[getArticles] Recipe "${recipe.name}": subFamilyId=${recipe.subFamilyId}, hasValidSubFamily=${hasValidSubFamily}, isProductionSubFamily=${isProductionSubFamily}`);
+            
+            if (!hasValidSubFamily) {
+                console.warn(`Recipe "${recipe.name}" has invalid subFamilyId: ${recipe.subFamilyId}`);
+            } else if (!isProductionSubFamily) {
+                const subFamily = subFamilies.find(sf => sf.id === recipe.subFamilyId);
+                const family = subFamily ? families.find(f => f.id === subFamily.familyId) : null;
+                console.warn(`Recipe "${recipe.name}" has subFamilyId ${recipe.subFamilyId} (subFamily: ${subFamily?.code || 'unknown'}, family: ${family?.code || 'unknown'}, typeId: ${family?.typeId || 'unknown'}) which is not a Production subFamily`);
+            }
+            return hasValidSubFamily && isProductionSubFamily;
+        })
+        .map(recipe => {
+            // Générer un code basé sur la sous-famille (format: P[Type][Family][SubFamily]-[Index])
+            const subFamily = subFamilies.find(sf => sf.id === recipe.subFamilyId);
+            let code = `R-${recipe.id}`; // Code par défaut
+            
+            if (subFamily) {
+                // Format: P[Type][Family][SubFamily]-[Index]
+                // Exemple: PA011-01 -> R pour Recipe
+                const baseCode = subFamily.code.replace('F', 'P'); // FA011 -> PA011
+                // Compter les recettes dans cette sous-famille pour générer l'index
+                const recipeIndex = recipes.filter(r => r.subFamilyId === recipe.subFamilyId && r.id <= recipe.id).length;
+                code = `${baseCode}-R${recipeIndex.toString().padStart(2, '0')}`;
+            }
+            
+            return {
+                id: `RECIPE-${recipe.id}`,
+                name: recipe.name,
+                code: code,
+                subFamilyId: recipe.subFamilyId,
+                unitPivot: "Kg",
+                unitAchat: "Kg",
+                unitProduction: "g",
+                contenace: 1,
+                coeffProd: 1000,
+                lastPivotPrice: recipe.costing?.costPerUnit || 0,
+                vatRate: 20,
+                isSubRecipe: recipe.isSubRecipe || false,
+                linkedRecipeId: recipe.id
+            };
+        });
+    
+    // Combiner articles et recettes
+    console.log(`[getArticles] Returning ${correctedArticles.length} articles + ${recipeArticles.length} recipe articles = ${correctedArticles.length + recipeArticles.length} total`);
+    return [...correctedArticles, ...recipeArticles];
 }
 
 export async function saveArticle(article: Article): Promise<{ success: true }> {
@@ -176,8 +281,111 @@ export async function getRecipes(): Promise<Recipe[]> {
 }
 
 export async function saveRecipe(recipe: Recipe): Promise<{ success: true }> {
-    await db.recipes.put(recipe);
+    // Créer une copie profonde de la recette pour éviter toute mutation accidentelle
+    const recipeCopy: Recipe = {
+        ...recipe,
+        ingredients: (recipe.ingredients || []).map(ing => ({ ...ing })),
+        steps: (recipe.steps || []).map(step => ({ ...step })),
+        nutrition: { ...recipe.nutrition },
+        costing: { ...recipe.costing }
+    };
+    
+    // Sauvegarder la recette AVANT de créer l'article (pour éviter toute modification)
+    await db.recipes.put(recipeCopy);
+    
+    // Si c'est une sous-recette, créer ou mettre à jour l'article correspondant
+    // Utiliser recipeCopy pour éviter toute mutation de l'original
+    if (recipeCopy.isSubRecipe) {
+        await createOrUpdateSubRecipeArticle(recipeCopy);
+    }
+    
     return { success: true };
+}
+
+// Fonction pour créer ou mettre à jour l'article correspondant à une sous-recette
+async function createOrUpdateSubRecipeArticle(recipe: Recipe): Promise<void> {
+    // S'assurer que la recette a bien isSubRecipe = true
+    if (!recipe.isSubRecipe) {
+        return; // Ne rien faire si ce n'est pas une sous-recette
+    }
+    // Calculer le coût total de la recette
+    const materialCost = (recipe.ingredients || []).reduce((sum, ing) => {
+        return sum + (ing.cost || 0);
+    }, 0);
+    
+    // Ajouter les coûts de main-d'œuvre, machine, stockage si disponibles
+    const laborCost = (recipe.costing as any)?.laborCost || 0;
+    const machineCost = (recipe.costing as any)?.machineCost || 0;
+    const storageCost = (recipe.costing as any)?.storageCost || 0;
+    const lossRate = recipe.costing?.lossRate || 0;
+    
+    const totalCost = (materialCost + laborCost + machineCost + storageCost) * (1 + lossRate / 100);
+    const costPerUnit = recipe.yield > 0 ? totalCost / recipe.yield : 0;
+    
+    // Vérifier si l'article existe déjà
+    const existingArticle = await db.articles
+        .where('linkedRecipeId')
+        .equals(recipe.id)
+        .first();
+    
+    const articleId = existingArticle?.id || `SR-${recipe.id}`;
+    
+    // Déterminer les unités pour les sous-recettes :
+    // - Unité d'achat : Kg
+    // - Contenance : 1
+    // - Unité pivot : Kg
+    // - Coeff : 1000
+    // - Unité de production : g
+    // Conversion : 1 Kg (achat/pivot) = 1000 g (production)
+    const unitAchat = "Kg";
+    const contenace = 1;
+    const unitPivot = "Kg";
+    const coeffProd = 1000;
+    const unitProduction = "g";
+    
+    // Trouver le vrai ID UUID de la sous-famille si recipe.subFamilyId est un nom au lieu d'un ID
+    let correctSubFamilyId = recipe.subFamilyId;
+    const subFamilies = await db.subFamilies.toArray();
+    const subFamilyById = subFamilies.find(sf => sf.id === recipe.subFamilyId);
+    const subFamilyByName = subFamilies.find(sf => sf.name === recipe.subFamilyId);
+    
+    if (!subFamilyById && subFamilyByName) {
+        // Le subFamilyId est un nom, utiliser l'ID UUID correct
+        correctSubFamilyId = subFamilyByName.id;
+        console.log(`[createOrUpdateSubRecipeArticle] Fixed subFamilyId for recipe "${recipe.name}": "${recipe.subFamilyId}" -> "${correctSubFamilyId}"`);
+        
+        // Corriger aussi la recette dans la base de données
+        await db.recipes.update(recipe.id, { subFamilyId: correctSubFamilyId });
+    }
+    
+    // Créer ou mettre à jour l'article (toujours forcer les unités pour les sous-recettes)
+    const article: Article = {
+        id: articleId,
+        name: recipe.name,
+        code: existingArticle?.code || `SR-${recipe.id}`,
+        subFamilyId: correctSubFamilyId,
+        unitAchat: unitAchat, // "Kg"
+        contenace: contenace, // 1
+        unitPivot: unitPivot, // "Kg"
+        coeffProd: coeffProd, // 1000
+        unitProduction: unitProduction, // "g"
+        lastPivotPrice: costPerUnit,
+        vatRate: 20,
+        isSubRecipe: true,
+        linkedRecipeId: recipe.id,
+        // Préserver les autres propriétés de l'article existant si elles existent
+        ...(existingArticle && {
+            nutritionalInfo: existingArticle.nutritionalInfo,
+            allergens: existingArticle.allergens,
+            storageConditions: existingArticle.storageConditions,
+            leadTimeDays: existingArticle.leadTimeDays,
+            accountingCode: existingArticle.accountingCode,
+            accountingNature: existingArticle.accountingNature,
+            accountingAccount: existingArticle.accountingAccount
+        })
+    };
+    
+    await db.articles.put(article);
 }
 
 export async function deleteRecipe(id: string): Promise<{ success: true }> {
@@ -456,6 +664,23 @@ export async function getDashboardStats() {
     // 3. Articles & Production
     const articleCount = await db.articles.count();
     const recipeCount = await db.recipes.count();
+    
+    // Count sub-recipes (recipes used as ingredients in other recipes)
+    const allRecipes = await db.recipes.toArray();
+    const recipeIds = new Set(allRecipes.map(r => r.id));
+    const subRecipeIds = new Set<string>();
+    
+    allRecipes.forEach(recipe => {
+        recipe.ingredients?.forEach(ingredient => {
+            // Check if ingredient name matches a recipe name (indicating it's a sub-recipe)
+            const matchingRecipe = allRecipes.find(r => r.name === ingredient.name && r.id !== recipe.id);
+            if (matchingRecipe) {
+                subRecipeIds.add(matchingRecipe.id);
+            }
+        });
+    });
+    
+    const subRecipeCount = subRecipeIds.size;
 
     // 4. Activity Feed - Last 5 invoices
     const recentActivityRaw = await db.invoices
@@ -473,7 +698,6 @@ export async function getDashboardStats() {
     }));
 
     // Monthly comparison data for current year and previous year
-    const currentYear = now.getFullYear();
     const prevYear = currentYear - 1;
     const monthlyData: { month: string; currentYear: number; prevYear: number }[] = [];
     
@@ -502,6 +726,105 @@ export async function getDashboardStats() {
         });
     }
 
+    // Calculate account balances
+    const allTransactions = await db.transactions.toArray();
+    const accountBalances = { Banque: 0, Caisse: 0, Coffre: 0 };
+    allTransactions.forEach(t => {
+        const amount = t.type === "Recette" ? t.amount : -t.amount;
+        if (accountBalances[t.account as keyof typeof accountBalances] !== undefined) {
+            accountBalances[t.account as keyof typeof accountBalances] += amount;
+        }
+    });
+
+    // Calculate last closed month payroll
+    const employees = await db.employees.toArray();
+    const closedMonths = new Set<string>();
+    
+    // Find all closed months
+    employees.forEach(emp => {
+        Object.keys(emp.monthlyData || {}).forEach(monthKey => {
+            if (emp.monthlyData[monthKey]?.isClosed) {
+                closedMonths.add(monthKey);
+            }
+        });
+    });
+
+    let lastClosedMonthKey: string | null = null;
+    let lastClosedMonthLaborCost = 0;
+    let lastClosedMonthRevenue = 0;
+
+    if (closedMonths.size > 0) {
+        // Parse month keys and find the latest one
+        const monthKeys = Array.from(closedMonths);
+        const parsedMonths = monthKeys.map(key => {
+            // Format: "JANVIER_2025" or "1_2025"
+            const parts = key.split('_');
+            if (parts.length === 2) {
+                const monthStr = parts[0].toUpperCase();
+                const year = parseInt(parts[1]);
+                const monthMap: Record<string, number> = {
+                    'JANVIER': 0, 'FEVRIER': 1, 'MARS': 2, 'AVRIL': 3,
+                    'MAI': 4, 'JUIN': 5, 'JUILLET': 6, 'AOUT': 7, 'AOÛT': 7,
+                    'SEPTEMBRE': 8, 'OCTOBRE': 9, 'NOVEMBRE': 10, 'DECEMBRE': 11
+                };
+                const month = monthMap[monthStr] ?? parseInt(parts[0]) - 1;
+                return { key, year, month, date: new Date(year, month, 1) };
+            }
+            return null;
+        }).filter((m): m is { key: string; year: number; month: number; date: Date } => m !== null);
+
+        if (parsedMonths.length > 0) {
+            // Sort by date descending and get the latest
+            parsedMonths.sort((a, b) => b.date.getTime() - a.date.getTime());
+            lastClosedMonthKey = parsedMonths[0].key;
+            const lastMonth = parsedMonths[0];
+
+            // Calculate labor cost for this month
+            employees.forEach(emp => {
+                const mData = emp.monthlyData?.[lastClosedMonthKey!];
+                if (mData && mData.isClosed) {
+                    // Simplified calculation: use base salary + bonuses
+                    const baseSalary = emp.contract?.baseSalary || 0;
+                    const days = mData.jours || 0;
+                    const proratedBase = (baseSalary * days) / 26;
+                    const hSup = mData.hSup || 0;
+                    const hourlyRate = (baseSalary / 26) / 8;
+                    const hSupAmount = hSup * hourlyRate;
+                    const bonuses = (mData.pRegul || 0) + (mData.pOccas || 0);
+                    
+                    // Approximate accounting net (simplified)
+                    const gross = proratedBase + hSupAmount + bonuses;
+                    const cnssBase = Math.min(gross, 6000);
+                    const cnss = cnssBase * 0.0448;
+                    const amo = gross * 0.0226;
+                    const fraisPro = Math.min(gross * 0.20, 2500);
+                    const netImposable = Math.max(0, gross - cnss - amo - fraisPro);
+                    
+                    // Simplified IR calculation
+                    let ir = 0;
+                    if (netImposable > 3333.33) {
+                        if (netImposable <= 5000) ir = netImposable * 0.10 - 333.33;
+                        else if (netImposable <= 6666.67) ir = netImposable * 0.20 - 833.33;
+                        else if (netImposable <= 8333.33) ir = netImposable * 0.30 - 1500;
+                        else if (netImposable <= 15000) ir = netImposable * 0.34 - 1833.33;
+                        else ir = netImposable * 0.37 - 2283.33;
+                    }
+                    
+                    const salaireNet = gross - cnss - amo - Math.max(0, ir);
+                    lastClosedMonthLaborCost += salaireNet;
+                }
+            });
+
+            // Calculate revenue for the same month
+            const monthStr = String(lastMonth.month + 1).padStart(2, '0');
+            const salesPrefix = `${lastMonth.year}-${monthStr}`;
+            const monthSales = await db.salesData.where('id').startsWith(salesPrefix).toArray();
+            lastClosedMonthRevenue = monthSales.reduce((sum, day) => {
+                return sum + (parseFloat(day.real?.calculated?.ttc) || 0);
+            }, 0);
+        }
+    }
+
     return {
         totalSales,
         prevTotalSales,
@@ -510,8 +833,12 @@ export async function getDashboardStats() {
         pendingAmount: totalPendingAmount,
         articleCount,
         recipeCount,
+        subRecipeCount,
         recentActivity,
-        monthlyComparison: monthlyData
+        monthlyComparison: monthlyData,
+        accountBalances,
+        lastClosedMonthLaborCost,
+        lastClosedMonthRevenue
     };
 }
 

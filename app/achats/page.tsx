@@ -20,7 +20,7 @@ export default function AchatsPage() {
         fetchData();
     }, []);
 
-    if (!data) return <div className="h-screen flex items-center justify-center font-bold text-slate-400">Initialisation de la base de données...</div>;
+    if (!data) return <div className="h-screen flex items-center justify-center font-bold text-slate-400">Chargement des factures...</div>;
 
     return (
         <Suspense fallback={<div>Chargement...</div>}>

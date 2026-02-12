@@ -63,6 +63,11 @@ export interface Article {
     allergens?: string[];
     storageConditions?: string;
     leadTimeDays?: number;
+    // Sous-recettes
+    isSubRecipe?: boolean; // true si c'est une sous-recette (article créé à partir d'une recette)
+    linkedRecipeId?: string; // ID de la recette liée (si c'est une sous-recette)
+    // Fonction du produit (pour articles de production)
+    productFunction?: string;
 }
 
 // Invoices
@@ -120,6 +125,11 @@ export interface Invoice {
     dateEncaissement?: string;
     paymentDelay?: number;
     comment?: string;
+    dueDate?: string;
+    
+    // Additional fields
+    classification?: string;
+    period?: string;
 }
 
 // Tiers
@@ -204,6 +214,7 @@ export interface Recipe {
 
     image?: string;
     reference?: string;
+    isSubRecipe?: boolean; // Optionnel : true si c'est une sous-recette
 }
 
 // Finance

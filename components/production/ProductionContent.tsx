@@ -25,7 +25,8 @@ import {
 import { useEffect, useState, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Recipe, Family, SubFamily, Ingredient, Article, Invoice } from "@/lib/types";
-import { saveRecipe, deleteRecipe, getInvoices } from "@/lib/data-service";
+import { saveRecipe, deleteRecipe, getInvoices, getArticles, getRecipes } from "@/lib/data-service";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function ProductionContent({
     initialRecipes,
@@ -38,7 +39,8 @@ export function ProductionContent({
     initialFamilies: Family[],
     initialSubFamilies: SubFamily[]
 }) {
-    const [articles] = useState<Article[]>(initialArticles);
+    const queryClient = useQueryClient();
+    const [articles, setArticles] = useState<Article[]>(initialArticles);
     const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(recipes.length > 0 ? recipes[0].id : null);
@@ -214,6 +216,12 @@ export function ProductionContent({
     // Get available units for an article
     const getAvailableUnits = (article: Article | undefined): string[] => {
         if (!article) return [];
+        
+        // Pour les sous-recettes, utiliser Kg et g
+        if (article.isSubRecipe === true) {
+            return [article.unitPivot || "Kg", article.unitProduction || "g"]; // Kg et g pour les sous-recettes
+        }
+        
         const units = [article.unitAchat, article.unitPivot, article.unitProduction];
         // Remove duplicates
         return [...new Set(units)];
@@ -263,15 +271,25 @@ export function ProductionContent({
 
     const getFilteredArticles = (search: string) => {
         const rawMaterialCodes = ["FA01", "FA02", "FA03", "FA04", "FA05", "FA06"];
+        
         return articles.filter(a => {
             const matchesSearch = a.name.toLowerCase().includes(search.toLowerCase());
             if (!matchesSearch) return false;
 
+            // Si c'est une sous-recette, l'inclure directement (peu importe sa famille)
+            if (a.isSubRecipe === true) {
+                return true;
+            }
+
+            // Sinon, vérifier si c'est une matière première
             const subFam = initialSubFamilies.find(sf => sf.id === a.subFamilyId);
             if (!subFam) return false;
 
             const fam = initialFamilies.find(f => f.id === subFam.familyId);
-            return fam && rawMaterialCodes.includes(fam.code);
+            if (!fam) return false;
+            
+            // Inclure les matières premières (codes FA01-FA06)
+            return rawMaterialCodes.includes(fam.code);
         });
     };
 
@@ -340,7 +358,16 @@ export function ProductionContent({
     const handleUpdateIngredientFromSearch = (index: number, article: Article) => {
         if (!editData) return;
         const currentIng = editData.ingredients[index];
-        const defaultUnit = article.unitProduction || article.unitPivot || article.unitAchat || "";
+        
+        // Pour les sous-recettes, utiliser l'unité pivot (Kg) ou l'unité de production (g)
+        let defaultUnit: string;
+        if (article.isSubRecipe === true) {
+            // Utiliser l'unité pivot (Kg) par défaut pour les sous-recettes
+            defaultUnit = article.unitPivot || "Kg";
+        } else {
+            defaultUnit = article.unitProduction || article.unitPivot || article.unitAchat || "";
+        }
+        
         const newIngs = [...editData.ingredients];
         const calculatedCost = calculateCostFromUnit(article, currentIng.quantity || 0, defaultUnit);
         newIngs[index] = {
@@ -361,22 +388,33 @@ export function ProductionContent({
 
     const handleSave = async () => {
         if (!editData) return;
-        const result = await saveRecipe(editData);
+        
+        // Créer une copie profonde pour éviter toute mutation
+        const recipeToSave: Recipe = {
+            ...editData,
+            ingredients: editData.ingredients.map(ing => ({ ...ing })),
+            steps: editData.steps.map(step => ({ ...step })),
+            nutrition: { ...editData.nutrition },
+            costing: { ...editData.costing }
+        };
+        
+        const result = await saveRecipe(recipeToSave);
         if (result.success) {
-            setRecipes(prev => {
-                const existingIndex = prev.findIndex(r => r.id === editData.id);
-                if (existingIndex >= 0) {
-                    const newRecipes = [...prev];
-                    newRecipes[existingIndex] = editData;
-                    return newRecipes;
-                } else {
-                    return [...prev, editData];
-                }
+            // Invalider le cache des comptages d'articles pour mettre à jour la structure
+            queryClient.invalidateQueries({ queryKey: ["articleCounts"] });
+            // Recharger les recettes depuis la base de données pour avoir la version à jour
+            const updatedRecipes = await getRecipes();
+            setRecipes(updatedRecipes);
+            
+            // Recharger les articles pour inclure les sous-recettes créées/mises à jour
+            getArticles().then((updatedArticles: Article[]) => {
+                setArticles(updatedArticles);
             });
+            
             setIsEditing(false);
             setEditData(null);
         } else {
-            alert("Erreur lors de l’enregistrement");
+            alert("Erreur lors de l'enregistrement");
         }
     };
 
@@ -390,6 +428,8 @@ export function ProductionContent({
         if (window.confirm("Êtes-vous sûr de vouloir supprimer cette recette ? Cette action est irréversible.")) {
             const result = await deleteRecipe(selectedRecipeId);
             if (result.success) {
+                // Invalider le cache des comptages d'articles pour mettre à jour la structure
+                queryClient.invalidateQueries({ queryKey: ["articleCounts"] });
                 setRecipes(prev => {
                     const newRecipes = prev.filter(r => r.id !== selectedRecipeId);
                     if (newRecipes.length > 0) {
@@ -706,7 +746,8 @@ export function ProductionContent({
                                             ingredients: [],
                                             steps: [],
                                             nutrition: { calories: 0, protein: 0, carbs: 0, fat: 0, glycemicIndex: 0, glycemicLoad: 0 },
-                                            costing: { materialCost: 0, lossRate: 0, laborCost: 0, storageCost: 0, totalCost: 0, costPerUnit: 0 }
+                                            costing: { materialCost: 0, lossRate: 0, laborCost: 0, storageCost: 0, totalCost: 0, costPerUnit: 0 },
+                                            isSubRecipe: false
                                         };
                                         setRecipes(prev => [...prev, newRecipe]);
                                         setSelectedRecipeId(newRecipe.id);
@@ -834,7 +875,19 @@ export function ProductionContent({
                                                             className="text-4xl font-black tracking-tight text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-emerald-500 outline-none w-full"
                                                         />
                                                     </div>
-                                                    <div className="flex justify-end mt-1">
+                                                    <div className="flex justify-between items-center mt-1">
+                                                        <label className="flex items-center gap-2 cursor-pointer group">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={editData.isSubRecipe || false}
+                                                                onChange={(e) => updateEditData('isSubRecipe', e.target.checked)}
+                                                                className="w-4 h-4 text-emerald-600 bg-slate-50 border-slate-300 rounded focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                                                            />
+                                                            <span className="text-xs font-bold text-slate-600 group-hover:text-emerald-700 flex items-center gap-1">
+                                                                <ChefHat className="w-3 h-3" />
+                                                                Utiliser comme sous-recette
+                                                            </span>
+                                                        </label>
                                                         <input
                                                             type="text"
                                                             value={editData.reference || ""}
@@ -850,6 +903,15 @@ export function ProductionContent({
                                                         <span className="bg-emerald-50 px-2 py-1 rounded-md">{selectedRecipe.familyId}</span>
                                                         <span className="text-slate-300">•</span>
                                                         <span className="text-slate-500">{selectedRecipe.subFamilyId}</span>
+                                                        {selectedRecipe.isSubRecipe && (
+                                                            <>
+                                                                <span className="text-slate-300">•</span>
+                                                                <span className="bg-blue-50 text-blue-600 px-2 py-1 rounded-md flex items-center gap-1">
+                                                                    <ChefHat className="w-3 h-3" />
+                                                                    Sous-Recette
+                                                                </span>
+                                                            </>
+                                                        )}
                                                     </div>
                                                     <h1 className="text-4xl font-black tracking-tight text-slate-800 mt-1">{selectedRecipe.name}</h1>
                                                     {selectedRecipe.reference && (
@@ -1033,29 +1095,41 @@ export function ProductionContent({
                                                                                     />
                                                                                     {activeRowSearch === idx && getFilteredArticles(ing.name).length > 0 && (
                                                                                         <div className="absolute left-0 top-full mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
-                                                                                            {getFilteredArticles(ing.name).map((article, sIdx) => (
-                                                                                                <div
-                                                                                                    key={article.id}
-                                                                                                    onClick={(e) => {
-                                                                                                        e.preventDefault();
-                                                                                                        e.stopPropagation();
-                                                                                                        handleUpdateIngredientFromSearch(idx, article);
-                                                                                                    }}
-                                                                                                    className={cn(
-                                                                                                        "px-3 py-2 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group",
-                                                                                                        searchFocusIndex === sIdx ? "bg-emerald-100" : "hover:bg-emerald-50"
-                                                                                                    )}
-                                                                                                >
-                                                                                                    <span className={cn(
-                                                                                                        "font-bold text-xs truncate mr-2",
-                                                                                                        searchFocusIndex === sIdx ? "text-emerald-800" : "text-slate-700 group-hover:text-emerald-700"
-                                                                                                    )}>{article.name}</span>
-                                                                                                    <span className={cn(
-                                                                                                        "text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0",
-                                                                                                        searchFocusIndex === sIdx ? "bg-emerald-200 text-emerald-700" : "text-slate-400 bg-slate-100 group-hover:bg-emerald-100 group-hover:text-emerald-600"
-                                                                                                    )}>{article.unitProduction || article.unitPivot}</span>
-                                                                                                </div>
-                                                                                            ))}
+                                                                                            {getFilteredArticles(ing.name).map((article, sIdx) => {
+                                                                                                const isSubRecipe = article.isSubRecipe === true;
+                                                                                                return (
+                                                                                                    <div
+                                                                                                        key={article.id}
+                                                                                                        onClick={(e) => {
+                                                                                                            e.preventDefault();
+                                                                                                            e.stopPropagation();
+                                                                                                            handleUpdateIngredientFromSearch(idx, article);
+                                                                                                        }}
+                                                                                                        className={cn(
+                                                                                                            "px-3 py-2 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group",
+                                                                                                            searchFocusIndex === sIdx ? "bg-emerald-100" : "hover:bg-emerald-50",
+                                                                                                            isSubRecipe && "bg-blue-50 border-l-2 border-l-blue-400"
+                                                                                                        )}
+                                                                                                    >
+                                                                                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                                                                            {isSubRecipe && <ChefHat className="w-3 h-3 text-blue-600 shrink-0" />}
+                                                                                                            <span className={cn(
+                                                                                                                "font-bold text-xs truncate",
+                                                                                                                searchFocusIndex === sIdx ? "text-emerald-800" : "text-slate-700 group-hover:text-emerald-700",
+                                                                                                                isSubRecipe && "text-blue-800"
+                                                                                                            )}>
+                                                                                                                {article.name}
+                                                                                                                {isSubRecipe && <span className="text-[9px] text-blue-600 ml-1">(SR)</span>}
+                                                                                                            </span>
+                                                                                                        </div>
+                                                                                                        <span className={cn(
+                                                                                                            "text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0",
+                                                                                                            searchFocusIndex === sIdx ? "bg-emerald-200 text-emerald-700" : "text-slate-400 bg-slate-100 group-hover:bg-emerald-100 group-hover:text-emerald-600",
+                                                                                                            isSubRecipe && "bg-blue-100 text-blue-700"
+                                                                                                        )}>{article.unitProduction || article.unitPivot}</span>
+                                                                                                    </div>
+                                                                                                );
+                                                                                            })}
                                                                                         </div>
                                                                                     )}
                                                                                 </div>
@@ -1076,7 +1150,16 @@ export function ProductionContent({
                                                                                     onChange={(e) => {
                                                                                         const qty = Number(e.target.value);
                                                                                         const article = articles.find(a => a.id === ing.articleId);
-                                                                                        const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                                        
+                                                                                        // Pour les sous-recettes, utiliser l'unité pivot (Kg) ou production (g)
+                                                                                        let unit: string;
+                                                                                        if (article?.isSubRecipe === true) {
+                                                                                            // Conserver l'unité actuelle si c'est Kg ou g, sinon utiliser Kg par défaut
+                                                                                            unit = (ing.unit === "Kg" || ing.unit === "g") ? ing.unit : (article.unitPivot || "Kg");
+                                                                                        } else {
+                                                                                            unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                                        }
+                                                                                        
                                                                                         const newCost = calculateCostFromUnit(article, qty, unit) * multiplier;
                                                                                         const newIngs = [...(editData?.ingredients || [])];
                                                                                         newIngs[idx] = { ...ing, quantity: qty, unit: unit, cost: newCost };

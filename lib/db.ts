@@ -39,6 +39,25 @@ export class BakoDB extends Dexie {
             partners: 'id',
             cmi_entries: 'id, date'
         });
+        
+        // Version 9: Add linkedRecipeId index for sub-recipes
+        this.version(9).stores({
+            invoices: 'id, supplierId, date, status, totalTTC',
+            employees: 'id, lastName, role',
+            articles: 'id, name, subFamilyId, linkedRecipeId',
+            tiers: 'id, name, type',
+            recipes: 'id, name, subFamilyId',
+            families: 'id, name, typeId',
+            subFamilies: 'id, name, familyId',
+            structureTypes: 'id, name',
+            transactions: 'id, date, type, account, invoiceId',
+            salesData: 'id, date',
+            accountingNatures: 'id, name',
+            accounting_accounts: '++id, code, label, class, type',
+            settings: 'key',
+            partners: 'id',
+            cmi_entries: 'id, date'
+        });
     }
 }
 

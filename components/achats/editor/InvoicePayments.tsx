@@ -158,17 +158,17 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                 </div>
                 <button
                     onClick={handleAddPayment}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#1E293B] text-white rounded-lg hover:bg-slate-700 transition-colors shadow-lg shadow-gray-400/20 group"
+                    className="w-8 h-8 bg-[#1E293B] text-white rounded-lg flex items-center justify-center hover:bg-slate-700 transition-all shadow-md shadow-slate-200 group active:scale-95"
+                    title="Ajouter un paiement"
                 >
-                    <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs font-bold uppercase tracking-wider">Ajouter Paiement</span>
+                    <Plus className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 </button>
             </div>
 
             <div className="bg-white rounded-xl border border-[#1E293B] overflow-hidden shadow-md shadow-gray-300">
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                        <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase border-b border-slate-200 tracking-wider">
+                        <thead className="bg-blue-100 text-[10px] font-bold text-blue-700 uppercase border-b border-blue-200 tracking-wider">
                             <tr>
                                 <th className="px-4 py-3 text-left w-32">Date</th>
                                 <th className="px-4 py-3 text-right w-32">Montant</th>
@@ -188,7 +188,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                             <DateInput
                                                 value={payment.date}
                                                 onChange={(val: string) => handlePaymentChange(index, "date", val)}
-                                                className="bg-transparent border-slate-200 text-slate-700 h-8"
+                                                className="bg-transparent border-slate-200 text-slate-700 h-8 focus:border-blue-400 focus:bg-blue-50"
                                             />
                                         </td>
 
@@ -204,7 +204,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                         paymentModeRefs.current[index]?.focus();
                                                     }
                                                 }}
-                                                className="w-full text-right bg-transparent outline-none font-bold text-slate-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                className="w-full text-right bg-transparent outline-none font-bold text-slate-700 focus:bg-blue-50 focus:border-blue-400 border border-transparent rounded px-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </td>
 
@@ -217,8 +217,8 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                         const rect = e.currentTarget.getBoundingClientRect();
                                                         setDropdownPos({
                                                             top: rect.bottom + window.scrollY,
-                                                            left: rect.left + window.scrollX + (rect.width / 2),
-                                                            width: 160 // Matches the w-40 class
+                                                            left: rect.left + window.scrollX,
+                                                            width: rect.width
                                                         });
                                                         if (activePaymentRow === index) {
                                                             setActivePaymentRow(null);
@@ -227,14 +227,52 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                             setPaymentModeFocusIndex(MODES.indexOf(payment.mode));
                                                         }
                                                     }}
+                                                    onFocus={(e) => {
+                                                        const rect = e.currentTarget.getBoundingClientRect();
+                                                        setDropdownPos({
+                                                            top: rect.bottom + window.scrollY,
+                                                            left: rect.left + window.scrollX,
+                                                            width: rect.width
+                                                        });
+                                                    }}
                                                     onKeyDown={(e) => {
-                                                        if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                                                        if (e.key === "Tab" && !e.shiftKey) {
+                                                            // TAB opens dropdown if closed, or moves to next field if open
+                                                            e.preventDefault();
+                                                            if (activePaymentRow === index) {
+                                                                // Dropdown is open, close it and move to next field
+                                                                setActivePaymentRow(null);
+                                                                if (payment.mode === "Chèques") {
+                                                                    setTimeout(() => paymentRefRefs.current[index]?.focus(), 50);
+                                                                } else {
+                                                                    setTimeout(() => paymentNoteRefs.current[index]?.focus(), 50);
+                                                                }
+                                                            } else {
+                                                                // Dropdown is closed, open it
+                                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                                setDropdownPos({
+                                                                    top: rect.bottom + window.scrollY,
+                                                                    left: rect.left + window.scrollX,
+                                                                    width: rect.width
+                                                                });
+                                                                setActivePaymentRow(index);
+                                                                setPaymentModeFocusIndex(MODES.indexOf(payment.mode));
+                                                            }
+                                                        } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
                                                             e.preventDefault();
                                                             e.stopPropagation();
                                                             if (activePaymentRow !== index) {
+                                                                // Open dropdown first
+                                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                                setDropdownPos({
+                                                                    top: rect.bottom + window.scrollY,
+                                                                    left: rect.left + window.scrollX,
+                                                                    width: rect.width
+                                                                });
                                                                 setActivePaymentRow(index);
                                                                 setPaymentModeFocusIndex(MODES.indexOf(payment.mode));
                                                             } else {
+                                                                // Navigate in dropdown
                                                                 const dir = e.key === "ArrowDown" ? 1 : -1;
                                                                 const nextIndex = Math.min(Math.max(0, paymentModeFocusIndex + dir), MODES.length - 1);
                                                                 setPaymentModeFocusIndex(nextIndex);
@@ -243,6 +281,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                             e.preventDefault();
                                                             e.stopPropagation();
                                                             if (activePaymentRow === index) {
+                                                                // Dropdown is open, select mode
                                                                 if (paymentModeFocusIndex >= 0) {
                                                                     const selectedMode = MODES[paymentModeFocusIndex];
                                                                     handlePaymentChange(index, "mode", selectedMode);
@@ -254,25 +293,30 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                                     }
                                                                 }
                                                             } else {
+                                                                // Dropdown is closed, open it
+                                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                                setDropdownPos({
+                                                                    top: rect.bottom + window.scrollY,
+                                                                    left: rect.left + window.scrollX,
+                                                                    width: rect.width
+                                                                });
                                                                 setActivePaymentRow(index);
                                                                 setPaymentModeFocusIndex(MODES.indexOf(payment.mode));
                                                             }
-                                                        } else if (e.key === "Tab" && !e.shiftKey) {
-                                                            e.preventDefault();
-                                                            setActivePaymentRow(null);
-                                                            if (payment.mode === "Chèques") {
-                                                                paymentRefRefs.current[index]?.focus();
-                                                            } else {
-                                                                paymentNoteRefs.current[index]?.focus();
-                                                            }
                                                         } else if (e.key === "Tab" && e.shiftKey) {
                                                             e.preventDefault();
+                                                            setActivePaymentRow(null);
                                                             amountRefs.current[index]?.focus();
                                                         } else if (e.key === "Escape") {
                                                             setActivePaymentRow(null);
                                                         }
                                                     }}
-                                                    className="w-full text-center bg-transparent outline-none text-xs font-medium cursor-pointer py-1 border border-transparent hover:border-slate-200 rounded focus:border-blue-500 focus:bg-slate-50"
+                                                    className={cn(
+                                                        "w-full text-center bg-transparent outline-none text-xs font-medium cursor-pointer py-1 border rounded transition-colors",
+                                                        activePaymentRow === index 
+                                                            ? "border-blue-400 bg-blue-50" 
+                                                            : "border-transparent hover:border-slate-200 focus:border-blue-500 focus:bg-blue-50"
+                                                    )}
                                                 >
                                                     {payment.mode}
                                                 </button>
@@ -284,7 +328,6 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                             position: 'absolute',
                                                             top: `${dropdownPos.top}px`,
                                                             left: `${dropdownPos.left}px`,
-                                                            transform: 'translateX(-50%)',
                                                             width: `${dropdownPos.width}px`
                                                         }}
                                                         className="bg-white shadow-2xl rounded-lg border border-slate-200 z-[9999] mt-1 py-1"
@@ -294,7 +337,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                                 key={mode}
                                                                 className={cn(
                                                                     "px-3 py-2 text-xs font-semibold cursor-pointer transition-colors border-b border-slate-50 last:border-0",
-                                                                    i === paymentModeFocusIndex ? "bg-[#e5d1bd] text-[#5D4037]" : "hover:bg-slate-50 text-slate-700"
+                                                                    i === paymentModeFocusIndex ? "bg-blue-100 text-blue-700" : "hover:bg-slate-50 text-slate-700"
                                                                 )}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
@@ -344,22 +387,24 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                         {/* Cheque Info (N° Chèque) */}
                                         <td className="px-4 py-2">
                                             {payment.mode === "Chèques" ? (
-                                                <input
-                                                    ref={el => { paymentRefRefs.current[index] = el; }}
-                                                    placeholder="N° Chèque"
-                                                    value={payment.reference || ""}
-                                                    onChange={e => handlePaymentChange(index, "reference", e.target.value)}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === "Tab" && !e.shiftKey) {
-                                                            e.preventDefault();
-                                                            paymentNoteRefs.current[index]?.focus();
-                                                        } else if (e.key === "Tab" && e.shiftKey) {
-                                                            e.preventDefault();
-                                                            paymentModeRefs.current[index]?.focus();
-                                                        }
-                                                    }}
-                                                    className="w-full bg-transparent border-b border-slate-200 focus:border-blue-400 outline-none text-xs placeholder:text-slate-300"
-                                                />
+                                            <input
+                                                ref={el => { paymentRefRefs.current[index] = el; }}
+                                                placeholder="N° Chèque"
+                                                value={payment.reference || ""}
+                                                onChange={e => handlePaymentChange(index, "reference", e.target.value)}
+                                                onFocus={(e) => e.target.select()}
+                                                onClick={(e) => (e.target as HTMLInputElement).select()}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Tab" && !e.shiftKey) {
+                                                        e.preventDefault();
+                                                        paymentNoteRefs.current[index]?.focus();
+                                                    } else if (e.key === "Tab" && e.shiftKey) {
+                                                        e.preventDefault();
+                                                        paymentModeRefs.current[index]?.focus();
+                                                    }
+                                                }}
+                                                className="w-full bg-transparent border-b border-slate-200 focus:border-blue-400 focus:bg-blue-50 outline-none text-xs placeholder:text-slate-300 rounded px-1"
+                                            />
                                             ) : (
                                                 <span className="block w-full border-b border-transparent">&nbsp;</span>
                                             )}
@@ -387,7 +432,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                         }
                                                     }
                                                 }}
-                                                className="w-full bg-transparent border-b border-slate-100 focus:border-blue-400 outline-none text-xs placeholder:text-slate-300"
+                                                className="w-full bg-transparent border-b border-slate-100 focus:border-blue-400 focus:bg-blue-50 outline-none text-xs placeholder:text-slate-300 rounded px-1"
                                             />
                                         </td>
 
@@ -418,20 +463,8 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                 </div>
             </div>
 
-            {/* Quick Add Button Below Payments Table */}
-            <div className="mt-2 flex justify-start">
-                <button
-                    type="button"
-                    onClick={handleAddPayment}
-                    className="w-8 h-8 bg-[#1E293B] text-white rounded-lg flex items-center justify-center hover:bg-slate-700 transition-all shadow-md shadow-slate-200 group active:scale-95 translate-x-1"
-                    title="Ajouter un paiement rapidement"
-                >
-                    <Plus className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                </button>
-            </div>
-
             {/* Financial Summary */}
-            <div className="flex justify-end mt-4">
+            <div className="flex justify-end -mt-3">
                 <div className="bg-[#1E293B] text-white rounded-xl py-3 px-6 flex items-center gap-8 shadow-lg shadow-gray-400/20 h-16">
                     <div className="flex flex-col items-center">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Payé</span>

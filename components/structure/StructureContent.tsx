@@ -102,6 +102,59 @@ export function StructureContent({
     const { data: settings = {}, isLoading: settingsLoading } = useSettings();
     const { data: partnersData = [], isLoading: partnersLoading } = usePartners();
     
+    // Count articles and recipes by subFamilyId and familyId
+    const { data: articleCounts = { bySubFamily: {}, byFamily: {} }, isLoading: articleCountsLoading } = useQuery<{
+        bySubFamily: Record<string, number>;
+        byFamily: Record<string, number>;
+    }>({
+        queryKey: ["articleCounts"],
+        queryFn: async () => {
+            if (typeof window !== "undefined" && !db.isOpen()) {
+                await db.open();
+            }
+            const articles = await db.articles.toArray();
+            const recipes = await db.recipes.toArray();
+            const families = await db.families.toArray();
+            const allSubFamilies = await db.subFamilies.toArray();
+            const bySubFamily: Record<string, number> = {};
+            const byFamily: Record<string, number> = {};
+            
+            // Obtenir les IDs des familles de type Production
+            const productionFamilyIds = new Set(families.filter(f => f.typeId === "3").map(f => f.id));
+            
+            // Count articles by subFamily
+            articles.forEach(article => {
+                if (article.subFamilyId) {
+                    bySubFamily[article.subFamilyId] = (bySubFamily[article.subFamilyId] || 0) + 1;
+                }
+            });
+            
+            // Count recipes by subFamily (uniquement celles de type Production)
+            recipes.forEach(recipe => {
+                if (recipe.subFamilyId) {
+                    // Vérifier que la sous-famille appartient à une famille de type Production
+                    const subFamily = allSubFamilies.find(sf => sf.id === recipe.subFamilyId);
+                    if (subFamily && productionFamilyIds.has(subFamily.familyId)) {
+                        bySubFamily[recipe.subFamilyId] = (bySubFamily[recipe.subFamilyId] || 0) + 1;
+                    } else {
+                        console.warn(`Recipe "${recipe.name}" (${recipe.id}) has subFamilyId ${recipe.subFamilyId} which is not a Production subFamily`);
+                    }
+                }
+            });
+            
+            // Count by family (sum of all subFamilies in that family)
+            allSubFamilies.forEach(subFamily => {
+                const count = bySubFamily[subFamily.id] || 0;
+                if (count > 0) {
+                    byFamily[subFamily.familyId] = (byFamily[subFamily.familyId] || 0) + count;
+                }
+            });
+            
+            return { bySubFamily, byFamily };
+        },
+        enabled: !subFamiliesLoading && subFamilies.length > 0,
+    });
+    
     // Mutations
     const familyMutation = useFamilyMutation();
     const familyDeletion = useFamilyDeletion();
@@ -124,7 +177,7 @@ export function StructureContent({
         class: "6",
         type: "Charge"
     });
-    const loading = typesLoading || familiesLoading || subFamiliesLoading || accountsLoading || settingsLoading || partnersLoading;
+    const loading = typesLoading || familiesLoading || subFamiliesLoading || accountsLoading || settingsLoading || partnersLoading || articleCountsLoading;
 
     // Settings & Partners State
     const [isSettingsSaving, setIsSettingsSaving] = useState(false);
@@ -616,6 +669,7 @@ export function StructureContent({
                                     icon={getTypeIcon(type.name)}
                                     families={families}
                                     subFamilies={subFamilies}
+                                    articleCounts={articleCounts}
                                     focusedFamilyId={focusedFamilyId}
                                     setFocusedFamilyId={setFocusedFamilyId}
                                     onAddFamily={handleAddFamily}
