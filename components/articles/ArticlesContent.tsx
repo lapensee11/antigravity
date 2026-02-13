@@ -3,45 +3,23 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ArticleEditor } from "@/components/articles/ArticleEditor";
 import { Article, Invoice } from "@/lib/types";
-import { initialFamilies, initialSubFamilies } from "@/lib/data";
-import { useState, useMemo, useEffect, useRef } from "react";
-import { Search, ChevronDown, Check, Plus, X, Layers } from "lucide-react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { Search, ChevronDown, Check, Plus, X, Layers, ChefHat, Database, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getArticles, saveArticle, deleteArticle, getInvoices, getFamilies, getSubFamilies, saveSubFamily } from "@/lib/data-service";
+import { getArticles, saveSubFamily } from "@/lib/data-service";
 import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
-import { Database, Trash2 } from "lucide-react";
+import { useArticles, useInvoices, useFamilies, useSubFamilies, useArticleMutation, useArticleDeletion } from "@/lib/hooks/use-data";
 
-interface ArticlesContentProps {
-    initialArticles: Article[];
-}
-
-export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
-    const [articles, setArticles] = useState<Article[]>(initialArticles);
-    const [invoices, setInvoices] = useState<Invoice[]>([]);
+export function ArticlesContent() {
+    // Use React Query hooks instead of useState + useEffect
+    const { data: articles = [], isLoading: articlesLoading } = useArticles();
+    const { data: invoices = [], isLoading: invoicesLoading } = useInvoices();
+    const { data: families = [], isLoading: familiesLoading } = useFamilies();
+    const { data: subFamilies = [], isLoading: subFamiliesLoading } = useSubFamilies();
+    
     const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
-
-    const [families, setFamilies] = useState(initialFamilies);
-    const [subFamilies, setSubFamilies] = useState(initialSubFamilies);
-
-    // --- RUNTIME LOAD ---
-    useEffect(() => {
-        const loadData = async () => {
-            const [liveArticles, liveInvoices, liveFamilies, liveSubFamilies] = await Promise.all([
-                getArticles(),
-                getInvoices(),
-                getFamilies(),
-                getSubFamilies()
-            ]);
-            console.log(`[ArticlesContent] Loaded ${liveArticles.length} articles (including recipes)`);
-            const recipeArticles = liveArticles.filter(a => a.id.startsWith('RECIPE-'));
-            console.log(`[ArticlesContent] Recipe articles:`, recipeArticles.map(a => ({ id: a.id, name: a.name, subFamilyId: a.subFamilyId })));
-            setArticles(liveArticles || []);
-            setInvoices(liveInvoices || []);
-            if (liveFamilies?.length) setFamilies(liveFamilies);
-            if (liveSubFamilies?.length) setSubFamilies(liveSubFamilies);
-        };
-        loadData();
-    }, []);
+    const articleMutation = useArticleMutation();
+    const articleDeletion = useArticleDeletion();
 
     const handleSave = async (article: Article) => {
         let finalArticle = { ...article };
@@ -51,25 +29,13 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
             finalArticle.id = `ART-${Date.now()}`;
         }
 
-        const res = await saveArticle(finalArticle);
-        if (res.success) {
-            const exists = articles.some(a => a.id === article.id);
-            if (exists) {
-                // If ID changed, we need to handle that in the state
-                setArticles(prev => prev.map(a => a.id === article.id ? finalArticle : a));
-            } else {
-                setArticles(prev => [...prev, finalArticle]);
-            }
-            setSelectedArticle(finalArticle);
-        }
+        await articleMutation.mutateAsync(finalArticle);
+        setSelectedArticle(finalArticle);
     };
 
     const handleDelete = async (id: string) => {
-        const res = await deleteArticle(id);
-        if (res.success) {
-            setArticles(prev => prev.filter(a => a.id !== id));
-            setSelectedArticle(null);
-        }
+        await articleDeletion.mutateAsync(id);
+        setSelectedArticle(null);
     };
 
     const handleReconcile = async () => {
@@ -444,9 +410,10 @@ export function ArticlesContent({ initialArticles }: ArticlesContentProps) {
                                                 {article.name}
                                             </span>
                                             {article.isSubRecipe && (
-                                                <GlassBadge color="green" className="text-[8px] px-1.5 py-0.5">
-                                                    Sous-recette
-                                                </GlassBadge>
+                                                <span className="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-md flex items-center gap-1 text-[8px] font-bold">
+                                                    <ChefHat className="w-3 h-3" />
+                                                    SR
+                                                </span>
                                             )}
                                         </div>
                                         <span className="text-xs font-bold text-slate-500">

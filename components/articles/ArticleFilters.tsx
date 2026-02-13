@@ -1,6 +1,7 @@
 import { GlassInput } from "@/components/ui/GlassInput";
 import { Search } from "lucide-react";
 import { Article } from "@/lib/types";
+import { ChefHat } from "lucide-react";
 import { GlassCard } from "@/components/ui/GlassCard";
 
 interface ArticleFiltersProps {
@@ -50,7 +51,10 @@ export function ArticleFilters({ onSearch, articles, onSelectArticle, selectedAr
                                 <div className="flex items-center gap-2">
                                     <span className="font-semibold text-slate-800">{article.name}</span>
                                     {article.isSubRecipe && (
-                                        <span className="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-bold">Sous-recette</span>
+                                        <span className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-md flex items-center gap-1 font-bold">
+                                            <ChefHat className="w-3 h-3" />
+                                            SR
+                                        </span>
                                     )}
                                 </div>
                                 <span className="text-xs font-mono bg-slate-200/50 px-1.5 py-0.5 rounded text-slate-600">{article.code}</span>

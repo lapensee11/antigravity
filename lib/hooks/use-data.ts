@@ -2,21 +2,48 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     getArticles, saveArticle, deleteArticle,
     getInvoices, saveInvoice, deleteInvoice,
+    getInvoicesPaginated, getArticlesPaginated,
     getEmployees, saveEmployee, deleteEmployee,
     getFamilies, saveFamily, deleteFamily,
     getSubFamilies, saveSubFamily, deleteSubFamily,
     getAccountingAccounts, saveAccountingAccount, deleteAccountingAccount,
     getTiers,
     getSettings, saveSetting,
-    getPartners, savePartner, deletePartner
+    getPartners, savePartner, deletePartner,
+    getRecipes, saveRecipe, deleteRecipe,
+    invalidateRecipeCache
 } from "@/lib/data-service";
-import { Article, Invoice, StaffMember, Family, SubFamily } from "@/lib/types";
+import { InvoiceStatus } from "@/lib/types";
+import { keepPreviousData } from "@tanstack/react-query";
+import { Article, Invoice, StaffMember, Family, SubFamily, Recipe } from "@/lib/types";
 
 // --- ARTICLES ---
 export function useArticles() {
     return useQuery({
         queryKey: ["articles"],
         queryFn: getArticles,
+    });
+}
+
+export interface UseArticlesPaginatedParams {
+    page: number;
+    pageSize?: number;
+    filters?: {
+        subFamilyId?: string;
+        familyId?: string;
+        typeId?: string;
+        searchQuery?: string;
+    };
+}
+
+export function useArticlesPaginated(params: UseArticlesPaginatedParams) {
+    const { page, pageSize = 50, filters } = params;
+    
+    return useQuery({
+        queryKey: ["articles", "paginated", page, pageSize, filters],
+        queryFn: () => getArticlesPaginated(page, pageSize, filters),
+        keepPreviousData: true,
+        staleTime: 30 * 1000,
     });
 }
 
@@ -259,12 +286,37 @@ export function useInvoices() {
     });
 }
 
+export interface UseInvoicesPaginatedParams {
+    page: number;
+    pageSize?: number;
+    filters?: {
+        status?: InvoiceStatus;
+        dateFrom?: string;
+        dateTo?: string;
+        supplierId?: string;
+        searchQuery?: string;
+    };
+}
+
+export function useInvoicesPaginated(params: UseInvoicesPaginatedParams) {
+    const { page, pageSize = 50, filters } = params;
+    
+    return useQuery({
+        queryKey: ["invoices", "paginated", page, pageSize, filters],
+        queryFn: () => getInvoicesPaginated(page, pageSize, filters),
+        placeholderData: (previousData) => previousData, // Garde les données précédentes pendant le chargement
+        staleTime: 30 * 1000, // Considère les données fraîches pendant 30 secondes
+    });
+}
+
 export function useInvoiceMutation() {
     const queryClient = useQueryClient();
     return useMutation({
         mutationFn: saveInvoice,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["invoices"] });
+            // Also invalidate articles because invoice prices affect recipe costs
+            queryClient.invalidateQueries({ queryKey: ["articles"] });
         },
     });
 }
@@ -275,6 +327,8 @@ export function useInvoiceDeletion() {
         mutationFn: deleteInvoice,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["invoices"] });
+            // Also invalidate articles because invoice prices affect recipe costs
+            queryClient.invalidateQueries({ queryKey: ["articles"] });
         },
     });
 }
@@ -349,6 +403,41 @@ export function usePartnerDeletion() {
         mutationFn: deletePartner,
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["partners"] });
+        },
+    });
+}
+
+// --- RECIPES ---
+export function useRecipes() {
+    return useQuery({
+        queryKey: ["recipes"],
+        queryFn: getRecipes,
+    });
+}
+
+export function useRecipeMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: saveRecipe,
+        onSuccess: () => {
+            // Invalidate internal cache immediately
+            invalidateRecipeCache();
+            
+            // Invalidate React Query cache and force immediate refetch
+            queryClient.invalidateQueries({ queryKey: ["recipes"] });
+            queryClient.invalidateQueries({ queryKey: ["articles"] }); // Articles include recipes
+            queryClient.refetchQueries({ queryKey: ["articles"] }); // Force immediate refetch
+        },
+    });
+}
+
+export function useRecipeDeletion() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: deleteRecipe,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["recipes"] });
+            queryClient.invalidateQueries({ queryKey: ["articles"] }); // Articles include recipes
         },
     });
 }

@@ -316,7 +316,16 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     }, [article, invoices, formData.priceHistory, formData.lastPivotPrice]);
 
     // Icon (Placeholder logic based on family?)
-    const typeName = family ? families.find(f => f.id === family.id)?.typeId === "1" ? "ACHAT" : "FONCT." : "";
+    const getTypeName = (typeId: string | undefined): string => {
+        switch (typeId) {
+            case "1": return "ACHAT";
+            case "2": return "FONCT.";
+            case "3": return "PROD.";
+            case "4": return "VENTE";
+            default: return "";
+        }
+    };
+    const typeName = family ? getTypeName(families.find(f => f.id === family.id)?.typeId) : "";
 
     // Filter families to only show types 1 (Achats) and 2 (Fonctionnement)
     const filteredFamilies = useMemo(() => {
@@ -503,39 +512,6 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                 {displayPrice.toFixed(2).replace('.', ',')} <span className="text-sm font-normal text-slate-400">Dh / {formData.unitPivot}</span>
                             </div>
                         </div>
-
-                        {/* Production Articles: Recipes & Sub-Recipes Section */}
-                        {isProductionArticle && (
-                            <div className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-xl rounded-2xl p-4 w-full">
-                                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Recettes & Sous-Recettes</h4>
-                                <div className="space-y-2 max-h-[200px] overflow-y-auto">
-                                    {recipes.filter(r => r.subFamilyId === formData.subFamilyId).map(recipe => (
-                                        <div key={recipe.id} className="text-xs p-2 bg-slate-50 rounded-lg border border-slate-200">
-                                            <div className="font-bold text-slate-700">{recipe.name}</div>
-                                            {recipe.isSubRecipe && (
-                                                <span className="text-[9px] text-green-600 font-bold">Sous-recette</span>
-                                            )}
-                                        </div>
-                                    ))}
-                                    {recipes.filter(r => r.subFamilyId === formData.subFamilyId).length === 0 && (
-                                        <p className="text-xs text-slate-400 italic">Aucune recette</p>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Function of Product Section */}
-                        {isProductionArticle && (
-                            <div className="bg-white/70 backdrop-blur-xl border border-white/40 shadow-xl rounded-2xl p-4 w-full">
-                                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Fonction du Produit</h4>
-                                <textarea
-                                    value={(formData as any).productFunction || ""}
-                                    onChange={(e) => handleChange("productFunction" as any, e.target.value)}
-                                    placeholder="Décrire la fonction du produit..."
-                                    className="w-full text-xs p-2 bg-slate-50 rounded-lg border border-slate-200 resize-none min-h-[80px] focus:outline-none focus:border-blue-500"
-                                />
-                            </div>
-                        )}
 
                         {/* Buttons Control */}
                         <div className="flex gap-2 w-full mt-2">

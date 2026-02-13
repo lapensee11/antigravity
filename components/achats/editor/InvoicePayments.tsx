@@ -48,6 +48,10 @@ const DecimalInput = forwardRef<HTMLInputElement, any>(({ value, onChange, class
         e.target.select();
     };
 
+    const handleClick = (e: any) => {
+        e.target.select();
+    };
+
     const handleBlur = () => {
         setIsEditing(false);
         const normalized = localValue.replace(/[\s\u00A0]/g, '').replace(',', '.');
@@ -68,6 +72,7 @@ const DecimalInput = forwardRef<HTMLInputElement, any>(({ value, onChange, class
             value={localValue}
             onChange={(e) => setLocalValue(e.target.value)}
             onFocus={handleFocus}
+            onClick={handleClick}
             onBlur={handleBlur}
             onKeyDown={(e) => {
                 if (e.key === 'Enter') e.currentTarget.blur();
@@ -417,6 +422,8 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                 placeholder="Infos..."
                                                 value={payment.note || ""}
                                                 onChange={e => handlePaymentChange(index, "note", e.target.value)}
+                                                onFocus={(e) => e.target.select()}
+                                                onClick={(e) => (e.target as HTMLInputElement).select()}
                                                 onKeyDown={(e) => {
                                                     if (e.key === "Tab" && !e.shiftKey) {
                                                         if (index === payments.length - 1) {

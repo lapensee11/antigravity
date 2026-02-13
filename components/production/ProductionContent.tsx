@@ -25,25 +25,23 @@ import {
 import { useEffect, useState, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Recipe, Family, SubFamily, Ingredient, Article, Invoice } from "@/lib/types";
-import { saveRecipe, deleteRecipe, getInvoices, getArticles, getRecipes } from "@/lib/data-service";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRecipes, useArticles, useInvoices, useFamilies, useSubFamilies, useRecipeMutation, useRecipeDeletion } from "@/lib/hooks/use-data";
+import { calculateRecipeNutrition } from "@/lib/data-service";
 
-export function ProductionContent({
-    initialRecipes,
-    initialArticles,
-    initialFamilies,
-    initialSubFamilies
-}: {
-    initialRecipes: Recipe[],
-    initialArticles: Article[],
-    initialFamilies: Family[],
-    initialSubFamilies: SubFamily[]
-}) {
+export function ProductionContent() {
     const queryClient = useQueryClient();
-    const [articles, setArticles] = useState<Article[]>(initialArticles);
-    const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
-    const [invoices, setInvoices] = useState<Invoice[]>([]);
-    const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(recipes.length > 0 ? recipes[0].id : null);
+    // Use React Query hooks instead of useState + useEffect
+    const { data: recipes = [], isLoading: recipesLoading } = useRecipes();
+    const { data: articles = [], isLoading: articlesLoading } = useArticles();
+    const { data: invoices = [], isLoading: invoicesLoading } = useInvoices();
+    const { data: families = [], isLoading: familiesLoading } = useFamilies();
+    const { data: subFamilies = [], isLoading: subFamiliesLoading } = useSubFamilies();
+    
+    const recipeMutation = useRecipeMutation();
+    const recipeDeletion = useRecipeDeletion();
+    
+    const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [filterFamily, setFilterFamily] = useState<string>("Tous");
     const [familySearch, setFamilySearch] = useState("");
@@ -63,10 +61,12 @@ export function ProductionContent({
     const nameInputRefs = useRef<(HTMLInputElement | null)[]>([]);
     const quantityInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-    // Load invoices to calculate pivot prices from latest transactions
+    // Set initial selected recipe when recipes are loaded
     useEffect(() => {
-        getInvoices().then(setInvoices);
-    }, []);
+        if (recipes.length > 0 && !selectedRecipeId) {
+            setSelectedRecipeId(recipes[0].id);
+        }
+    }, [recipes, selectedRecipeId]);
 
     // Function to get pivot price from latest transaction (same logic as ArticleEditor)
     const getPivotPriceFromLatestTransaction = (article: Article | undefined): number => {
@@ -227,8 +227,8 @@ export function ProductionContent({
         return [...new Set(units)];
     };
 
-    const productionFamilies = initialFamilies.filter(f => f.typeId === "3");
-    const families = ["Tous", ...productionFamilies.map(f => f.name)];
+    const productionFamilies = families.filter(f => f.typeId === "3");
+    const familyNames = ["Tous", ...productionFamilies.map(f => f.name)];
 
     // Filter families by search query, sorted by code
     const filteredFamilies = useMemo(() => {
@@ -247,19 +247,19 @@ export function ProductionContent({
     const filteredSubFamilies = useMemo(() => {
         const selectedFamily = productionFamilies.find(f => f.name === filterFamily && filterFamily !== "Tous");
         if (!selectedFamily) {
-            return initialSubFamilies
-                .filter(sf => {
-                    const fam = productionFamilies.find(f => f.id === sf.familyId);
-                    return fam !== undefined;
-                })
-                .filter(sf => 
-                    !subFamilySearch.trim() ||
-                    sf.name.toLowerCase().includes(subFamilySearch.toLowerCase()) ||
-                    sf.code.toLowerCase().includes(subFamilySearch.toLowerCase())
-                )
-                .sort((a, b) => a.code.localeCompare(b.code));
+        return subFamilies
+            .filter(sf => {
+                const fam = productionFamilies.find(f => f.id === sf.familyId);
+                return fam !== undefined;
+            })
+            .filter(sf => 
+                !subFamilySearch.trim() ||
+                sf.name.toLowerCase().includes(subFamilySearch.toLowerCase()) ||
+                sf.code.toLowerCase().includes(subFamilySearch.toLowerCase())
+            )
+            .sort((a, b) => a.code.localeCompare(b.code));
         }
-        return initialSubFamilies
+        return subFamilies
             .filter(sf => sf.familyId === selectedFamily.id)
             .filter(sf => 
                 !subFamilySearch.trim() ||
@@ -267,7 +267,7 @@ export function ProductionContent({
                 sf.code.toLowerCase().includes(subFamilySearch.toLowerCase())
             )
             .sort((a, b) => a.code.localeCompare(b.code));
-    }, [subFamilySearch, filterFamily, productionFamilies, initialSubFamilies]);
+    }, [subFamilySearch, filterFamily, productionFamilies, subFamilies]);
 
     const getFilteredArticles = (search: string) => {
         const rawMaterialCodes = ["FA01", "FA02", "FA03", "FA04", "FA05", "FA06"];
@@ -282,10 +282,10 @@ export function ProductionContent({
             }
 
             // Sinon, vérifier si c'est une matière première
-            const subFam = initialSubFamilies.find(sf => sf.id === a.subFamilyId);
+            const subFam = subFamilies.find(sf => sf.id === a.subFamilyId);
             if (!subFam) return false;
 
-            const fam = initialFamilies.find(f => f.id === subFam.familyId);
+            const fam = families.find(f => f.id === subFam.familyId);
             if (!fam) return false;
             
             // Inclure les matières premières (codes FA01-FA06)
@@ -398,22 +398,14 @@ export function ProductionContent({
             costing: { ...editData.costing }
         };
         
-        const result = await saveRecipe(recipeToSave);
-        if (result.success) {
+        try {
+            await recipeMutation.mutateAsync(recipeToSave);
             // Invalider le cache des comptages d'articles pour mettre à jour la structure
             queryClient.invalidateQueries({ queryKey: ["articleCounts"] });
-            // Recharger les recettes depuis la base de données pour avoir la version à jour
-            const updatedRecipes = await getRecipes();
-            setRecipes(updatedRecipes);
-            
-            // Recharger les articles pour inclure les sous-recettes créées/mises à jour
-            getArticles().then((updatedArticles: Article[]) => {
-                setArticles(updatedArticles);
-            });
-            
+            // React Query will automatically invalidate and refetch recipes and articles
             setIsEditing(false);
             setEditData(null);
-        } else {
+        } catch (error) {
             alert("Erreur lors de l'enregistrement");
         }
     };
@@ -426,20 +418,19 @@ export function ProductionContent({
     const handleDeleteRecipe = async () => {
         if (!selectedRecipeId) return;
         if (window.confirm("Êtes-vous sûr de vouloir supprimer cette recette ? Cette action est irréversible.")) {
-            const result = await deleteRecipe(selectedRecipeId);
-            if (result.success) {
+            try {
+                await recipeDeletion.mutateAsync(selectedRecipeId);
                 // Invalider le cache des comptages d'articles pour mettre à jour la structure
                 queryClient.invalidateQueries({ queryKey: ["articleCounts"] });
-                setRecipes(prev => {
-                    const newRecipes = prev.filter(r => r.id !== selectedRecipeId);
-                    if (newRecipes.length > 0) {
-                        setSelectedRecipeId(newRecipes[0].id);
+                // React Query will automatically refetch recipes
+                // Update selected recipe after deletion
+                const remainingRecipes = recipes.filter(r => r.id !== selectedRecipeId);
+                if (remainingRecipes.length > 0) {
+                    setSelectedRecipeId(remainingRecipes[0].id);
                     } else {
                         setSelectedRecipeId(null);
                     }
-                    return newRecipes;
-                });
-            } else {
+            } catch (error) {
                 alert("Erreur lors de la suppression");
             }
         }
@@ -489,18 +480,18 @@ export function ProductionContent({
                     setSelectedRecipeId(filteredRecipes[newIndex].id);
                 }
             } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                const currentIndex = families.indexOf(filterFamily);
+                const currentIndex = familyNames.indexOf(filterFamily);
                 let newIndex = currentIndex;
 
                 if (e.key === "ArrowLeft") {
                     newIndex = Math.max(0, currentIndex - 1);
                 } else {
-                    newIndex = Math.min(families.length - 1, currentIndex + 1);
+                    newIndex = Math.min(familyNames.length - 1, currentIndex + 1);
                 }
 
                 if (newIndex !== currentIndex) {
                     e.preventDefault();
-                    setFilterFamily(families[newIndex]);
+                    setFilterFamily(familyNames[newIndex]);
                 }
             }
         };
@@ -526,7 +517,73 @@ export function ProductionContent({
         if (!editData) return [];
         const selectedFam = productionFamilies.find(f => f.name === editData.familyId);
         if (!selectedFam) return [];
-        return initialSubFamilies.filter(sf => sf.familyId === selectedFam.id);
+        return subFamilies.filter(sf => sf.familyId === selectedFam.id);
+    };
+
+    const exportPdfAndPrint = async (format: "A4" | "A5") => {
+        if (!selectedRecipe) return;
+        const { pdf } = await import("@react-pdf/renderer");
+        const { RecipePdfA4 } = await import("./RecipePdfA4");
+        const { RecipePdfA5 } = await import("./RecipePdfA5");
+
+        const recipe = isEditing && editData ? editData : selectedRecipe;
+        const totals = calculateRecipeTotals(recipe, multiplier);
+        const currentIngs = recipe.ingredients || [];
+        const totalWeight = currentIngs.reduce((sum, ing) => {
+            const article = articles.find(a => a.id === ing.articleId);
+            const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+            return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
+        }, 0);
+        const lossRate = recipe.costing.lossRate || 0;
+        const weightAfterLoss = totalWeight * (1 - lossRate / 100);
+        const costPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
+        const subFamily = subFamilies.find(sf => sf.id === recipe.subFamilyId);
+
+        if (format === "A4") {
+            const data = {
+                name: recipe.name,
+                subFamilyName: subFamily?.name || "",
+                yieldUnit: recipe.yieldUnit || "portion(s)",
+                yieldQty: recipe.yield || 1,
+                ingredients: currentIngs.map(ing => {
+                    const article = articles.find(a => a.id === ing.articleId);
+                    const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                    const quantity = (ing.quantity || 0) * multiplier;
+                    return { name: ing.name, quantity, unit };
+                }),
+                image1: recipe.image,
+                steps: recipe.steps || [],
+                nutrition: recipe.nutrition || {},
+                costing: {
+                    materialCost: totals.materialCost,
+                    totalCost: totals.totalCost,
+                    totalWeight,
+                    weightAfterLoss,
+                    costPerKg,
+                    lossRate,
+                },
+            };
+            const blob = await pdf(<RecipePdfA4 data={data} />).toBlob();
+            const url = URL.createObjectURL(blob);
+            window.open(url, "_blank", "noopener,noreferrer");
+        } else {
+            const data = {
+                name: recipe.name,
+                subFamilyName: subFamily?.name || "",
+                yieldUnit: recipe.yieldUnit || "portion(s)",
+                yieldQty: recipe.yield || 1,
+                ingredients: currentIngs.map(ing => {
+                    const article = articles.find(a => a.id === ing.articleId);
+                    const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                    const quantity = (ing.quantity || 0) * multiplier;
+                    return { name: ing.name, quantity, unit };
+                }),
+                steps: recipe.steps || [],
+            };
+            const blob = await pdf(<RecipePdfA5 data={data} />).toBlob();
+            const url = URL.createObjectURL(blob);
+            window.open(url, "_blank", "noopener,noreferrer");
+        }
     };
 
     return (
@@ -602,7 +659,7 @@ export function ProductionContent({
                                                     setFamilySearch(fam.name);
                                                     setShowFamilyDropdown(false);
                                                 }}
-                                                className={cn(
+                                            className={cn(
                                                     "px-4 py-2 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group",
                                                     idx === familySearchFocusIndex ? "bg-emerald-100" : "hover:bg-emerald-50",
                                                     filterFamily === fam.name && "bg-emerald-50"
@@ -708,8 +765,8 @@ export function ProductionContent({
                                                         idx === subFamilySearchFocusIndex ? "bg-emerald-200 text-emerald-700" : "text-slate-400 bg-slate-100 group-hover:bg-emerald-100 group-hover:text-emerald-600"
                                                     )}>{subFam.code}</span>
                                                 </div>
-                                            );
-                                        })}
+                                    );
+                                })}
                                     </div>
                                 )}
                             </div>
@@ -749,7 +806,8 @@ export function ProductionContent({
                                             costing: { materialCost: 0, lossRate: 0, laborCost: 0, storageCost: 0, totalCost: 0, costPerUnit: 0 },
                                             isSubRecipe: false
                                         };
-                                        setRecipes(prev => [...prev, newRecipe]);
+                                        // Optimistically add to cache
+                                        queryClient.setQueryData<Recipe[]>(["recipes"], (old = []) => [...old, newRecipe]);
                                         setSelectedRecipeId(newRecipe.id);
                                         setEditData(newRecipe);
                                         setIsEditing(true);
@@ -792,12 +850,19 @@ export function ProductionContent({
 
                                         <div className="flex-1 min-w-0">
                                             <div className="flex justify-between items-start mb-0.5">
+                                                <div className="flex-1 min-w-0">
                                                 <h3 className={cn(
                                                     "text-sm font-bold truncate transition-colors",
                                                     isSelected ? "text-emerald-900" : "text-slate-700"
                                                 )}>
                                                     {recipe.name}
                                                 </h3>
+                                                    {recipe.code && (
+                                                        <span className="text-[10px] text-slate-400 font-mono">
+                                                            {recipe.code}
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <span className="text-[10px] bg-white border border-slate-200 px-1.5 py-0.5 rounded text-slate-500 font-medium">
                                                     {(() => {
                                                         const totals = calculateRecipeTotals(recipe, 1);
@@ -814,7 +879,7 @@ export function ProductionContent({
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium uppercase tracking-wider">
-                                                <span>{recipe.subFamilyId}</span>
+                                                <span>{subFamilies.find(sf => sf.id === recipe.subFamilyId)?.name || recipe.subFamilyId}</span>
                                             </div>
                                         </div>
 
@@ -842,7 +907,7 @@ export function ProductionContent({
                                 <div className="px-8 pt-8 pb-6 border-b border-slate-100 bg-white shrink-0">
                                     <div className="flex justify-between items-start">
                                         <div className="space-y-4">
-                                            {isEditing && editData ? (
+                                            {isEditing && isEditing && editData ? (
                                                 <div className="flex flex-col gap-3 max-w-md">
                                                     <div className="flex gap-2">
                                                         <select
@@ -888,6 +953,12 @@ export function ProductionContent({
                                                                 Utiliser comme sous-recette
                                                             </span>
                                                         </label>
+                                                        <div className="flex items-center gap-2">
+                                                            {editData.code && (
+                                                                <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 border border-slate-200 rounded px-2 py-1">
+                                                                    {editData.code}
+                                                                </span>
+                                                            )}
                                                         <input
                                                             type="text"
                                                             value={editData.reference || ""}
@@ -895,6 +966,7 @@ export function ProductionContent({
                                                             placeholder="Référence"
                                                             className="text-xs font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded px-2 py-1 focus:ring-2 focus:ring-emerald-500 outline-none text-right w-32"
                                                         />
+                                                        </div>
                                                     </div>
                                                 </div>
                                             ) : (
@@ -902,7 +974,7 @@ export function ProductionContent({
                                                     <div className="flex items-center gap-2 text-emerald-600 font-bold text-xs uppercase tracking-widest">
                                                         <span className="bg-emerald-50 px-2 py-1 rounded-md">{selectedRecipe.familyId}</span>
                                                         <span className="text-slate-300">•</span>
-                                                        <span className="text-slate-500">{selectedRecipe.subFamilyId}</span>
+                                                        <span className="text-slate-500">{subFamilies.find(sf => sf.id === selectedRecipe.subFamilyId)?.name || selectedRecipe.subFamilyId}</span>
                                                         {selectedRecipe.isSubRecipe && (
                                                             <>
                                                                 <span className="text-slate-300">•</span>
@@ -913,7 +985,31 @@ export function ProductionContent({
                                                             </>
                                                         )}
                                                     </div>
-                                                    <h1 className="text-4xl font-black tracking-tight text-slate-800 mt-1">{selectedRecipe.name}</h1>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <h1 className="text-4xl font-black tracking-tight text-slate-800 mt-1">{selectedRecipe.name}</h1>
+                                                        <button
+                                                            onClick={() => {
+                                                                setEditData({ ...selectedRecipe });
+                                                                setIsEditing(true);
+                                                            }}
+                                                            className="flex items-center gap-1.5 bg-white border border-slate-200 hover:border-emerald-200 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 px-3 py-1.5 rounded-lg font-bold text-xs transition-all shadow-sm mt-1"
+                                                        >
+                                                            <Pencil className="w-3.5 h-3.5" />
+                                                            Modifier
+                                                        </button>
+                                                        <button
+                                                            onClick={handleDeleteRecipe}
+                                                            className="flex items-center gap-1.5 bg-white border border-slate-200 hover:border-red-200 hover:bg-red-50 text-slate-600 hover:text-red-700 px-3 py-1.5 rounded-lg font-bold text-xs transition-all shadow-sm mt-1"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                            Supprimer
+                                                        </button>
+                                                    </div>
+                                                    {selectedRecipe.code && (
+                                                        <span className="text-sm font-mono font-bold text-slate-500 mt-1 block">
+                                                            {selectedRecipe.code}
+                                                        </span>
+                                                    )}
                                                     {selectedRecipe.reference && (
                                                         <div className="text-right w-full mt-1">
                                                             <span className="text-xs font-black text-slate-400 tracking-wider">REF: {selectedRecipe.reference}</span>
@@ -941,27 +1037,7 @@ export function ProductionContent({
                                                         Enregistrer
                                                     </button>
                                                 </div>
-                                            ) : (
-                                                <>
-                                                    <button
-                                                        onClick={() => {
-                                                            setEditData({ ...selectedRecipe });
-                                                            setIsEditing(true);
-                                                        }}
-                                                        className="flex items-center gap-2 bg-white border border-slate-200 hover:border-emerald-200 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 px-4 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm"
-                                                    >
-                                                        <Pencil className="w-4 h-4" />
-                                                        Modifier
-                                                    </button>
-                                                    <button
-                                                        onClick={handleDeleteRecipe}
-                                                        className="flex items-center gap-2 bg-white border border-slate-200 hover:border-red-200 hover:bg-red-50 text-slate-600 hover:text-red-700 px-4 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                        Supprimer
-                                                    </button>
-                                                </>
-                                            )}
+                                            ) : null}
                                         </div>
                                     </div>
                                 </div>
@@ -970,8 +1046,8 @@ export function ProductionContent({
                                     {[
                                         { id: "ingredients", label: "Ingrédients", icon: Utensils },
                                         { id: "steps", label: "Préparation", icon: Timer },
-                                        { id: "nutrition", label: "Nutrition", icon: Leaf },
-                                        { id: "costing", label: "Rentabilité", icon: PieChart },
+                                        { id: "nutrition", label: "A4", icon: Printer },
+                                        { id: "costing", label: "A5", icon: Printer },
                                     ].map((tab) => {
                                         const isActive = activeTab === tab.id;
                                         return (
@@ -996,26 +1072,28 @@ export function ProductionContent({
                                 <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
                                     <div className="max-w-5xl mx-auto space-y-6">
                                         {activeTab === "ingredients" && (
-                                            <div className="col-span-12 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                            <div className="col-span-12 space-y-8">
+                                                {/* Table des Ingrédients */}
+                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
                                                 <div className="p-6 border-b border-slate-100 flex justify-between items-center">
                                                     <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                                                         <Scale className="w-5 h-5 text-emerald-500" />
                                                         Liste des Ingrédients
                                                     </h3>
-                                                    <div className="flex items-center gap-3 bg-emerald-900 rounded-lg p-1 border border-emerald-700">
+                                                        <div className="flex items-center gap-3 bg-emerald-900 rounded-lg p-1 border border-emerald-700">
                                                         <button
                                                             onClick={() => setMultiplier(Math.max(1, multiplier - 1))}
-                                                            className="w-8 h-8 flex items-center justify-center rounded-md bg-emerald-200 border border-emerald-300 text-emerald-800 hover:text-emerald-900 hover:bg-emerald-100 shadow-sm transition-all disabled:cursor-not-allowed"
+                                                                className="w-8 h-8 flex items-center justify-center rounded-md bg-emerald-200 border border-emerald-300 text-emerald-800 hover:text-emerald-900 hover:bg-emerald-100 shadow-sm transition-all disabled:cursor-not-allowed"
                                                             disabled={multiplier <= 1}
                                                         >
                                                             <Minus className="w-3.5 h-3.5" />
                                                         </button>
-                                                        <span className="text-sm font-black text-white w-16 text-center">
+                                                            <span className="text-sm font-black text-white w-16 text-center">
                                                             Coeff: {multiplier}
                                                         </span>
                                                         <button
                                                             onClick={() => setMultiplier(multiplier + 1)}
-                                                            className="w-8 h-8 flex items-center justify-center rounded-md bg-emerald-200 border border-emerald-300 text-emerald-800 hover:text-emerald-900 hover:bg-emerald-100 shadow-sm transition-all"
+                                                                className="w-8 h-8 flex items-center justify-center rounded-md bg-emerald-200 border border-emerald-300 text-emerald-800 hover:text-emerald-900 hover:bg-emerald-100 shadow-sm transition-all"
                                                         >
                                                             <Plus className="w-3.5 h-3.5" />
                                                         </button>
@@ -1032,12 +1110,12 @@ export function ProductionContent({
                                                             <th className="text-right px-2 py-3 w-[8%] border-l border-emerald-200">% Poids</th>
                                                             <th className="text-right px-3 py-3 w-[12%] border-l border-emerald-200">Coût</th>
                                                             <th className="text-right px-3 py-3 w-[8%] border-l border-emerald-200">% Coût</th>
-                                                            {isEditing && <th className="w-[7%]"></th>}
+                                                            {editData && <th className="w-[7%]"></th>}
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100">
                                                         {(() => {
-                                                            const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
+                                                            const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
                                                             const ingsWithCalculations = currentIngs.map(ing => {
                                                                 const article = articles.find(a => a.id === ing.articleId);
                                                                 const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
@@ -1098,22 +1176,22 @@ export function ProductionContent({
                                                                                             {getFilteredArticles(ing.name).map((article, sIdx) => {
                                                                                                 const isSubRecipe = article.isSubRecipe === true;
                                                                                                 return (
-                                                                                                    <div
-                                                                                                        key={article.id}
-                                                                                                        onClick={(e) => {
-                                                                                                            e.preventDefault();
-                                                                                                            e.stopPropagation();
-                                                                                                            handleUpdateIngredientFromSearch(idx, article);
-                                                                                                        }}
-                                                                                                        className={cn(
-                                                                                                            "px-3 py-2 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group",
+                                                                                                <div
+                                                                                                    key={article.id}
+                                                                                                    onClick={(e) => {
+                                                                                                        e.preventDefault();
+                                                                                                        e.stopPropagation();
+                                                                                                        handleUpdateIngredientFromSearch(idx, article);
+                                                                                                    }}
+                                                                                                    className={cn(
+                                                                                                        "px-3 py-2 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group",
                                                                                                             searchFocusIndex === sIdx ? "bg-emerald-100" : "hover:bg-emerald-50",
                                                                                                             isSubRecipe && "bg-blue-50 border-l-2 border-l-blue-400"
-                                                                                                        )}
-                                                                                                    >
+                                                                                                    )}
+                                                                                                >
                                                                                                         <div className="flex items-center gap-2 flex-1 min-w-0">
                                                                                                             {isSubRecipe && <ChefHat className="w-3 h-3 text-blue-600 shrink-0" />}
-                                                                                                            <span className={cn(
+                                                                                                    <span className={cn(
                                                                                                                 "font-bold text-xs truncate",
                                                                                                                 searchFocusIndex === sIdx ? "text-emerald-800" : "text-slate-700 group-hover:text-emerald-700",
                                                                                                                 isSubRecipe && "text-blue-800"
@@ -1122,12 +1200,12 @@ export function ProductionContent({
                                                                                                                 {isSubRecipe && <span className="text-[9px] text-blue-600 ml-1">(SR)</span>}
                                                                                                             </span>
                                                                                                         </div>
-                                                                                                        <span className={cn(
-                                                                                                            "text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0",
+                                                                                                    <span className={cn(
+                                                                                                        "text-[10px] font-medium px-1.5 py-0.5 rounded shrink-0",
                                                                                                             searchFocusIndex === sIdx ? "bg-emerald-200 text-emerald-700" : "text-slate-400 bg-slate-100 group-hover:bg-emerald-100 group-hover:text-emerald-600",
                                                                                                             isSubRecipe && "bg-blue-100 text-blue-700"
-                                                                                                        )}>{article.unitProduction || article.unitPivot}</span>
-                                                                                                    </div>
+                                                                                                    )}>{article.unitProduction || article.unitPivot}</span>
+                                                                                                </div>
                                                                                                 );
                                                                                             })}
                                                                                         </div>
@@ -1204,7 +1282,7 @@ export function ProductionContent({
                                                                         <td className="px-3 py-3 text-[11px] font-black text-emerald-700 text-right bg-emerald-50/50 border-l border-slate-100">
                                                                             {costPct.toFixed(1)}%
                                                                         </td>
-                                                                        {isEditing && (
+                                                                        {isEditing && editData && (
                                                                             <td className="px-2">
                                                                                 <button
                                                                                     onClick={() => {
@@ -1237,7 +1315,7 @@ export function ProductionContent({
                                                     </tbody>
                                                     <tfoot className="bg-emerald-50/50 border-t-2 border-white">
                                                         {(() => {
-                                                            const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
+                                                            const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
                                                             const ingsCalculated = currentIngs.map(ing => {
                                                                 const article = articles.find(a => a.id === ing.articleId);
                                                                 return {
@@ -1257,20 +1335,22 @@ export function ProductionContent({
                                                                     <td className="px-2 py-3 text-right text-xs text-emerald-800 border-l border-emerald-200">100%</td>
                                                                     <td className="px-3 py-3 text-right text-sm text-emerald-800 border-l border-emerald-200">{totalCost.toFixed(2)} <span className="text-[10px] text-emerald-600">Dh</span></td>
                                                                     <td className="px-3 py-3 text-right text-xs text-emerald-800 border-l border-emerald-200">100%</td>
-                                                                    {isEditing && <td></td>}
+                                                                    {editData && <td></td>}
                                                                 </tr>
                                                             );
                                                         })()}
                                                     </tfoot>
                                                 </table>
+                                                </div>
                                             </div>
                                         )}
 
                                         {/* Costing Section - Integrated into Ingredients tab */}
                                         {activeTab === "ingredients" && (
-                                            <div className="grid grid-cols-2 gap-4 mt-6">
+                                            <>
+                                            <div className="grid grid-cols-2 gap-4 mt-6 items-stretch">
                                                 {/* Left: Costing Table (50%) */}
-                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden h-full">
                                                     {/* Header */}
                                                     <div className="bg-emerald-50 border-b border-emerald-100 px-3 py-2 flex items-center justify-between">
                                                         <div className="flex items-center gap-1.5">
@@ -1298,13 +1378,13 @@ export function ProductionContent({
                                                     <div className="p-3">
                                                         {(() => {
                                                             const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier);
-                                                            const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
+                                                            const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
                                                             const totalWeight = currentIngs.reduce((sum, ing) => {
                                                                 const article = articles.find(a => a.id === ing.articleId);
                                                                 const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
                                                                 return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
                                                             }, 0);
-                                                            const lossRate = isEditing && editData ? (editData.costing.lossRate || 0) : (selectedRecipe.costing.lossRate || 0);
+                                                            const lossRate = (isEditing && editData ? editData : selectedRecipe)?.costing?.lossRate || 0;
                                                             const weightAfterLoss = totalWeight * (1 - lossRate / 100);
                                                             const costPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
 
@@ -1426,7 +1506,7 @@ export function ProductionContent({
                                                                             <input
                                                                                 type="text"
                                                                                 value={(() => {
-                                                                                    const timeStr = (isEditing && editData ? editData.costing : selectedRecipe.costing) as any;
+                                                                                    const timeStr = ((isEditing && editData ? editData : selectedRecipe)?.costing) as any;
                                                                                     const time = timeStr.laborTime || "0:20";
                                                                                     const costPerHour = timeStr.laborCostPerHour || 0;
                                                                                     const [hours, minutes] = time.split(':').map(Number);
@@ -1502,7 +1582,7 @@ export function ProductionContent({
                                                                             <input
                                                                                 type="text"
                                                                                 value={(() => {
-                                                                                    const timeStr = (isEditing && editData ? editData.costing : selectedRecipe.costing) as any;
+                                                                                    const timeStr = ((isEditing && editData ? editData : selectedRecipe)?.costing) as any;
                                                                                     const time = timeStr.machineTime || "0:00";
                                                                                     const costPerHour = timeStr.machineCostPerHour || 0;
                                                                                     const [hours, minutes] = time.split(':').map(Number);
@@ -1578,7 +1658,7 @@ export function ProductionContent({
                                                                             <input
                                                                                 type="text"
                                                                                 value={(() => {
-                                                                                    const timeStr = (isEditing && editData ? editData.costing : selectedRecipe.costing) as any;
+                                                                                    const timeStr = ((isEditing && editData ? editData : selectedRecipe)?.costing) as any;
                                                                                     const time = timeStr.storageTime || "00:0";
                                                                                     const costPerHour = timeStr.storageCostPerHour || 0;
                                                                                     const [hours, minutes] = time.split(':').map(Number);
@@ -1593,7 +1673,7 @@ export function ProductionContent({
                                                                     </div>
 
                                                                     {/* Totals */}
-                                                                    <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                                                                    <div className="pt-2 border-t border-slate-200">
                                                                         <div className="grid grid-cols-4 gap-1 items-center">
                                                                             <div></div>
                                                                             <div></div>
@@ -1601,17 +1681,6 @@ export function ProductionContent({
                                                                             <input
                                                                                 type="text"
                                                                                 value={`${totals.totalCost.toFixed(2).replace('.', ',')} Dh`}
-                                                                                readOnly
-                                                                                className="w-[89.6px] bg-emerald-50 border border-emerald-200 rounded px-2 py-1 text-sm font-black text-emerald-900 text-right ml-auto"
-                                                                            />
-                                                                        </div>
-                                                                        <div className="grid grid-cols-4 gap-1 items-center">
-                                                                            <div></div>
-                                                                            <div></div>
-                                                                            <span className="text-sm font-bold text-slate-800 text-right">Coût / Kg</span>
-                                                                            <input
-                                                                                type="text"
-                                                                                value={`${costPerKg.toFixed(2).replace('.', ',')} Dh`}
                                                                                 readOnly
                                                                                 className="w-[89.6px] bg-emerald-50 border border-emerald-200 rounded px-2 py-1 text-sm font-black text-emerald-900 text-right ml-auto"
                                                                             />
@@ -1624,7 +1693,7 @@ export function ProductionContent({
                                                 </div>
 
                                                 {/* Right: Summary Card (50%) */}
-                                                <div className="bg-emerald-900 rounded-2xl p-6 shadow-xl relative overflow-hidden flex flex-col">
+                                                <div className="bg-emerald-900 rounded-2xl p-6 shadow-xl relative overflow-hidden flex flex-col h-full">
                                                     <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-800/20 rounded-full -translate-y-1/2 translate-x-1/2" />
                                                     <div className="relative mb-6">
                                                         <h3 className="text-emerald-300 font-bold text-xs uppercase tracking-[0.2em] mb-4">Prix / kg</h3>
@@ -1632,13 +1701,13 @@ export function ProductionContent({
                                                             <span className="text-5xl font-black text-white tracking-tighter">
                                                                 {(() => {
                                                                     const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier);
-                                                                    const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
+                                                                    const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
                                                                     const totalWeight = currentIngs.reduce((sum, ing) => {
                                                                         const article = articles.find(a => a.id === ing.articleId);
                                                                         const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
                                                                         return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
                                                                     }, 0);
-                                                                    const lossRate = isEditing && editData ? (editData.costing.lossRate || 0) : (selectedRecipe.costing.lossRate || 0);
+                                                                    const lossRate = (isEditing && editData ? editData : selectedRecipe)?.costing?.lossRate || 0;
                                                                     const weightAfterLoss = totalWeight * (1 - lossRate / 100);
                                                                     const baseCostPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
                                                                     return baseCostPerKg.toFixed(2);
@@ -1661,16 +1730,16 @@ export function ProductionContent({
                                                             <tbody>
                                                                 {(() => {
                                                                     const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier);
-                                                                    const currentIngs = isEditing && editData ? editData.ingredients : (selectedRecipe?.ingredients || []);
+                                                                    const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
                                                                     const totalWeight = currentIngs.reduce((sum, ing) => {
                                                                         const article = articles.find(a => a.id === ing.articleId);
                                                                         const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
                                                                         return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
                                                                     }, 0);
-                                                                    const lossRate = isEditing && editData ? (editData.costing.lossRate || 0) : (selectedRecipe.costing.lossRate || 0);
+                                                                    const lossRate = (isEditing && editData ? editData : selectedRecipe)?.costing?.lossRate || 0;
                                                                     const weightAfterLoss = totalWeight * (1 - lossRate / 100);
                                                                     const baseCostPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
-                                                                    const recipeName = isEditing && editData ? editData.name : selectedRecipe.name;
+                                                                    const recipeName = (isEditing && editData ? editData : selectedRecipe)?.name;
                                                                     
                                                                     // Get display items from costing or create default
                                                                     const displayItems = (editData?.costing as any)?.displayItems || (selectedRecipe.costing as any)?.displayItems || [
@@ -1804,6 +1873,258 @@ export function ProductionContent({
                                                     </div>
                                                 </div>
                                             </div>
+
+                                            {/* Etapes de Préparation et Valeurs Nutritionnelles - Côte à côte, en dessous de Prix / kg */}
+                                            <div className="grid grid-cols-2 gap-4 mt-6">
+                                                {/* Left: Etapes de Préparation */}
+                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+                                                    <div className="p-6 border-b border-slate-100">
+                                                        <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                                            <ChefHat className="w-5 h-5 text-emerald-500" />
+                                                            Etapes de Préparation
+                                                        </h3>
+                                                    </div>
+                                                    <div className="flex-1 overflow-y-auto p-6">
+                                                        <div className="space-y-4">
+                                                            {((isEditing && editData ? editData : selectedRecipe)?.steps || []).map((step, idx) => (
+                                                                <div key={idx} className="flex items-start gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100 hover:border-emerald-200 transition-colors">
+                                                                    <div className="w-8 h-8 rounded-full bg-emerald-100 border-2 border-emerald-200 text-emerald-600 font-black flex items-center justify-center flex-shrink-0 text-sm">
+                                                                        {step.order || idx + 1}
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        {isEditing && editData ? (
+                                                                            <div className="space-y-2">
+                                                                                <textarea
+                                                                                    value={step.description}
+                                                                                    onChange={(e) => {
+                                                                                        const newSteps = [...editData.steps];
+                                                                                        newSteps[idx] = { ...step, description: e.target.value };
+                                                                                        updateEditData('steps', newSteps);
+                                                                                    }}
+                                                                                    className="w-full bg-white border border-slate-200 rounded p-2 text-sm focus:outline-none focus:border-emerald-500 min-h-[60px]"
+                                                                                    placeholder="Description de l'étape..."
+                                                                                />
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <Clock className="w-3.5 h-3.5 text-emerald-500" />
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        value={step.duration}
+                                                                                        onChange={(e) => {
+                                                                                            const newSteps = [...editData.steps];
+                                                                                            newSteps[idx] = { ...step, duration: Number(e.target.value) };
+                                                                                            updateEditData('steps', newSteps);
+                                                                                        }}
+                                                                                        className="w-16 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-600 focus:outline-none focus:border-emerald-500"
+                                                                                    />
+                                                                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">min</span>
+                                                                                    <button
+                                                                                        onClick={() => {
+                                                                                            const newSteps = editData.steps.filter((_, i) => i !== idx);
+                                                                                            updateEditData('steps', newSteps);
+                                                                                        }}
+                                                                                        className="ml-auto text-red-400 hover:text-red-600 p-1"
+                                                                                    >
+                                                                                        <Trash2 className="w-4 h-4" />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <>
+                                                                                <p className="text-slate-700 font-medium text-sm mb-1">{step.description}</p>
+                                                                                <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wide">
+                                                                                    <Clock className="w-3.5 h-3.5" />
+                                                                                    {step.duration} minutes
+                                                                                </div>
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                            {isEditing && editData && (
+                                                                <button
+                                                                    onClick={() => {
+                                                                        const newStep = { order: editData.steps.length + 1, description: "", duration: 0 };
+                                                                        updateEditData('steps', [...editData.steps, newStep]);
+                                                                    }}
+                                                                    className="w-full py-3 border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center gap-2 text-slate-400 font-bold hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all"
+                                                                >
+                                                                    <Plus className="w-4 h-4" />
+                                                                    Ajouter une étape
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Right: Valeurs Nutritionnelles */}
+                                                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+                                                    <div className="p-6 border-b border-slate-100 flex items-center justify-between gap-4">
+                                                        <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                                                            <Leaf className="w-5 h-5 text-emerald-500" />
+                                                            Valeurs Nutritionnelles pour 100g
+                                                        </h3>
+                                                        {isEditing && editData && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const recipeToUse = { ...editData, ingredients: editData.ingredients || [] };
+                                                                    const calc = calculateRecipeNutrition(recipeToUse, articles, recipes);
+                                                                    if (calc) {
+                                                                        updateEditData('nutrition', calc);
+                                                                    } else {
+                                                                        alert("Impossible de calculer : aucun ingrédient n'a de données nutritionnelles (ou poids non convertissable en grammes).");
+                                                                    }
+                                                                }}
+                                                                className="text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg border border-emerald-200 transition-colors"
+                                                            >
+                                                                Calculer depuis ingrédients
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 overflow-y-auto p-6">
+                                                        <div className="bg-[#F8FAFC] rounded-2xl px-6 py-4 border border-blue-500/20 shadow-2xl shadow-blue-500/5 space-y-3">
+                                                            {/* Row 1: Energy & Water */}
+                                                            <div className="flex items-center gap-4 p-3 bg-white rounded-lg border border-slate-100 shadow-sm">
+                                                                <div className="flex-1 flex items-center justify-between">
+                                                                    <label className="text-[10px] font-bold text-slate-400 uppercase truncate mr-2">Énergie (Kcal)</label>
+                                                                    <input
+                                                                        type="number"
+                                                                        value={((isEditing && editData ? editData : selectedRecipe)?.nutrition).calories || ""}
+                                                                        onChange={(e) => {
+                                                                            if (isEditing && editData) {
+                                                                                updateEditData('nutrition', { ...editData.nutrition, calories: parseFloat(e.target.value) || 0 });
+                                                                            }
+                                                                        }}
+                                                                        disabled={!isEditing || !editData}
+                                                                        className="w-20 text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:bg-slate-100 disabled:text-slate-500"
+                                                                    />
+                                                                </div>
+                                                                <div className="w-px h-6 bg-slate-100" />
+                                                                <div className="flex-1 flex items-center justify-between">
+                                                                    <label className="text-[10px] font-bold text-slate-400 uppercase truncate mr-2">Eau (%)</label>
+                                                                    <input
+                                                                        type="number"
+                                                                        value={(((isEditing && editData ? editData : selectedRecipe)?.nutrition) as any).water || ""}
+                                                                        onChange={(e) => {
+                                                                            if (isEditing && editData) {
+                                                                                updateEditData('nutrition', { ...editData.nutrition, water: parseFloat(e.target.value) || 0 } as any);
+                                                                            }
+                                                                        }}
+                                                                        disabled={!isEditing || !editData}
+                                                                        className="w-20 text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:bg-slate-100 disabled:text-slate-500"
+                                                                    />
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Row 2: Macros (Horizontal) */}
+                                                            <div className="grid grid-cols-3 gap-3 bg-white rounded-lg border border-slate-100 p-2 shadow-sm">
+                                                                {[
+                                                                    { label: "Protéines", key: "protein" },
+                                                                    { label: "Lipides", key: "fat" },
+                                                                    { label: "Minéraux", key: "minerals" }
+                                                                ].map(field => (
+                                                                    <div key={field.key} className="flex flex-col items-center justify-center gap-1">
+                                                                        <label className="text-[9px] font-bold text-slate-400 uppercase truncate w-full text-center">{field.label}</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            value={((isEditing && editData ? editData : selectedRecipe)?.nutrition)[field.key as keyof typeof selectedRecipe.nutrition] || ""}
+                                                                            onChange={(e) => {
+                                                                                if (isEditing && editData) {
+                                                                                    updateEditData('nutrition', { ...editData.nutrition, [field.key]: parseFloat(e.target.value) || 0 });
+                                                                                }
+                                                                            }}
+                                                                            disabled={!isEditing || !editData}
+                                                                            className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:bg-slate-100 disabled:text-slate-500"
+                                                                        />
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+
+                                                            {/* Row 3: Glucides Group (Orange Theme) */}
+                                                            <div className="bg-orange-50/50 rounded border border-orange-200 p-2 shadow-sm space-y-2">
+                                                                {/* Total Row (Grid Aligned) */}
+                                                                <div className="grid grid-cols-3 gap-2 items-center">
+                                                                    <div className="col-span-2 flex justify-start pl-1">
+                                                                        <label className="text-[10px] font-bold text-orange-600 uppercase">Glucides</label>
+                                                                    </div>
+                                                                    <div className="col-span-1">
+                                                                        <input
+                                                                            type="number"
+                                                                            value={((isEditing && editData ? editData : selectedRecipe)?.nutrition).carbs || ""}
+                                                                            onChange={(e) => {
+                                                                                if (isEditing && editData) {
+                                                                                    updateEditData('nutrition', { ...editData.nutrition, carbs: parseFloat(e.target.value) || 0 });
+                                                                                }
+                                                                            }}
+                                                                            disabled={!isEditing || !editData}
+                                                                            className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:bg-slate-100 disabled:text-slate-500"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Sub-fields Horizontal */}
+                                                                <div className="grid grid-cols-3 gap-2">
+                                                                    {[
+                                                                        { label: "Sucres", key: "sugars" },
+                                                                        { label: "Amidons", key: "starch" },
+                                                                        { label: "Fibres", key: "fiber" }
+                                                                    ].map(field => (
+                                                                        <div key={field.key} className="flex flex-col items-center justify-center gap-1">
+                                                                            <label className="text-[8px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                                                                                {field.label}
+                                                                            </label>
+                                                                            <input
+                                                                                type="number"
+                                                                                value={((isEditing && editData ? editData : selectedRecipe)?.nutrition)[field.key as keyof typeof selectedRecipe.nutrition] || ""}
+                                                                                onChange={(e) => {
+                                                                                    if (isEditing && editData) {
+                                                                                        updateEditData('nutrition', { ...editData.nutrition, [field.key]: parseFloat(e.target.value) || 0 });
+                                                                                    }
+                                                                                }}
+                                                                                disabled={!isEditing || !editData}
+                                                                                className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[10px] font-bold text-slate-800 outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:bg-slate-100 disabled:text-slate-500"
+                                                                            />
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Row 4: IG & CG (No Arrows) */}
+                                                            <div className="flex items-center gap-2 mt-2">
+                                                                <div className="flex-1 flex items-center justify-between bg-orange-50/50 border border-orange-200 rounded px-3 py-2 shadow-sm">
+                                                                    <label className="text-[10px] font-bold text-orange-500 uppercase">IG</label>
+                                                                    <input
+                                                                        type="number"
+                                                                        value={((isEditing && editData ? editData : selectedRecipe)?.nutrition).glycemicIndex || ""}
+                                                                        onChange={(e) => {
+                                                                            if (isEditing && editData) {
+                                                                                updateEditData('nutrition', { ...editData.nutrition, glycemicIndex: parseFloat(e.target.value) || 0 });
+                                                                            }
+                                                                        }}
+                                                                        disabled={!isEditing || !editData}
+                                                                        className="w-16 text-center bg-slate-50 border border-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-bold focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:bg-slate-100 disabled:text-slate-500"
+                                                                    />
+                                                                </div>
+                                                                <div className="flex-1 flex items-center justify-between bg-orange-50/50 border border-orange-200 rounded px-3 py-2 shadow-sm">
+                                                                    <label className="text-[10px] font-bold text-orange-500 uppercase">CG</label>
+                                                                    <input
+                                                                        type="number"
+                                                                        value={((isEditing && editData ? editData : selectedRecipe)?.nutrition).glycemicLoad || ""}
+                                                                        onChange={(e) => {
+                                                                            if (isEditing && editData) {
+                                                                                updateEditData('nutrition', { ...editData.nutrition, glycemicLoad: parseFloat(e.target.value) || 0 });
+                                                                            }
+                                                                        }}
+                                                                        disabled={!isEditing || !editData}
+                                                                        className="w-16 text-center bg-slate-50 border border-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-bold focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:bg-slate-100 disabled:text-slate-500"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            </>
                                         )}
 
                                         {activeTab === "steps" && (
@@ -1816,7 +2137,7 @@ export function ProductionContent({
                                                 </h3>
                                                 <div className="space-y-8 relative">
                                                     <div className="absolute left-5 top-4 bottom-4 w-0.5 bg-slate-100" />
-                                                    {(isEditing && editData ? editData.steps : (selectedRecipe?.steps || [])).map((step, idx) => (
+                                                    {((isEditing && editData ? editData : selectedRecipe)?.steps || []).map((step, idx) => (
                                                         <div key={idx} className="relative pl-16 group">
                                                             <div className="absolute left-0 top-0 w-10 h-10 rounded-full bg-white border-4 border-slate-100 text-emerald-600 font-black flex items-center justify-center z-10 group-hover:border-emerald-200 transition-colors">
                                                                 {step.order || idx + 1}
@@ -1894,100 +2215,83 @@ export function ProductionContent({
                                         )}
 
                                         {activeTab === "costing" && (
-                                            <div className="grid grid-cols-2 gap-8">
-                                                <div className="bg-white rounded-2xl border border-slate-100 p-8 shadow-sm">
-                                                    <h3 className="font-bold text-lg text-slate-800 mb-6 flex items-center gap-2">
-                                                        <DollarSign className="w-5 h-5 text-emerald-600" />
-                                                        Structure des Coûts
-                                                    </h3>
-                                                    <div className="space-y-4">
-                                                        {(() => {
-                                                            const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier);
-                                                            return (
-                                                                <>
-                                                                    <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className="w-2 h-8 bg-blue-500 rounded-full" />
-                                                                            <span className="text-slate-600 font-medium">Matières Premières</span>
-                                                                        </div>
-                                                                        <span className="font-bold text-slate-800">{totals.materialCost.toFixed(2)} Dh</span>
-                                                                    </div>
-                                                                    <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className="w-2 h-8 bg-amber-500 rounded-full" />
-                                                                            <span className="text-slate-600 font-medium">Main d'œuvre</span>
-                                                                        </div>
-                                                                        {isEditing && editData ? (
-                                                                            <input
-                                                                                type="number"
-                                                                                value={editData.costing.laborCost}
-                                                                                onChange={(e) => updateEditData('costing', { ...editData.costing, laborCost: Number(e.target.value) })}
-                                                                                className="w-24 text-right bg-white border border-slate-200 rounded px-2 py-1 font-bold text-slate-800"
-                                                                            />
-                                                                        ) : (
-                                                                            <span className="font-bold text-slate-800">{(selectedRecipe.costing.laborCost || 0).toFixed(2)} Dh</span>
-                                                                        )}
-                                                                    </div>
-                                                                    <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className="w-2 h-8 bg-purple-500 rounded-full" />
-                                                                            <span className="text-slate-600 font-medium">Frais Généraux</span>
-                                                                        </div>
-                                                                        {isEditing && editData ? (
-                                                                            <input
-                                                                                type="number"
-                                                                                value={editData.costing.storageCost}
-                                                                                onChange={(e) => updateEditData('costing', { ...editData.costing, storageCost: Number(e.target.value) })}
-                                                                                className="w-24 text-right bg-white border border-slate-200 rounded px-2 py-1 font-bold text-slate-800"
-                                                                            />
-                                                                        ) : (
-                                                                            <span className="font-bold text-slate-800">{(selectedRecipe.costing.storageCost || 0).toFixed(2)} Dh</span>
-                                                                        )}
-                                                                    </div>
-                                                                    <div className="flex justify-between items-center p-4 bg-red-50 rounded-xl border border-red-100">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className="w-2 h-8 bg-red-500 rounded-full" />
-                                                                            <span className="text-red-700 font-medium">Pertes (%)</span>
-                                                                        </div>
-                                                                        {isEditing && editData ? (
-                                                                            <input
-                                                                                type="number"
-                                                                                value={editData.costing.lossRate}
-                                                                                onChange={(e) => updateEditData('costing', { ...editData.costing, lossRate: Number(e.target.value) })}
-                                                                                className="w-24 text-right bg-white border border-slate-200 rounded px-2 py-1 font-bold text-red-700"
-                                                                            />
-                                                                        ) : (
-                                                                            <span className="font-bold text-red-700">
-                                                                                {selectedRecipe.costing.lossRate}% (+{(totals.totalCost * (selectedRecipe.costing.lossRate || 0) / 100).toFixed(2)} Dh)
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                </>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                </div>
-
-                                                <div className="bg-emerald-900 rounded-2xl p-8 shadow-xl relative overflow-hidden flex flex-col justify-between">
-                                                    <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-800/20 rounded-full -translate-y-1/2 translate-x-1/2" />
-                                                    <div className="relative">
-                                                        <h3 className="text-emerald-300 font-bold text-xs uppercase tracking-[0.2em] mb-4">Prix de Revient Final</h3>
-                                                        <div className="flex items-baseline gap-3">
-                                                            <span className="text-6xl font-black text-white tracking-tighter">
-                                                                {calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier).costPerUnit.toFixed(2)}
+                                            <div className="flex justify-center items-start p-8 bg-slate-50 min-h-screen relative">
+                                                <button
+                                                    onClick={() => exportPdfAndPrint("A5")}
+                                                    className="absolute top-4 right-4 flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-lg transition-colors z-10"
+                                                >
+                                                    <Printer className="w-5 h-5" />
+                                                    Exporter PDF
+                                                </button>
+                                                {/* Format A5 - 148x210mm, ratio ~1:1.414 */}
+                                                <div className="print-recipe-only bg-white shadow-2xl w-full max-w-[148mm] min-h-[210mm] p-8 flex flex-col" style={{ aspectRatio: '148/210' }}>
+                                                    {/* En-tête */}
+                                                    <div className="border-b-2 border-emerald-600 pb-3 mb-4">
+                                                        <h1 className="text-2xl font-black text-slate-900 mb-2">
+                                                            {(isEditing && editData ? editData : selectedRecipe)?.name || "Recette"}
+                                                        </h1>
+                                                        <div className="flex items-center gap-3 text-xs text-slate-600">
+                                                            <span className="flex items-center gap-1">
+                                                                <ChefHat className="w-3 h-3 text-emerald-600" />
+                                                                {(() => {
+                                                                    const subFamily = subFamilies.find(sf => sf.id === ((isEditing && editData ? editData : selectedRecipe)?.subFamilyId));
+                                                                    return subFamily?.name || "";
+                                                                })()}
                                                             </span>
-                                                            <span className="text-xl font-bold text-emerald-400">Dh / {selectedRecipe.yieldUnit}</span>
+                                                            <span className="flex items-center gap-1">
+                                                                <Scale className="w-3 h-3 text-emerald-600" />
+                                                                {selectedRecipe?.yield || 1} {selectedRecipe?.yieldUnit || "portion(s)"}
+                                                            </span>
                                                         </div>
                                                     </div>
 
-                                                    <div className="relative mt-12 grid grid-cols-2 gap-4">
-                                                        <div className="bg-emerald-800/40 rounded-xl p-4 border border-emerald-700/30">
-                                                            <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest block mb-1">Total Matériel</span>
-                                                            <span className="text-white font-bold text-lg">{calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier).materialCost.toFixed(2)} Dh</span>
+                                                    {/* Ingrédients */}
+                                                    <div className="mb-4 flex-1">
+                                                        <h2 className="text-lg font-bold text-emerald-700 mb-2 flex items-center gap-2">
+                                                            <Utensils className="w-4 h-4" />
+                                                            Ingrédients
+                                                        </h2>
+                                                        <div className="space-y-1.5">
+                                                            {(() => {
+                                                                const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
+                                                                return currentIngs.map((ing, idx) => {
+                                                                    const article = articles.find(a => a.id === ing.articleId);
+                                                                    const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                    const quantity = (ing.quantity || 0) * multiplier;
+                                                                    return (
+                                                                        <div key={idx} className="flex justify-between items-center py-1.5 border-b border-slate-100">
+                                                                            <span className="text-sm font-medium text-slate-700">{ing.name}</span>
+                                                                            <span className="text-sm font-bold text-slate-900">{quantity.toLocaleString('fr-FR')} {unit}</span>
+                                                                        </div>
+                                                                    );
+                                                                });
+                                                            })()}
                                                         </div>
-                                                        <div className="bg-emerald-800/40 rounded-xl p-4 border border-emerald-700/30">
-                                                            <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-widest block mb-1">Coût Total</span>
-                                                            <span className="text-white font-bold text-lg">{calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier).totalCost.toFixed(2)} Dh</span>
+                                                    </div>
+
+                                                    {/* Étapes de Préparation */}
+                                                    <div className="border-t-2 border-slate-200 pt-4">
+                                                        <h2 className="text-lg font-bold text-emerald-700 mb-2 flex items-center gap-2">
+                                                            <ChefHat className="w-4 h-4" />
+                                                            Préparation
+                                                        </h2>
+                                                        <div className="space-y-2">
+                                                            {((isEditing && editData ? editData : selectedRecipe)?.steps || []).map((step, idx) => (
+                                                                <div key={idx} className="flex gap-2">
+                                                                    <div className="w-6 h-6 rounded-full bg-emerald-100 border-2 border-emerald-600 text-emerald-700 font-black flex items-center justify-center flex-shrink-0 text-xs">
+                                                                        {step.order || idx + 1}
+                                                                    </div>
+                                                                    <div className="flex-1">
+                                                                        <p className="text-sm text-slate-700">{step.description}</p>
+                                                                        {(step.duration || 0) > 0 && (
+                                                                            <div className="flex items-center gap-1 text-xs text-slate-500 mt-0.5">
+                                                                                <Clock className="w-3 h-3" />
+                                                                                {step.duration} min
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1995,100 +2299,219 @@ export function ProductionContent({
                                         )}
 
                                         {activeTab === "nutrition" && (
-                                            <div className="grid grid-cols-12 gap-8">
-                                                <div className="col-span-8 bg-white rounded-2xl border border-slate-100 p-8 shadow-sm">
-                                                    <h3 className="font-bold text-xl text-slate-800 mb-8 flex items-center gap-3">
-                                                        <Leaf className="w-5 h-5 text-emerald-500" />
-                                                        Valeurs Nutritionnelles (pour 100g)
-                                                    </h3>
-                                                    <div className="grid grid-cols-2 gap-12">
-                                                        <div className="space-y-6">
-                                                            {[
-                                                                { label: "Calories", value: selectedRecipe.nutrition.calories, unit: "kcal", color: "bg-orange-500", key: 'calories' },
-                                                                { label: "Protéines", value: selectedRecipe.nutrition.protein, unit: "g", color: "bg-red-500", key: 'protein' },
-                                                                { label: "Glucides", value: selectedRecipe.nutrition.carbs, unit: "g", color: "bg-amber-500", key: 'carbs' },
-                                                            ].map((nutri) => (
-                                                                <div key={nutri.label} className="space-y-2">
-                                                                    <div className="flex justify-between items-end">
-                                                                        <span className="text-sm font-bold text-slate-600">{nutri.label}</span>
-                                                                        <div className="flex items-baseline gap-1">
-                                                                            {isEditing && editData ? (
-                                                                                <input
-                                                                                    type="number"
-                                                                                    value={editData.nutrition[nutri.key as keyof typeof editData.nutrition]}
-                                                                                    onChange={(e) => updateEditData('nutrition', { ...editData.nutrition, [nutri.key]: Number(e.target.value) })}
-                                                                                    className="w-16 text-right bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-sm font-black text-slate-800"
-                                                                                />
-                                                                            ) : (
-                                                                                <span className="text-lg font-black text-slate-800">{nutri.value}</span>
-                                                                            )}
-                                                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{nutri.unit}</span>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                                                        <div className={cn("h-full rounded-full transition-all duration-1000", nutri.color)} style={{ width: `${Math.min(100, (nutri.value / 500) * 100)}%` }} />
-                                                                    </div>
-                                                                </div>
-                                                            ))}
+                                            <div className="flex justify-center items-start p-8 bg-slate-50 min-h-screen relative">
+                                                <button
+                                                    onClick={() => exportPdfAndPrint("A4")}
+                                                    className="absolute top-4 right-4 flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-lg transition-colors z-10"
+                                                >
+                                                    <Printer className="w-5 h-5" />
+                                                    Exporter PDF
+                                                </button>
+                                                {/* Format A4 - 210x297mm, ratio ~1:1.414 */}
+                                                <div className="print-recipe-only bg-white shadow-2xl w-full max-w-[210mm] min-h-[297mm] p-12 flex flex-col" style={{ aspectRatio: '210/297' }} lang="fr">
+                                                    {/* En-tête */}
+                                                    <div className="border-b-2 border-emerald-600 pb-4 mb-6">
+                                                        <h1 className="text-3xl font-black text-slate-900 mb-2">
+                                                            {(isEditing && editData ? editData : selectedRecipe)?.name || "Recette"}
+                                                        </h1>
+                                                        <div className="flex items-center gap-4 text-sm text-slate-600">
+                                                            <span className="flex items-center gap-1">
+                                                                <ChefHat className="w-4 h-4 text-emerald-600" />
+                                                                {(() => {
+                                                                    const subFamily = subFamilies.find(sf => sf.id === ((isEditing && editData ? editData : selectedRecipe)?.subFamilyId));
+                                                                    return subFamily?.name || "";
+                                                                })()}
+                                                            </span>
+                                                            <span className="flex items-center gap-1">
+                                                                <Scale className="w-4 h-4 text-emerald-600" />
+                                                                Rendement: {selectedRecipe?.yield || 1} {selectedRecipe?.yieldUnit || "portion(s)"}
+                                                            </span>
                                                         </div>
-                                                        <div className="space-y-6">
-                                                            {[
-                                                                { label: "Lipides", value: selectedRecipe.nutrition.fat, unit: "g", color: "bg-yellow-500", key: 'fat' },
-                                                                { label: "Index Glycémique", value: selectedRecipe.nutrition.glycemicIndex, unit: "", color: "bg-emerald-500", key: 'glycemicIndex' },
-                                                                { label: "Charge Glycémique", value: selectedRecipe.nutrition.glycemicLoad, unit: "", color: "bg-teal-500", key: 'glycemicLoad' },
-                                                            ].map((nutri) => (
-                                                                <div key={nutri.label} className="space-y-2">
-                                                                    <div className="flex justify-between items-end">
-                                                                        <span className="text-sm font-bold text-slate-600">{nutri.label}</span>
-                                                                        <div className="flex items-baseline gap-1">
-                                                                            {isEditing && editData ? (
-                                                                                <input
-                                                                                    type="number"
-                                                                                    value={editData.nutrition[nutri.key as keyof typeof editData.nutrition]}
-                                                                                    onChange={(e) => updateEditData('nutrition', { ...editData.nutrition, [nutri.key]: Number(e.target.value) })}
-                                                                                    className="w-16 text-right bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 text-sm font-black text-slate-800"
-                                                                                />
-                                                                            ) : (
-                                                                                <span className="text-lg font-black text-slate-800">{nutri.value}</span>
-                                                                            )}
-                                                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{nutri.unit}</span>
-                                                                        </div>
+                                                    </div>
+
+                                                    {/* Ingrédients (2/3) + Images (1/3) superposées */}
+                                                    <div className="mb-6 flex gap-4">
+                                                        <div className="w-2/3">
+                                                            <h2 className="text-xl font-bold text-emerald-700 mb-3 flex items-center gap-2">
+                                                                <Utensils className="w-5 h-5" />
+                                                                Ingrédients
+                                                            </h2>
+                                                            <div className="space-y-2">
+                                                                {(() => {
+                                                                    const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
+                                                                    return currentIngs.map((ing, idx) => {
+                                                                        const article = articles.find(a => a.id === ing.articleId);
+                                                                        const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                        const quantity = (ing.quantity || 0) * multiplier;
+                                                                        return (
+                                                                            <div key={idx} className="flex justify-between items-center py-2 border-b border-slate-100">
+                                                                                <span className="font-medium text-slate-700">{ing.name}</span>
+                                                                                <span className="font-bold text-slate-900">{quantity.toLocaleString('fr-FR')} {unit}</span>
+                                                                            </div>
+                                                                        );
+                                                                    });
+                                                                })()}
+                                                            </div>
+                                                        </div>
+                                                        <div className="w-1/3 flex justify-end shrink-0">
+                                                            <div className="flex flex-col gap-2">
+                                                                <div className="w-[130px] h-[130px] rounded-2xl bg-slate-200 overflow-hidden shrink-0 border-2 border-slate-300 shadow-sm transition-all duration-300 hover:scale-105 hover:shadow-lg hover:border-emerald-400 hover:ring-2 hover:ring-emerald-200">
+                                                                    {((isEditing && editData ? editData : selectedRecipe) as any)?.image ? (
+                                                                        <img src={((isEditing && editData ? editData : selectedRecipe) as any)?.image} alt="" className="w-full h-full object-cover rounded-2xl" />
+                                                                    ) : (
+                                                                        <div className="w-full h-full rounded-2xl bg-slate-200" />
+                                                                    )}
+                                                                </div>
+                                                                <div className="w-[130px] h-[130px] rounded-2xl bg-slate-300 shrink-0 border-2 border-slate-300 shadow-sm transition-all duration-300 hover:scale-105 hover:shadow-lg hover:border-emerald-400 hover:ring-2 hover:ring-emerald-200" />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Étapes de Préparation */}
+                                                    <div className="mb-6 flex-1 a4-recipe-content">
+                                                        <h2 className="text-xl font-bold text-emerald-700 mb-3 flex items-center gap-2">
+                                                            <ChefHat className="w-5 h-5" />
+                                                            Étapes de Préparation
+                                                        </h2>
+                                                        <div className="space-y-3">
+                                                            {((isEditing && editData ? editData : selectedRecipe)?.steps || []).map((step, idx) => (
+                                                                <div key={idx} className="flex gap-3">
+                                                                    <div className="w-8 h-8 rounded-full bg-emerald-100 border-2 border-emerald-600 text-emerald-700 font-black flex items-center justify-center flex-shrink-0 text-sm">
+                                                                        {step.order || idx + 1}
                                                                     </div>
-                                                                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                                                        <div className={cn("h-full rounded-full transition-all duration-1000", nutri.color)} style={{ width: `${Math.min(100, (nutri.value / 100) * 100)}%` }} />
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <p className="recipe-step-desc text-slate-700 mb-1" style={{ textAlign: 'justify' }}>{step.description}</p>
+                                                                        {(step.duration || 0) > 0 && (
+                                                                            <div className="flex items-center gap-1 text-xs text-slate-500">
+                                                                                <Clock className="w-3 h-3" />
+                                                                                {step.duration} minutes
+                                                                            </div>
+                                                                        )}
                                                                     </div>
                                                                 </div>
                                                             ))}
                                                         </div>
                                                     </div>
-                                                </div>
 
-                                                <div className="col-span-4 space-y-8">
-                                                    <div className="bg-white rounded-2xl border border-slate-100 p-8 shadow-sm flex flex-col items-center">
-                                                        <h3 className="font-bold text-sm text-slate-400 uppercase tracking-widest mb-6 w-full">Indice Santé</h3>
-                                                        <div className="relative w-40 h-40">
-                                                            <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
-                                                                <span className="text-4xl font-black text-slate-800">B+</span>
-                                                                <span className="text-xs font-bold text-emerald-500 tracking-widest">EXCELLENT</span>
-                                                            </div>
-                                                            <svg className="w-full h-full transform -rotate-90">
-                                                                <circle cx="80" cy="80" r="70" fill="none" stroke="#F1F5F9" strokeWidth="12" />
-                                                                <circle cx="80" cy="80" r="70" fill="none" stroke="#10B981" strokeWidth="12" strokeDasharray="440" strokeDashoffset="88" strokeLinecap="round" />
-                                                            </svg>
+                                                    {/* Blocs Nutrition + Coût côte à côte en bas (comme le PDF A4) */}
+                                                    <div className="flex gap-4 mt-6">
+                                                        {/* Valeurs Nutritionnelles — même rendu que le PDF A4 */}
+                                                        <div className="flex-1 rounded-xl border border-slate-300 bg-slate-50 p-4 shadow-sm">
+                                                            <h2 className="text-base font-bold text-emerald-700 mb-3 pb-2 border-b-2 border-emerald-600 flex items-center gap-2">
+                                                                <Leaf className="w-5 h-5" />
+                                                                Valeurs Nutritionnelles (pour 100g)
+                                                            </h2>
+                                                            {(() => {
+                                                                const nut = (isEditing && editData ? editData : selectedRecipe)?.nutrition;
+                                                                return (
+                                                                    <>
+                                                                        {/* Zone 1 — Bleu ciel */}
+                                                                        <div className="rounded-lg border border-sky-300 bg-sky-100 p-3 mb-2">
+                                                                            <div className="text-[10px] font-bold text-sky-800 uppercase tracking-wider mb-2">Énergie & macros</div>
+                                                                            <div className="flex gap-2 mb-2">
+                                                                                <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/60 rounded text-xs">
+                                                                                    <span className="text-sky-900">Énergie</span>
+                                                                                    <span className="font-bold text-sky-700">{nut?.calories || 0} Kcal</span>
+                                                                                </div>
+                                                                                <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/60 rounded text-xs">
+                                                                                    <span className="text-sky-900">Eau</span>
+                                                                                    <span className="font-bold text-sky-700">{((nut as any)?.water || 0)} %</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex gap-2">
+                                                                                <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/60 rounded text-xs">
+                                                                                    <span className="text-sky-900">Prot.</span>
+                                                                                    <span className="font-bold text-sky-700">{nut?.protein || 0} g</span>
+                                                                                </div>
+                                                                                <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/60 rounded text-xs">
+                                                                                    <span className="text-sky-900">Lip</span>
+                                                                                    <span className="font-bold text-sky-700">{nut?.fat || 0} g</span>
+                                                                                </div>
+                                                                                <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/60 rounded text-xs">
+                                                                                    <span className="text-sky-900">Min.</span>
+                                                                                    <span className="font-bold text-sky-700">{((nut as any)?.minerals || 0)} g</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                        {/* Zone 2 — Saumon */}
+                                                                        <div className="rounded-lg border border-orange-300 bg-orange-100 p-3">
+                                                                            <div className="text-[10px] font-bold text-orange-800 uppercase tracking-wider mb-2">Glucides & index glycémique</div>
+                                                                            <div className="flex gap-2 mb-2">
+                                                                                <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/50 rounded text-xs">
+                                                                                    <span className="text-orange-900">Glu.</span>
+                                                                                    <span className="font-bold text-orange-700">{nut?.carbs || 0} g</span>
+                                                                                </div>
+                                                                                <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/50 rounded text-xs">
+                                                                                    <span className="text-orange-900">Suc.</span>
+                                                                                    <span className="font-bold text-orange-700">{((nut as any)?.sugars || 0)} g</span>
+                                                                                </div>
+                                                                                <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/50 rounded text-xs">
+                                                                                    <span className="text-orange-900">Fib.</span>
+                                                                                    <span className="font-bold text-orange-700">{((nut as any)?.fiber || 0)} g</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex gap-2">
+                                                                                <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/50 rounded text-xs">
+                                                                                    <span className="text-orange-900">IG</span>
+                                                                                    <span className="font-bold text-orange-700">{(nut as any)?.glycemicIndex ?? "-"}</span>
+                                                                                </div>
+                                                                                <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/50 rounded text-xs">
+                                                                                    <span className="text-orange-900">CG</span>
+                                                                                    <span className="font-bold text-orange-700">{(nut as any)?.glycemicLoad ?? "-"}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </>
+                                                                );
+                                                            })()}
                                                         </div>
-                                                    </div>
 
-                                                    <div className="bg-slate-900 rounded-2xl p-6 shadow-xl relative overflow-hidden group">
-                                                        <div className="absolute inset-0 bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                        <div className="flex justify-between items-center relative">
-                                                            <div>
-                                                                <h4 className="text-white font-bold mb-1">Labels & Allergènes</h4>
-                                                                <div className="flex gap-2">
-                                                                    <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-black px-2 py-0.5 rounded border border-emerald-500/30 tracking-wider">VEGAN</span>
-                                                                    <span className="bg-amber-500/20 text-amber-400 text-[9px] font-black px-2 py-0.5 rounded border border-amber-500/30 tracking-wider">SANS GLUTEN</span>
-                                                                </div>
-                                                            </div>
-                                                            <Activity className="w-8 h-8 text-emerald-500/50" />
+                                                        {/* Informations de Coût */}
+                                                        <div className="flex-1 rounded-xl border-2 border-emerald-200 bg-emerald-50/80 p-4 shadow-sm">
+                                                            <h2 className="text-base font-bold text-emerald-700 mb-3 pb-2 border-b-2 border-emerald-600 flex items-center gap-2">
+                                                                <DollarSign className="w-5 h-5" />
+                                                                Informations de Coût
+                                                            </h2>
+                                                            {(() => {
+                                                                const totals = calculateRecipeTotals(isEditing && editData ? editData : selectedRecipe, multiplier);
+                                                                const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
+                                                                const totalWeight = currentIngs.reduce((sum, ing) => {
+                                                                    const article = articles.find(a => a.id === ing.articleId);
+                                                                    const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                    return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
+                                                                }, 0);
+                                                                const lossRate = (isEditing && editData ? editData : selectedRecipe)?.costing?.lossRate || 0;
+                                                                const weightAfterLoss = totalWeight * (1 - lossRate / 100);
+                                                                const costPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
+                                                                return (
+                                                                    <div className="space-y-2 text-sm">
+                                                                        <div className="flex justify-between py-1.5 border-b border-slate-200/60">
+                                                                            <span className="text-slate-600">Coût Matière</span>
+                                                                            <span className="font-bold text-slate-900">{totals.materialCost.toFixed(2)} Dh</span>
+                                                                        </div>
+                                                                        <div className="flex justify-between py-1.5 border-b border-slate-200/60">
+                                                                            <span className="text-slate-600">Coût Total</span>
+                                                                            <span className="font-bold text-slate-900">{totals.totalCost.toFixed(2)} Dh</span>
+                                                                        </div>
+                                                                        <div className="flex justify-between py-1.5 border-b border-slate-200/60">
+                                                                            <span className="text-slate-600">Poids Brut</span>
+                                                                            <span className="font-bold text-slate-900">{totalWeight.toLocaleString('fr-FR')} g</span>
+                                                                        </div>
+                                                                        <div className="flex justify-between py-1.5 border-b border-slate-200/60">
+                                                                            <span className="text-slate-600">Poids Net</span>
+                                                                            <span className="font-bold text-slate-900">{weightAfterLoss.toLocaleString('fr-FR')} g</span>
+                                                                        </div>
+                                                                        <div className="flex justify-between py-1.5 border-b border-slate-200/60">
+                                                                            <span className="text-slate-600">Coût / Kg</span>
+                                                                            <span className="font-bold text-slate-900">{costPerKg.toFixed(2)} Dh</span>
+                                                                        </div>
+                                                                        <div className="flex justify-between py-1.5">
+                                                                            <span className="text-slate-600">Taux de Perte</span>
+                                                                            <span className="font-bold text-slate-900">{lossRate} %</span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     </div>
                                                 </div>

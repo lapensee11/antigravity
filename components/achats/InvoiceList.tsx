@@ -4,6 +4,7 @@ import { Invoice, Article, Tier } from "@/lib/types";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Search, X, Calendar, ChevronUp, ChevronDown, Check, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Pagination } from "@/components/ui/Pagination";
 
 interface InvoiceListProps {
     invoices: Invoice[];
@@ -11,15 +12,25 @@ interface InvoiceListProps {
     onSelectInvoice: (invoice: Invoice | null) => void;
     suppliers: Tier[];
     articles: Article[];
+    total?: number;
+    page?: number;
+    pageSize?: number;
+    onPageChange?: (page: number) => void;
+    onPageSizeChange?: (pageSize: number) => void;
 }
 
 export function InvoiceList({
     invoices,
     selectedInvoiceId,
     onSelectInvoice,
-    suppliers
-}: InvoiceList2Props) {
-    const [dateFilter, setDateFilter] = useState<"Semaine" | "Mois" | "Trimestre">("Semaine");
+    suppliers,
+    total,
+    page = 0,
+    pageSize = 50,
+    onPageChange,
+    onPageSizeChange
+}: InvoiceListProps) {
+    const [dateFilter, setDateFilter] = useState<"Semaine" | "Mois" | "Trimestre" | "TOUT">("TOUT");
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
     const [declaredFilter, setDeclaredFilter] = useState<"Oui" | "Tous" | "Non">("Tous");
@@ -238,16 +249,34 @@ export function InvoiceList({
                 <div className="flex flex-col gap-2">
                     <div className="bg-white/80 backdrop-blur-sm p-1 rounded-xl flex gap-1 shadow-sm border border-slate-200/50">
                         {["TOUT", "TRIMESTRE", "MOIS"].map((label) => {
-                            const isActive = dateFilter === "Semaine" ? label === "TOUT" :
+                            const isActive = dateFilter === "TOUT" ? label === "TOUT" :
                                            dateFilter === "Trimestre" ? label === "TRIMESTRE" :
-                                           label === "MOIS";
+                                           dateFilter === "Mois" ? label === "MOIS" :
+                                           false;
                             return (
                                 <button
                                     key={label}
                                     onClick={() => {
-                                        if (label === "MOIS") setDateFilter("Mois");
-                                        else if (label === "TRIMESTRE") setDateFilter("Trimestre");
-                                        else setDateFilter("Semaine");
+                                        if (label === "MOIS") {
+                                            setDateFilter("Mois");
+                                            const now = new Date();
+                                            const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+                                            const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+                                            setDateFrom(start);
+                                            setDateTo(end);
+                                        } else if (label === "TRIMESTRE") {
+                                            setDateFilter("Trimestre");
+                                            const now = new Date();
+                                            const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+                                            const start = new Date(now.getFullYear(), quarterStartMonth, 1).toISOString().split('T')[0];
+                                            const end = new Date(now.getFullYear(), quarterStartMonth + 3, 0).toISOString().split('T')[0];
+                                            setDateFrom(start);
+                                            setDateTo(end);
+                                        } else {
+                                            setDateFilter("TOUT");
+                                            setDateFrom("");
+                                            setDateTo("");
+                                        }
                                     }}
                                     className={cn(
                                         "flex-1 py-1.5 rounded-md text-[10px] font-bold tracking-wide transition-all relative overflow-hidden",
@@ -415,6 +444,20 @@ export function InvoiceList({
                     </tfoot>
                 </table>
             </div>
+            
+            {/* Pagination */}
+            {total !== undefined && onPageChange && (
+                <div className="p-4 border-t border-slate-200 bg-white">
+                    <Pagination
+                        page={page}
+                        pageSize={pageSize}
+                        total={total}
+                        totalPages={Math.ceil(total / pageSize)}
+                        onPageChange={onPageChange}
+                        onPageSizeChange={onPageSizeChange}
+                    />
+                </div>
+            )}
         </div>
     );
 }

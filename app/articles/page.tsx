@@ -1,26 +1,18 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 import { ArticlesContent } from "@/components/articles/ArticlesContent";
-import { getArticles, ensureArticlesExist } from "@/lib/data-service";
-import { Article } from "@/lib/types";
+import { ensureArticlesExist } from "@/lib/data-service";
 
 export default function ArticlesPage() {
-    const [articles, setArticles] = useState<Article[] | null>(null);
-
+    // Ensure articles exist on mount (one-time setup)
     useEffect(() => {
-        async function fetchData() {
-            await ensureArticlesExist();
-            setArticles(await getArticles());
-        }
-        fetchData();
+        ensureArticlesExist();
     }, []);
 
-    if (!articles) return <div className="h-screen flex items-center justify-center font-bold text-slate-400">Chargement du catalogue...</div>;
-
     return (
-        <Suspense fallback={<div>Chargement...</div>}>
-            <ArticlesContent initialArticles={articles} />
+        <Suspense fallback={<div className="h-screen flex items-center justify-center font-bold text-slate-400">Chargement du catalogue...</div>}>
+            <ArticlesContent />
         </Suspense>
     );
 }

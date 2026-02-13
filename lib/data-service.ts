@@ -1,6 +1,354 @@
 import { db } from './db';
-import { Article, StaffMember, Invoice, Tier, Family, SubFamily, Recipe, StructureType, Transaction, AccountingAccount, AppSetting, Partner, CMIEntry } from './types';
+import { Article, StaffMember, Invoice, Tier, Family, SubFamily, Recipe, StructureType, Transaction, AccountingAccount, AppSetting, Partner, CMIEntry, InvoiceStatus, Nutrition } from './types';
 import { initialFamilies, initialSubFamilies } from './data';
+
+// ============================================================================
+// RECIPE COST CALCULATION - Centralized utility function
+// ============================================================================
+/**
+ * Calculate recipe costs (material, total, and per unit)
+ * This function centralizes all recipe cost calculations to avoid duplication
+ */
+/**
+ * Convert time string (e.g., "0:20" or "1:30") to hours
+ */
+function convertTimeToHours(timeStr: string): number {
+    if (!timeStr || timeStr === "00:0" || timeStr === "0:00") return 0;
+    const parts = timeStr.split(':');
+    if (parts.length !== 2) return 0;
+    const hours = parseInt(parts[0], 10) || 0;
+    const minutes = parseInt(parts[1], 10) || 0;
+    return hours + minutes / 60;
+}
+
+export function calculateRecipeCost(recipe: Recipe, articles?: Article[], invoices?: Invoice[]): {
+    materialCost: number;
+    totalCost: number;
+    costPerUnit: number;
+    costPerKg?: number; // Cost per kg for articles display
+} {
+    // Helper function to get pivot price from latest transaction (exact copy from ProductionContent)
+    const getPivotPriceFromLatestTransaction = (article: Article): number => {
+        if (!invoices || invoices.length === 0) {
+            return article.lastPivotPrice || 0;
+        }
+
+        const articleLines: { date: string; prixPivot: number }[] = [];
+        invoices.forEach(inv => {
+            if (inv.lines) {
+                inv.lines.forEach(line => {
+                    if (line.articleId === article.id) {
+                        // Prix Pivot Calculation (same logic as ArticleEditor and ProductionContent)
+                        let prixPivot = line.priceHT;
+                        if (line.unit === article.unitAchat && article.contenace > 0) {
+                            prixPivot = line.priceHT / article.contenace;
+                        }
+                        articleLines.push({
+                            date: inv.date,
+                            prixPivot: prixPivot
+                        });
+                    }
+                });
+            }
+        });
+
+        if (articleLines.length > 0) {
+            // Sort by date descending and get the latest (same as ProductionContent)
+            articleLines.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            return articleLines[0].prixPivot;
+        }
+
+        // Fallback to lastPivotPrice (same as ProductionContent)
+        return article.lastPivotPrice || 0;
+    };
+
+    // Helper function to calculate cost from unit (same as ProductionContent calculateCostFromUnit)
+    const calculateCostFromUnit = (article: Article | undefined, quantity: number, unit: string): number => {
+        if (!article || quantity <= 0) return 0;
+        
+        // If unit is empty or undefined, try to use default unit
+        if (!unit || unit.trim() === "") {
+            unit = article.unitProduction || article.unitPivot || article.unitAchat || "";
+            if (!unit) {
+                return 0;
+            }
+        }
+
+        const pivotPrice = getPivotPriceFromLatestTransaction(article);
+        if (pivotPrice <= 0) {
+            return 0;
+        }
+        
+        // Normalize unit strings for comparison (trim and case-insensitive)
+        const normalizeUnit = (u: string) => u?.trim().toUpperCase() || "";
+        const normalizedUnit = normalizeUnit(unit);
+        const unitAchat = normalizeUnit(article.unitAchat);
+        const unitPivot = normalizeUnit(article.unitPivot);
+        const unitProduction = normalizeUnit(article.unitProduction);
+        
+        // Step 1: Convert quantity to pivot unit
+        let quantityInPivot = quantity;
+        
+        if (normalizedUnit === unitAchat) {
+            // Convert from achat to pivot using contenace
+            if (article.contenace > 0) {
+                quantityInPivot = quantity / article.contenace;
+            }
+        } else if (normalizedUnit === unitProduction) {
+            // Convert from production to pivot
+            if (article.coeffProd > 0) {
+                // Extract numeric value from production unit (e.g., "50g" -> 50)
+                const prodUnitMatch = article.unitProduction.match(/(\d+(?:\.\d+)?)/);
+                if (prodUnitMatch) {
+                    const prodUnitValue = parseFloat(prodUnitMatch[1]);
+                    if (prodUnitValue > 0) {
+                        quantityInPivot = quantity / prodUnitValue;
+                    }
+                } else {
+                    // If no number in unit, use coeffProd directly
+                    quantityInPivot = quantity / article.coeffProd;
+                }
+            }
+        }
+        // If unit is already pivot, quantityInPivot stays as is
+
+        // Step 2: Calculate total cost
+        return quantityInPivot * pivotPrice;
+    };
+
+    // Calculate material cost from ingredients using same logic as ProductionContent
+    // This recalculates costs from current pivot prices instead of using stored ing.cost
+    const materialCost = articles && articles.length > 0
+        ? (recipe.ingredients || []).reduce((sum, ing) => {
+            const article = articles.find(a => a.id === ing.articleId);
+            return sum + calculateCostFromUnit(article, ing.quantity || 0, ing.unit || "");
+        }, 0)
+        : (recipe.ingredients || []).reduce((sum, ing) => sum + (ing.cost || 0), 0); // Fallback to stored cost if no articles
+    
+    // Recalculate labor, machine, and storage costs dynamically (same as calculateRecipeTotals)
+    // This ensures consistency with ProductionContent display
+    const laborTime = (recipe.costing as any)?.laborTime || "0:20";
+    const laborHours = convertTimeToHours(laborTime);
+    const laborCostPerHour = (recipe.costing as any)?.laborCostPerHour || 0;
+    const laborCost = laborHours * laborCostPerHour;
+
+    const machineTime = (recipe.costing as any)?.machineTime || "0:00";
+    const machineHours = convertTimeToHours(machineTime);
+    const machineCostPerHour = (recipe.costing as any)?.machineCostPerHour || 0;
+    const machineCost = machineHours * machineCostPerHour;
+
+    const storageTime = (recipe.costing as any)?.storageTime || "00:0";
+    const storageHours = convertTimeToHours(storageTime);
+    const storageCostPerHour = (recipe.costing as any)?.storageCostPerHour || 0;
+    const storageCost = storageHours * storageCostPerHour;
+    
+    const lossRate = recipe.costing?.lossRate || 0;
+    
+    // Calculate total cost with loss rate
+    const totalCost = (materialCost + laborCost + machineCost + storageCost) * 
+                     (1 + lossRate / 100);
+    
+    // Calculate cost per unit (per yield unit: portion, piece, etc.)
+    const costPerUnit = recipe.yield > 0 ? totalCost / recipe.yield : 0;
+    
+    // Calculate cost per kg if articles are provided (for article display)
+    // Use exact same logic as ProductionContent for consistency
+    let costPerKg: number | undefined = undefined;
+    if (articles && articles.length > 0) {
+        // Helper function to convert quantity to production weight (exact copy from ProductionContent)
+        const convertToProductionWeight = (article: Article | undefined, quantity: number, unit: string): number => {
+            if (!article || quantity <= 0) return 0;
+
+            // Normalize unit strings for comparison
+            const normalizeUnit = (u: string) => u.trim().toUpperCase();
+            const normalizedUnit = normalizeUnit(unit);
+            const unitAchat = normalizeUnit(article.unitAchat);
+            const unitPivot = normalizeUnit(article.unitPivot);
+            const unitProduction = normalizeUnit(article.unitProduction);
+
+            // If unit is already production unit, extract weight value
+            if (normalizedUnit === unitProduction) {
+                // Extract numeric value from unit (e.g., "50g" -> 50, "100ml" -> 100)
+                const match = article.unitProduction.match(/(\d+(?:\.\d+)?)/);
+                if (match) {
+                    const unitValue = parseFloat(match[1]);
+                    return quantity * unitValue;
+                }
+                // If no number found, assume it's already in grams
+                return quantity;
+            }
+
+            // Convert to pivot first
+            let quantityInPivot = quantity;
+            if (normalizedUnit === unitAchat && article.contenace > 0) {
+                quantityInPivot = quantity / article.contenace;
+            }
+            // If unit is already pivot, quantityInPivot stays as is
+
+            // Convert from pivot to production (weight in grams)
+            if (article.coeffProd > 0) {
+                // Extract numeric value from production unit if it contains a number
+                const prodUnitMatch = article.unitProduction.match(/(\d+(?:\.\d+)?)/);
+                if (prodUnitMatch) {
+                    const prodUnitValue = parseFloat(prodUnitMatch[1]);
+                    return quantityInPivot * prodUnitValue;
+                }
+                // If no number in production unit, use coeffProd directly
+                return quantityInPivot * article.coeffProd;
+            }
+
+            return 0;
+        };
+        
+        // Calculate total weight using exact same logic as ProductionContent (line 802-806)
+        const totalWeight = (recipe.ingredients || []).reduce((sum, ing) => {
+            const article = articles.find(a => a.id === ing.articleId);
+            const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+            return sum + convertToProductionWeight(article, ing.quantity || 0, unit);
+        }, 0);
+        
+        // Apply loss rate to weight (same as ProductionContent line 808)
+        const weightAfterLoss = totalWeight * (1 - lossRate / 100);
+        
+        // Calculate cost per kg (same formula as ProductionContent line 809)
+        costPerKg = weightAfterLoss > 0 ? totalCost / (weightAfterLoss / 1000) : 0;
+    }
+    
+    return { materialCost, totalCost, costPerUnit, costPerKg };
+}
+
+// ============================================================================
+// RECIPE NUTRITION CALCULATION - Weighted average from ingredients
+// ============================================================================
+/**
+ * Convert ingredient quantity to weight in grams (same logic as cost calculation).
+ */
+function convertIngredientToGrams(article: Article | undefined, quantity: number, unit: string): number {
+    if (!article || quantity <= 0) return 0;
+    const normalizeUnit = (u: string) => (u || '').trim().toUpperCase();
+    const normalizedUnit = normalizeUnit(unit);
+    const unitAchat = normalizeUnit(article.unitAchat);
+    const unitPivot = normalizeUnit(article.unitPivot);
+    const unitProduction = normalizeUnit(article.unitProduction);
+
+    if (normalizedUnit === unitProduction) {
+        const match = article.unitProduction.match(/(\d+(?:\.\d+)?)/);
+        if (match) return quantity * parseFloat(match[1]);
+        return quantity;
+    }
+
+    let quantityInPivot = quantity;
+    if (normalizedUnit === unitAchat && article.contenace > 0) {
+        quantityInPivot = quantity / article.contenace;
+    }
+
+    if (article.coeffProd > 0) {
+        const prodUnitMatch = article.unitProduction.match(/(\d+(?:\.\d+)?)/);
+        if (prodUnitMatch) {
+            return quantityInPivot * parseFloat(prodUnitMatch[1]);
+        }
+        return quantityInPivot * article.coeffProd;
+    }
+    return 0;
+}
+
+/**
+ * Get nutrition per 100g for an article (from nutritionalInfo) or for a sub-recipe (from calculated linked recipe).
+ */
+function getNutritionPer100g(
+    article: Article | undefined,
+    calculatedSubRecipeNutrition: Nutrition | null
+): Partial<Record<keyof Nutrition, number>> | null {
+    if (!article) return null;
+    if (article.isSubRecipe && calculatedSubRecipeNutrition) {
+        return calculatedSubRecipeNutrition as Partial<Record<keyof Nutrition, number>>;
+    }
+    const ni = article.nutritionalInfo;
+    if (!ni) return null;
+    const map: Partial<Record<keyof Nutrition, number>> = {};
+    if (typeof ni.calories === 'number') map.calories = ni.calories;
+    if (typeof ni.water === 'number') map.water = ni.water;
+    if (typeof ni.protein === 'number') map.protein = ni.protein;
+    if (typeof ni.fat === 'number') map.fat = ni.fat;
+    if (typeof ni.minerals === 'number') map.minerals = ni.minerals;
+    if (typeof ni.carbs === 'number') map.carbs = ni.carbs;
+    if (typeof ni.sugars === 'number') map.sugars = ni.sugars;
+    if (typeof ni.starch === 'number') map.starch = ni.starch;
+    if (typeof ni.fiber === 'number') map.fiber = ni.fiber;
+    if (typeof ni.ig === 'number') map.glycemicIndex = ni.ig;
+    if (typeof ni.cg === 'number') map.glycemicLoad = ni.cg;
+    return Object.keys(map).length > 0 ? map : null;
+}
+
+/**
+ * Calculate recipe nutrition as a weighted average per 100g:
+ * value_per_100g = Σ(value_i × weight_i) / total_weight
+ * Returns null if no ingredients have nutrition data.
+ * Handles sub-recipes recursively; circular references are ignored.
+ */
+export function calculateRecipeNutrition(
+    recipe: Recipe,
+    articles: Article[],
+    recipes: Recipe[],
+    visited = new Set<string>()
+): Nutrition | null {
+    if (visited.has(recipe.id)) return null;
+    visited.add(recipe.id);
+    try {
+        const ingredients = recipe.ingredients || [];
+        if (ingredients.length === 0) return null;
+
+        const keys: (keyof Nutrition)[] = [
+            'calories', 'water', 'protein', 'carbs', 'fat', 'minerals',
+            'sugars', 'starch', 'fiber', 'glycemicIndex', 'glycemicLoad'
+        ];
+        let totalWeight = 0;
+        const sums: Record<string, number> = {};
+
+        for (const ing of ingredients) {
+            const article = articles.find(a => a.id === ing.articleId);
+            const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || '';
+            const weightG = convertIngredientToGrams(article, ing.quantity || 0, unit);
+            if (weightG <= 0) continue;
+
+            const linkedRecipe = article?.isSubRecipe && article.linkedRecipeId
+                ? recipes.find(r => r.id === article.linkedRecipeId)
+                : undefined;
+            const linkedNutrition = linkedRecipe ? calculateRecipeNutrition(linkedRecipe, articles, recipes, visited) : null;
+
+            const nutrition = getNutritionPer100g(article, linkedNutrition);
+            if (!nutrition) continue;
+
+            totalWeight += weightG;
+            for (const k of keys) {
+                const v = nutrition[k];
+                if (typeof v === 'number') {
+                    sums[k] = (sums[k] || 0) + v * weightG;
+                }
+            }
+        }
+
+        if (totalWeight <= 0) return null;
+
+        const result: Nutrition = {
+            calories: Math.round((sums.calories || 0) / totalWeight * 100) / 100,
+            protein: Math.round((sums.protein || 0) / totalWeight * 100) / 100,
+            carbs: Math.round((sums.carbs || 0) / totalWeight * 100) / 100,
+            fat: Math.round((sums.fat || 0) / totalWeight * 100) / 100,
+            glycemicIndex: Math.round((sums.glycemicIndex || 0) / totalWeight),
+            glycemicLoad: Math.round((sums.glycemicLoad || 0) / totalWeight * 100) / 100,
+        };
+        if (typeof sums.water === 'number') result.water = Math.round((sums.water / totalWeight) * 100) / 100;
+        if (typeof sums.minerals === 'number') result.minerals = Math.round((sums.minerals / totalWeight) * 100) / 100;
+        if (typeof sums.sugars === 'number') result.sugars = Math.round((sums.sugars / totalWeight) * 100) / 100;
+        if (typeof sums.starch === 'number') result.starch = Math.round((sums.starch / totalWeight) * 100) / 100;
+        if (typeof sums.fiber === 'number') result.fiber = Math.round((sums.fiber / totalWeight) * 100) / 100;
+
+        return result;
+    } finally {
+        visited.delete(recipe.id);
+    }
+}
 
 // ... (previous imports)
 
@@ -14,6 +362,56 @@ import { initialFamilies, initialSubFamilies } from './data';
 // INVOICES
 export async function getInvoices(): Promise<Invoice[]> {
     return await db.invoices.toArray();
+}
+
+/**
+ * Get invoices with pagination
+ */
+export async function getInvoicesPaginated(
+    page: number = 0,
+    pageSize: number = 50,
+    filters?: {
+        status?: string;
+        dateFrom?: string;
+        dateTo?: string;
+        supplierId?: string;
+        searchQuery?: string;
+    }
+): Promise<{ invoices: Invoice[]; total: number }> {
+    // Get all invoices first (needed for complex filters)
+    let allInvoices = await db.invoices.orderBy('date').reverse().toArray();
+    
+    // Apply filters if provided
+    if (filters) {
+        if (filters.status) {
+            allInvoices = allInvoices.filter(inv => inv.status === filters.status);
+        }
+        if (filters.dateFrom) {
+            allInvoices = allInvoices.filter(inv => inv.date >= filters.dateFrom!);
+        }
+        if (filters.dateTo) {
+            allInvoices = allInvoices.filter(inv => inv.date <= filters.dateTo!);
+        }
+        if (filters.supplierId) {
+            allInvoices = allInvoices.filter(inv => inv.supplierId === filters.supplierId);
+        }
+        if (filters.searchQuery) {
+            const searchLower = filters.searchQuery.toLowerCase();
+            allInvoices = allInvoices.filter(inv => 
+                inv.number.toLowerCase().includes(searchLower) ||
+                (inv.comment && inv.comment.toLowerCase().includes(searchLower))
+            );
+        }
+    }
+    
+    // Get total count
+    const total = allInvoices.length;
+    
+    // Get paginated results
+    const offset = page * pageSize;
+    const invoices = allInvoices.slice(offset, offset + pageSize);
+    
+    return { invoices, total };
 }
 
 export async function saveInvoice(invoice: Invoice): Promise<{ success: true }> {
@@ -60,117 +458,229 @@ export async function deleteEmployee(id: number): Promise<{ success: true }> {
 }
 
 // ARTICLES
+// Cache for recipe-to-article conversion to avoid repeated calculations
+let recipeArticlesCache: {
+    recipes: Recipe[];
+    articles: Article[];
+    timestamp: number;
+} | null = null;
+
+const CACHE_TTL = 0; // No cache - always recalculate to ensure price updates are reflected immediately
+
 export async function getArticles(): Promise<Article[]> {
+    // Load articles, recipes, and invoices (for accurate pivot price calculation)
     const articles = await db.articles.toArray();
     const recipes = await db.recipes.toArray();
+    const invoices = await db.invoices.toArray();
     const subFamilies = await db.subFamilies.toArray();
-    const subFamilyIds = new Set(subFamilies.map(sf => sf.id));
-    
-    // Corriger les articles qui ont un subFamilyId qui est un nom au lieu d'un ID UUID
-    const correctedArticles = await Promise.all(articles.map(async (article) => {
-        if (!article.subFamilyId) return article;
-        
-        // Vérifier si c'est un ID UUID valide
-        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(article.subFamilyId);
-        
-        if (!isUUID) {
-            // C'est probablement un nom, chercher l'ID UUID correspondant
-            const subFamilyByName = subFamilies.find(sf => sf.name === article.subFamilyId);
-            if (subFamilyByName) {
-                console.log(`[getArticles] Fixing article "${article.name}": subFamilyId "${article.subFamilyId}" -> "${subFamilyByName.id}"`);
-                // Corriger l'article dans la base de données
-                await db.articles.update(article.id, { subFamilyId: subFamilyByName.id });
-                return { ...article, subFamilyId: subFamilyByName.id };
-            }
-        }
-        return article;
-    }));
-    
-    // Obtenir les familles pour vérifier le type
     const families = await db.families.toArray();
-    const productionFamilyIds = new Set(families.filter(f => f.typeId === "3").map(f => f.id));
-    const productionSubFamilyIds = new Set(subFamilies.filter(sf => productionFamilyIds.has(sf.familyId)).map(sf => sf.id));
     
-    // Corriger les recettes qui ont un subFamilyId qui est un nom au lieu d'un ID UUID
-    const correctedRecipes = await Promise.all(recipes.map(async (recipe) => {
-        if (!recipe.subFamilyId) return recipe;
+    // Check if cache is still valid
+    // Cache is valid only if recipes haven't changed (including their data)
+    const now = Date.now();
+    const cacheValid = recipeArticlesCache && 
+                      (now - recipeArticlesCache.timestamp) < CACHE_TTL &&
+                      recipeArticlesCache.recipes.length === recipes.length &&
+                      recipeArticlesCache.recipes.every((r, i) => {
+                          const currentRecipe = recipes[i];
+                          if (!currentRecipe || currentRecipe.id !== r.id) return false;
+                          // Deep comparison: check if recipe data changed (affects cost calculation)
+                          // Compare key fields that affect cost calculation
+                          return JSON.stringify({
+                              id: r.id,
+                              ingredients: r.ingredients,
+                              costing: r.costing,
+                              yield: r.yield,
+                              isSubRecipe: r.isSubRecipe
+                          }) === JSON.stringify({
+                              id: currentRecipe.id,
+                              ingredients: currentRecipe.ingredients,
+                              costing: currentRecipe.costing,
+                              yield: currentRecipe.yield,
+                              isSubRecipe: currentRecipe.isSubRecipe
+                          });
+                      });
+    
+    let recipeArticles: Article[];
+    
+    if (cacheValid && recipeArticlesCache) {
+        // Use cached conversion
+        recipeArticles = recipeArticlesCache.articles;
+    } else {
+        // Recalculate recipe articles
+        const subFamilyIds = new Set(subFamilies.map(sf => sf.id));
+        const productionFamilyIds = new Set(families.filter(f => f.typeId === "3").map(f => f.id));
+        const productionSubFamilyIds = new Set(subFamilies.filter(sf => productionFamilyIds.has(sf.familyId)).map(sf => sf.id));
         
-        // Vérifier si c'est un ID UUID valide
-        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipe.subFamilyId);
+        recipeArticles = recipes
+            .filter(recipe => {
+                const hasValidSubFamily = recipe.subFamilyId && subFamilyIds.has(recipe.subFamilyId);
+                const isProductionSubFamily = recipe.subFamilyId && productionSubFamilyIds.has(recipe.subFamilyId);
+                return hasValidSubFamily && isProductionSubFamily;
+            })
+            .map(recipe => {
+                // Use recipe.code if available, otherwise generate a fallback
+                let code = recipe.code || `R-${recipe.id}`;
+                
+                // If code doesn't match the expected format, try to generate it
+                if (!recipe.code || !recipe.code.match(/^[A-Z0-9]+-(R|SR)-\d{2}$/)) {
+                    const subFamily = subFamilies.find(sf => sf.id === recipe.subFamilyId);
+                    if (subFamily) {
+                        const prefix = recipe.isSubRecipe ? "SR" : "R";
+                        const sameSubFamilyCount = recipes.filter(r => 
+                            r.subFamilyId === recipe.subFamilyId && 
+                            r.id <= recipe.id &&
+                            (r.isSubRecipe === recipe.isSubRecipe)
+                        ).length;
+                        code = `${subFamily.code}-${prefix}-${String(sameSubFamilyCount).padStart(2, '0')}`;
+                    }
+                }
+                
+                // Use centralized cost calculation
+                // Calculate cost per kg for display (since unitPivot is "Kg")
+                const { costPerKg, costPerUnit } = calculateRecipeCost(recipe, articles, invoices);
+                
+                // Use costPerKg if available (for kg-based pricing), otherwise fallback to costPerUnit
+                const displayPrice = costPerKg !== undefined && costPerKg > 0 ? costPerKg : costPerUnit;
+                
+                // Check if there's an existing article for this recipe (especially for sub-recipes)
+                // Preserve accountingCode, nutritionalInfo, and other custom fields
+                const existingArticle = articles.find(a => 
+                    a.linkedRecipeId === recipe.id || 
+                    (recipe.isSubRecipe && a.id === `SR-${recipe.id}`)
+                );
+                
+                return {
+                    id: existingArticle?.id || `RECIPE-${recipe.id}`,
+                    name: recipe.name,
+                    code: code,
+                    subFamilyId: recipe.subFamilyId,
+                    unitPivot: "Kg",
+                    unitAchat: "Kg",
+                    unitProduction: "g",
+                    contenace: 1,
+                    coeffProd: 1000,
+                    lastPivotPrice: displayPrice,
+                    vatRate: existingArticle?.vatRate || 20,
+                    isSubRecipe: recipe.isSubRecipe || false,
+                    linkedRecipeId: recipe.id,
+                    // Preserve custom fields from existing article
+                    ...(existingArticle && {
+                        accountingCode: existingArticle.accountingCode,
+                        accountingNature: existingArticle.accountingNature,
+                        accountingAccount: existingArticle.accountingAccount,
+                        nutritionalInfo: existingArticle.nutritionalInfo,
+                        allergens: existingArticle.allergens,
+                        storageConditions: existingArticle.storageConditions,
+                        leadTimeDays: existingArticle.leadTimeDays
+                    })
+                };
+            });
         
-        if (!isUUID) {
-            // C'est probablement un nom, chercher l'ID UUID correspondant
-            const subFamilyByName = subFamilies.find(sf => sf.name === recipe.subFamilyId);
-            if (subFamilyByName) {
-                console.log(`[getArticles] Fixing recipe "${recipe.name}": subFamilyId "${recipe.subFamilyId}" -> "${subFamilyByName.id}"`);
-                // Corriger la recette dans la base de données
-                await db.recipes.update(recipe.id, { subFamilyId: subFamilyByName.id });
-                return { ...recipe, subFamilyId: subFamilyByName.id };
-            }
+        // Update cache
+        recipeArticlesCache = {
+            recipes: [...recipes], // Deep copy
+            articles: recipeArticles,
+            timestamp: now
+        };
+    }
+    
+    // Filter out articles that are already represented as recipe articles
+    // (to avoid duplicates for sub-recipes that create real articles)
+    const recipeIds = new Set(recipes.map(r => r.id));
+    const articlesWithoutRecipeDuplicates = articles.filter(article => {
+        // If article has linkedRecipeId, it's a sub-recipe article that's already in recipeArticles
+        // So we exclude it to avoid duplication
+        if (article.linkedRecipeId && recipeIds.has(article.linkedRecipeId)) {
+            return false;
         }
-        return recipe;
-    }));
+        return true;
+    });
     
-    // Convertir toutes les recettes en articles de type Production
-    // Filtrer uniquement les recettes avec un subFamilyId valide de type Production
-    console.log(`[getArticles] Found ${correctedRecipes.length} recipes`);
-    console.log(`[getArticles] Production family IDs:`, Array.from(productionFamilyIds));
-    console.log(`[getArticles] Production subFamily IDs:`, Array.from(productionSubFamilyIds));
-    
-    const recipeArticles: Article[] = correctedRecipes
-        .filter(recipe => {
-            const hasValidSubFamily = recipe.subFamilyId && subFamilyIds.has(recipe.subFamilyId);
-            const isProductionSubFamily = recipe.subFamilyId && productionSubFamilyIds.has(recipe.subFamilyId);
-            
-            console.log(`[getArticles] Recipe "${recipe.name}": subFamilyId=${recipe.subFamilyId}, hasValidSubFamily=${hasValidSubFamily}, isProductionSubFamily=${isProductionSubFamily}`);
-            
-            if (!hasValidSubFamily) {
-                console.warn(`Recipe "${recipe.name}" has invalid subFamilyId: ${recipe.subFamilyId}`);
-            } else if (!isProductionSubFamily) {
-                const subFamily = subFamilies.find(sf => sf.id === recipe.subFamilyId);
-                const family = subFamily ? families.find(f => f.id === subFamily.familyId) : null;
-                console.warn(`Recipe "${recipe.name}" has subFamilyId ${recipe.subFamilyId} (subFamily: ${subFamily?.code || 'unknown'}, family: ${family?.code || 'unknown'}, typeId: ${family?.typeId || 'unknown'}) which is not a Production subFamily`);
-            }
-            return hasValidSubFamily && isProductionSubFamily;
-        })
-        .map(recipe => {
-            // Générer un code basé sur la sous-famille (format: P[Type][Family][SubFamily]-[Index])
-            const subFamily = subFamilies.find(sf => sf.id === recipe.subFamilyId);
-            let code = `R-${recipe.id}`; // Code par défaut
-            
-            if (subFamily) {
-                // Format: P[Type][Family][SubFamily]-[Index]
-                // Exemple: PA011-01 -> R pour Recipe
-                const baseCode = subFamily.code.replace('F', 'P'); // FA011 -> PA011
-                // Compter les recettes dans cette sous-famille pour générer l'index
-                const recipeIndex = recipes.filter(r => r.subFamilyId === recipe.subFamilyId && r.id <= recipe.id).length;
-                code = `${baseCode}-R${recipeIndex.toString().padStart(2, '0')}`;
-            }
-            
-            return {
-                id: `RECIPE-${recipe.id}`,
-                name: recipe.name,
-                code: code,
-                subFamilyId: recipe.subFamilyId,
-                unitPivot: "Kg",
-                unitAchat: "Kg",
-                unitProduction: "g",
-                contenace: 1,
-                coeffProd: 1000,
-                lastPivotPrice: recipe.costing?.costPerUnit || 0,
-                vatRate: 20,
-                isSubRecipe: recipe.isSubRecipe || false,
-                linkedRecipeId: recipe.id
-            };
-        });
-    
-    // Combiner articles et recettes
-    console.log(`[getArticles] Returning ${correctedArticles.length} articles + ${recipeArticles.length} recipe articles = ${correctedArticles.length + recipeArticles.length} total`);
-    return [...correctedArticles, ...recipeArticles];
+    // Combine articles and recipes
+    return [...articlesWithoutRecipeDuplicates, ...recipeArticles];
 }
+
+/**
+ * Get articles with pagination
+ * Note: This loads all articles first (for recipe conversion), then paginates
+ * For better performance with very large datasets, consider refactoring recipe conversion
+ */
+export async function getArticlesPaginated(
+    page: number = 0,
+    pageSize: number = 50,
+    filters?: {
+        subFamilyId?: string;
+        familyId?: string;
+        typeId?: string;
+        searchQuery?: string;
+    }
+): Promise<{ articles: Article[]; total: number }> {
+    // Get all articles (needed for recipe conversion)
+    const allArticles = await getArticles();
+    
+    // Apply filters
+    let filtered = allArticles;
+    
+    if (filters) {
+        if (filters.subFamilyId) {
+            filtered = filtered.filter(a => a.subFamilyId === filters.subFamilyId);
+        }
+        if (filters.familyId) {
+            // Need to check subFamily's familyId
+            const subFamilies = await db.subFamilies.toArray();
+            const subFamilyIds = new Set(
+                subFamilies.filter(sf => sf.familyId === filters.familyId).map(sf => sf.id)
+            );
+            filtered = filtered.filter(a => subFamilyIds.has(a.subFamilyId));
+        }
+        if (filters.typeId) {
+            // Need to check family's typeId
+            const families = await db.families.toArray();
+            const subFamilies = await db.subFamilies.toArray();
+            const typeFamilyIds = new Set(
+                families.filter(f => f.typeId === filters.typeId).map(f => f.id)
+            );
+            const typeSubFamilyIds = new Set(
+                subFamilies.filter(sf => typeFamilyIds.has(sf.familyId)).map(sf => sf.id)
+            );
+            filtered = filtered.filter(a => typeSubFamilyIds.has(a.subFamilyId));
+        }
+        if (filters.searchQuery) {
+            const searchLower = filters.searchQuery.toLowerCase();
+            filtered = filtered.filter(a => 
+                a.name.toLowerCase().includes(searchLower) ||
+                a.code.toLowerCase().includes(searchLower)
+            );
+        }
+    }
+    
+    const total = filtered.length;
+    
+    // Paginate
+    const offset = page * pageSize;
+    const articles = filtered.slice(offset, offset + pageSize);
+    
+    return { articles, total };
+}
+
+/**
+ * Invalidate the recipe articles cache
+ * Call this when recipes are modified
+ */
+export function invalidateRecipeArticlesCache(): void {
+    recipeArticlesCache = null;
+}
+
+// Export for use in hooks
+export { invalidateRecipeArticlesCache as invalidateRecipeCache };
 
 export async function saveArticle(article: Article): Promise<{ success: true }> {
     await db.articles.put(article);
+    // If this is a sub-recipe article, invalidate cache
+    if (article.isSubRecipe) {
+        invalidateRecipeArticlesCache();
+    }
     return { success: true };
 }
 
@@ -280,6 +790,53 @@ export async function getRecipes(): Promise<Recipe[]> {
     return await db.recipes.toArray();
 }
 
+/**
+ * Generate recipe code: (Code-Sous-Famille)-R-## or (Code-Sous-Famille)-SR-##
+ * Example: FP061-SR-01 (sous-recette), FP064-R-01 (recette normale)
+ * This function is exported for use in migrations
+ */
+export async function generateRecipeCode(recipe: Recipe): Promise<string> {
+    if (!recipe.subFamilyId) {
+        return ""; // Cannot generate code without subFamilyId
+    }
+
+    // Get sub-family to get its code
+    const subFamily = await db.subFamilies.get(recipe.subFamilyId);
+    if (!subFamily || !subFamily.code) {
+        return ""; // Cannot generate code without sub-family code
+    }
+
+    // Get all recipes in the same sub-family
+    const allRecipes = await db.recipes.toArray();
+    const sameSubFamilyRecipes = allRecipes.filter(r => 
+        r.subFamilyId === recipe.subFamilyId && 
+        r.id !== recipe.id // Exclude current recipe
+    );
+
+    // Determine prefix: R for normal recipe, SR for sub-recipe
+    const prefix = recipe.isSubRecipe ? "SR" : "R";
+
+    // Find the highest sequence number for this sub-family and prefix
+    let maxSeq = 0;
+    const codePattern = new RegExp(`^${subFamily.code}-${prefix}-(\\d+)$`);
+    
+    sameSubFamilyRecipes.forEach(r => {
+        if (r.code) {
+            const match = r.code.match(codePattern);
+            if (match) {
+                const seq = parseInt(match[1], 10);
+                if (seq > maxSeq) maxSeq = seq;
+            }
+        }
+    });
+
+    // Next sequence number
+    const nextSeq = maxSeq + 1;
+    const seqStr = String(nextSeq).padStart(2, '0');
+
+    return `${subFamily.code}-${prefix}-${seqStr}`;
+}
+
 export async function saveRecipe(recipe: Recipe): Promise<{ success: true }> {
     // Créer une copie profonde de la recette pour éviter toute mutation accidentelle
     const recipeCopy: Recipe = {
@@ -290,8 +847,28 @@ export async function saveRecipe(recipe: Recipe): Promise<{ success: true }> {
         costing: { ...recipe.costing }
     };
     
+    // Check if recipe exists to detect subFamilyId change
+    const existingRecipe = await db.recipes.get(recipe.id);
+    const subFamilyChanged = existingRecipe && existingRecipe.subFamilyId !== recipe.subFamilyId;
+    
+    // Generate code if:
+    // 1. Code is missing
+    // 2. Code doesn't match expected format
+    // 3. SubFamilyId changed (need to regenerate code with new sub-family)
+    if (!recipeCopy.code || 
+        !recipeCopy.code.match(/^[A-Z0-9]+-(R|SR)-\d{2}$/) || 
+        subFamilyChanged) {
+        const generatedCode = await generateRecipeCode(recipeCopy);
+        if (generatedCode) {
+            recipeCopy.code = generatedCode;
+        }
+    }
+    
     // Sauvegarder la recette AVANT de créer l'article (pour éviter toute modification)
     await db.recipes.put(recipeCopy);
+    
+    // Invalidate cache since recipe changed
+    invalidateRecipeArticlesCache();
     
     // Si c'est une sous-recette, créer ou mettre à jour l'article correspondant
     // Utiliser recipeCopy pour éviter toute mutation de l'original
@@ -308,19 +885,14 @@ async function createOrUpdateSubRecipeArticle(recipe: Recipe): Promise<void> {
     if (!recipe.isSubRecipe) {
         return; // Ne rien faire si ce n'est pas une sous-recette
     }
-    // Calculer le coût total de la recette
-    const materialCost = (recipe.ingredients || []).reduce((sum, ing) => {
-        return sum + (ing.cost || 0);
-    }, 0);
+    // Calculate recipe costs using centralized function
+    // For sub-recipe articles, we need to calculate cost per kg
+    const allArticles = await db.articles.toArray();
+    const invoices = await db.invoices.toArray();
+    const { costPerKg, costPerUnit } = calculateRecipeCost(recipe, allArticles, invoices);
     
-    // Ajouter les coûts de main-d'œuvre, machine, stockage si disponibles
-    const laborCost = (recipe.costing as any)?.laborCost || 0;
-    const machineCost = (recipe.costing as any)?.machineCost || 0;
-    const storageCost = (recipe.costing as any)?.storageCost || 0;
-    const lossRate = recipe.costing?.lossRate || 0;
-    
-    const totalCost = (materialCost + laborCost + machineCost + storageCost) * (1 + lossRate / 100);
-    const costPerUnit = recipe.yield > 0 ? totalCost / recipe.yield : 0;
+    // Use costPerKg if available (for kg-based pricing), otherwise fallback to costPerUnit
+    const costPerUnitForArticle = costPerKg !== undefined && costPerKg > 0 ? costPerKg : costPerUnit;
     
     // Vérifier si l'article existe déjà
     const existingArticle = await db.articles
@@ -343,33 +915,26 @@ async function createOrUpdateSubRecipeArticle(recipe: Recipe): Promise<void> {
     const coeffProd = 1000;
     const unitProduction = "g";
     
-    // Trouver le vrai ID UUID de la sous-famille si recipe.subFamilyId est un nom au lieu d'un ID
-    let correctSubFamilyId = recipe.subFamilyId;
-    const subFamilies = await db.subFamilies.toArray();
-    const subFamilyById = subFamilies.find(sf => sf.id === recipe.subFamilyId);
-    const subFamilyByName = subFamilies.find(sf => sf.name === recipe.subFamilyId);
-    
-    if (!subFamilyById && subFamilyByName) {
-        // Le subFamilyId est un nom, utiliser l'ID UUID correct
-        correctSubFamilyId = subFamilyByName.id;
-        console.log(`[createOrUpdateSubRecipeArticle] Fixed subFamilyId for recipe "${recipe.name}": "${recipe.subFamilyId}" -> "${correctSubFamilyId}"`);
-        
-        // Corriger aussi la recette dans la base de données
-        await db.recipes.update(recipe.id, { subFamilyId: correctSubFamilyId });
+    // subFamilyId should already be a UUID after migration
+    // If it's not, log a warning but don't auto-fix (migration should have handled this)
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipe.subFamilyId);
+    if (!isUUID) {
+        console.warn(`[createOrUpdateSubRecipeArticle] Recipe "${recipe.name}" has non-UUID subFamilyId: "${recipe.subFamilyId}". Migration should have fixed this.`);
     }
+    const correctSubFamilyId = recipe.subFamilyId;
     
     // Créer ou mettre à jour l'article (toujours forcer les unités pour les sous-recettes)
     const article: Article = {
         id: articleId,
         name: recipe.name,
-        code: existingArticle?.code || `SR-${recipe.id}`,
+        code: recipe.code || existingArticle?.code || `SR-${recipe.id}`,
         subFamilyId: correctSubFamilyId,
         unitAchat: unitAchat, // "Kg"
         contenace: contenace, // 1
         unitPivot: unitPivot, // "Kg"
         coeffProd: coeffProd, // 1000
         unitProduction: unitProduction, // "g"
-        lastPivotPrice: costPerUnit,
+        lastPivotPrice: costPerUnitForArticle,
         vatRate: 20,
         isSubRecipe: true,
         linkedRecipeId: recipe.id,
@@ -390,6 +955,8 @@ async function createOrUpdateSubRecipeArticle(recipe: Recipe): Promise<void> {
 
 export async function deleteRecipe(id: string): Promise<{ success: true }> {
     await db.recipes.delete(id);
+    // Invalidate cache since recipe was deleted
+    invalidateRecipeArticlesCache();
     return { success: true };
 }
 

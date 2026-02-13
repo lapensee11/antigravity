@@ -28,7 +28,6 @@ const menuItems = [
     { icon: Landmark, label: "Banque", href: "/finance" },
     { icon: ShoppingCart, label: "Ventes", href: "/ventes" },
     { icon: CreditCard, label: "Paye", href: "/paye" },
-    { icon: Users, label: "Personnel", href: "/personnel" },
 ];
 
 export function Sidebar() {

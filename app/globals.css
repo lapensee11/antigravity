@@ -84,3 +84,31 @@ body {
     background: #AEAEB2;
   }
 }
+
+/* Impression : uniquement les pages A4/A5 (recettes), masquer le reste */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-recipe-only,
+  .print-recipe-only * {
+    visibility: visible;
+  }
+  .print-recipe-only {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 1rem !important;
+    box-shadow: none !important;
+    background: white !important;
+  }
+  /* Justification du texte (paragraphes) sur la page A4 */
+  .print-recipe-only .recipe-step-desc {
+    text-align: justify !important;
+    text-justify: inter-word !important;
+    hyphens: auto !important;
+  }
+}

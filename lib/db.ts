@@ -58,6 +58,25 @@ export class BakoDB extends Dexie {
             partners: 'id',
             cmi_entries: 'id, date'
         });
+        
+        // Version 10: Add missing indexes for better query performance
+        this.version(10).stores({
+            invoices: 'id, supplierId, date, status, totalTTC, syncTime',
+            employees: 'id, lastName, role',
+            articles: 'id, name, subFamilyId, linkedRecipeId, isSubRecipe',
+            tiers: 'id, name, type, code',
+            recipes: 'id, name, subFamilyId, familyId, isSubRecipe',
+            families: 'id, name, typeId',
+            subFamilies: 'id, name, familyId',
+            structureTypes: 'id, name',
+            transactions: 'id, date, type, account, invoiceId, isReconciled',
+            salesData: 'id, date',
+            accountingNatures: 'id, name',
+            accounting_accounts: '++id, code, label, class, type',
+            settings: 'key',
+            partners: 'id',
+            cmi_entries: 'id, date'
+        });
     }
 }
 
@@ -150,6 +169,55 @@ if (typeof window !== "undefined") {
         
         // Migrate transaction labels to remove (D) and (Déclaré) mentions
         await migrateTransactionLabels();
+        
+        // Run migrations (one-time, checked via localStorage)
+        const { migrateSubFamilyIdsToUUIDs, migrateAccountingCode } = await import('./migrations');
+        
+        // Migration 1: Fix subFamilyId from names to UUIDs
+        const subFamilyIdMigrationKey = 'subFamilyId_migration_completed';
+        const subFamilyIdMigrationCompleted = localStorage.getItem(subFamilyIdMigrationKey);
+        if (!subFamilyIdMigrationCompleted) {
+            console.log("[DB] Running subFamilyId migration...");
+            const migrationResult = await migrateSubFamilyIdsToUUIDs();
+            if (migrationResult.articlesFixed > 0 || migrationResult.recipesFixed > 0) {
+                localStorage.setItem(subFamilyIdMigrationKey, 'true');
+                console.log(`[DB] SubFamilyId migration completed: ${migrationResult.articlesFixed} articles, ${migrationResult.recipesFixed} recipes fixed`);
+            }
+            if (migrationResult.errors.length > 0) {
+                console.warn(`[DB] SubFamilyId migration had ${migrationResult.errors.length} errors`);
+            }
+        }
+        
+        // Migration 2: Migrate accountingNature/accountingAccount to accountingCode
+        const accountingCodeMigrationKey = 'accountingCode_migration_completed';
+        const accountingCodeMigrationCompleted = localStorage.getItem(accountingCodeMigrationKey);
+        if (!accountingCodeMigrationCompleted) {
+            console.log("[DB] Running accounting code migration...");
+            const migrationResult = await migrateAccountingCode();
+            if (migrationResult.articlesMigrated > 0) {
+                localStorage.setItem(accountingCodeMigrationKey, 'true');
+                console.log(`[DB] Accounting code migration completed: ${migrationResult.articlesMigrated} articles migrated`);
+            }
+            if (migrationResult.errors.length > 0) {
+                console.warn(`[DB] Accounting code migration had ${migrationResult.errors.length} errors`);
+            }
+        }
+        
+        // Migration 3: Generate codes for existing recipes
+        const recipeCodesMigrationKey = 'recipeCodes_migration_completed';
+        const recipeCodesMigrationCompleted = localStorage.getItem(recipeCodesMigrationKey);
+        if (!recipeCodesMigrationCompleted) {
+            console.log("[DB] Running recipe codes migration...");
+            const { migrateRecipeCodes } = await import('./migrations');
+            const migrationResult = await migrateRecipeCodes();
+            if (migrationResult.recipesMigrated > 0) {
+                localStorage.setItem(recipeCodesMigrationKey, 'true');
+                console.log(`[DB] Recipe codes migration completed: ${migrationResult.recipesMigrated} recipes migrated`);
+            }
+            if (migrationResult.errors.length > 0) {
+                console.warn(`[DB] Recipe codes migration had ${migrationResult.errors.length} errors`);
+            }
+        }
         
         // NOTE: Synchronization is now manual only via "VÉRIFIER LA STRUCTURE" button
         // This prevents unwanted automatic addition of sub-families

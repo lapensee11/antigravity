@@ -5,34 +5,39 @@ import { InvoiceList } from "./InvoiceList";
 import { InvoiceEditor } from "./InvoiceEditor";
 import { InvoiceSummary } from "@/components/achats/InvoiceSummary";
 import { Invoice, Article, Tier } from "@/lib/types";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-    getInvoices,
     saveInvoice,
-    deleteInvoice,
-    getArticles,
-    getTiers,
     syncInvoiceTransactions,
     updateArticlePivotPrices
 } from "@/lib/data-service";
+import { useInvoices, useInvoicesPaginated, useArticles, useTiers, useInvoiceMutation, useInvoiceDeletion } from "@/lib/hooks/use-data";
 
-export function AchatsContent({
-    initialInvoices,
-    initialArticles,
-    initialTiers
-}: {
-    initialInvoices: Invoice[],
-    initialArticles: Article[],
-    initialTiers: Tier[]
-}) {
-    const [invoices, setInvoices] = useState<Invoice[]>(initialInvoices);
-    const [articles, setArticles] = useState<Article[]>(initialArticles);
-    const [tiers, setTiers] = useState<Tier[]>(initialTiers);
+export function AchatsContent() {
+    // Pagination state
+    const [page, setPage] = useState(0);
+    const [pageSize, setPageSize] = useState(50);
+    
+    // Use paginated invoices for display
+    const { data: paginatedData, isLoading: invoicesLoading } = useInvoicesPaginated({
+        page,
+        pageSize,
+    });
+    const invoices = paginatedData?.invoices || [];
+    const totalInvoices = paginatedData?.total || 0;
+    
+    // Keep full invoices list for operations that need all invoices (like generateInvoiceNumber)
+    const { data: allInvoices = [] } = useInvoices();
+    const { data: articles = [], isLoading: articlesLoading } = useArticles();
+    const { data: tiers = [], isLoading: tiersLoading } = useTiers();
+    
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
     const [isSummaryOpen, setIsSummaryOpen] = useState(false);
     const queryClient = useQueryClient();
+    const invoiceMutation = useInvoiceMutation();
+    const invoiceDeletion = useInvoiceDeletion();
 
     // Filter suppliers from tiers
     const suppliers = useMemo(() => {
@@ -43,39 +48,17 @@ export function AchatsContent({
         return filtered.sort((a, b) => a.name.localeCompare(b.name));
     }, [tiers]);
 
-    // Runtime Data Load
-    useEffect(() => {
-        const loadData = async () => {
-            const [liveInvoices, liveArticles, liveTiers] = await Promise.all([
-                getInvoices(),
-                getArticles(),
-                getTiers()
-            ]);
-            setInvoices(liveInvoices || []);
-            setArticles(liveArticles || []);
-            setTiers(liveTiers || []);
-        };
-        loadData();
-    }, []);
-
     const handleSave = async (invoice: Invoice) => {
-        const result = await saveInvoice(invoice);
-        if (result.success) {
-            const updated = invoices.map(i => i.id === invoice.id ? invoice : i);
-            setInvoices(updated);
-            setSelectedInvoice(invoice);
-            await syncInvoiceTransactions(invoice.id, []);
-            updateArticlePivotPrices([]);
-        }
+        await invoiceMutation.mutateAsync(invoice);
+        setSelectedInvoice(invoice);
+        await syncInvoiceTransactions(invoice.id, []);
+        updateArticlePivotPrices([]);
     };
 
     const handleDelete = async (id: string) => {
         if (!confirm("Êtes-vous sûr de vouloir supprimer cette facture ?")) return;
-        const result = await deleteInvoice(id);
-        if (result.success) {
-            setInvoices(prev => prev.filter(i => i.id !== id));
-            if (selectedInvoice?.id === id) setSelectedInvoice(null);
-        }
+        await invoiceDeletion.mutateAsync(id);
+        if (selectedInvoice?.id === id) setSelectedInvoice(null);
     };
 
     // Generate invoice number: BL-'Code Frs'-'JJ/MM'-'##'
@@ -90,8 +73,9 @@ export function AchatsContent({
         const dateStr = `${day}/${month}`;
         
         // Find all invoices for this supplier with the same date prefix
+        // Use allInvoices for this operation to ensure we check all invoices
         const prefix = `BL-${supplier.code}-${dateStr}-`;
-        const matchingInvoices = invoices.filter(inv => {
+        const matchingInvoices = allInvoices.filter(inv => {
             if (!inv.number || !inv.supplierId || inv.supplierId !== supplierId) return false;
             return inv.number.startsWith(prefix);
         });
@@ -129,7 +113,8 @@ export function AchatsContent({
             deposit: 0,
             balanceDue: 0
         };
-        setInvoices(prev => [newInv, ...prev]);
+        // Invalidate queries to refresh the list, but keep new invoice in local state
+        queryClient.setQueryData<Invoice[]>(["invoices"], (old = []) => [newInv, ...old]);
         setSelectedInvoice(newInv);
     };
 
@@ -162,13 +147,15 @@ export function AchatsContent({
             payments: [],
             syncTime: undefined
         };
-        setInvoices(prev => [newInv, ...prev]);
+        // Invalidate queries to refresh the list, but keep new invoice in local state
+        queryClient.setQueryData<Invoice[]>(["invoices"], (old = []) => [newInv, ...old]);
         setSelectedInvoice(newInv);
     };
 
     const handleUpdate = async (updatedInvoice: Invoice) => {
-        const updated = invoices.map(i => i.id === updatedInvoice.id ? updatedInvoice : i);
-        setInvoices(updated);
+        // Save to database immediately to persist changes
+        await invoiceMutation.mutateAsync(updatedInvoice);
+        // Update selected invoice if it's the one being updated
         if (selectedInvoice?.id === updatedInvoice.id) {
             setSelectedInvoice(updatedInvoice);
         }
@@ -180,16 +167,14 @@ export function AchatsContent({
 
         const now = new Date().toISOString();
 
-        // 1. Update Invoices State locally
+        // 1. Update Invoice with syncTime
         const updatedInvoice = { ...inv, syncTime: now };
-        const updatedInvoices = invoices.map(i => i.id === id ? updatedInvoice : i);
-        setInvoices(updatedInvoices);
         if (selectedInvoice?.id === id) {
             setSelectedInvoice(updatedInvoice);
         }
 
-        // 2. Persist Invoice
-        await saveInvoice(updatedInvoice);
+        // 2. Persist Invoice (this will invalidate queries automatically)
+        await invoiceMutation.mutateAsync(updatedInvoice);
 
         // 3. Prepare Transactions
         const isDraft = inv.status !== "Validated";
@@ -225,16 +210,14 @@ export function AchatsContent({
         const inv = invoices.find(i => i.id === id);
         if (!inv) return;
 
-        // 1. Update Invoices State locally - Remove syncTime
+        // 1. Update Invoice - Remove syncTime
         const updatedInvoice = { ...inv, syncTime: undefined };
-        const updatedInvoices = invoices.map(i => i.id === id ? updatedInvoice : i);
-        setInvoices(updatedInvoices);
         if (selectedInvoice?.id === id) {
             setSelectedInvoice(updatedInvoice);
         }
 
-        // 2. Persist Invoice
-        await saveInvoice(updatedInvoice);
+        // 2. Persist Invoice (this will invalidate queries automatically)
+        await invoiceMutation.mutateAsync(updatedInvoice);
     };
 
     return (
@@ -256,25 +239,43 @@ export function AchatsContent({
                         onSelectInvoice={setSelectedInvoice}
                         suppliers={suppliers}
                         articles={articles}
+                        total={totalInvoices}
+                        page={page}
+                        pageSize={pageSize}
+                        onPageChange={(newPage) => {
+                            setPage(newPage);
+                            // Scroll to top of list when page changes
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        onPageSizeChange={(newSize) => {
+                            setPageSize(newSize);
+                            setPage(0); // Reset to first page
+                        }}
                     />
                 </div>
 
                 {/* Right Panel - Invoice Editor */}
                 <div className="flex-1 bg-white flex flex-col">
-                    <InvoiceEditor
-                        invoice={selectedInvoice}
-                        invoices={invoices}
-                        articles={articles}
-                        suppliers={suppliers}
-                        onSave={handleSave}
-                        onDelete={handleDelete}
-                        onUpdate={handleUpdate}
-                        onCreateNew={handleCreateNew}
-                        onDuplicate={handleDuplicate}
-                        onSync={handleSync}
-                        onDesync={handleDesync}
-                        onSummaryOpen={() => setIsSummaryOpen(true)}
-                    />
+                    {invoicesLoading || articlesLoading || tiersLoading ? (
+                        <div className="flex items-center justify-center h-full">
+                            <div className="text-slate-400">Chargement...</div>
+                        </div>
+                    ) : (
+                        <InvoiceEditor
+                            invoice={selectedInvoice}
+                            invoices={invoices}
+                            articles={articles}
+                            suppliers={suppliers}
+                            onSave={handleSave}
+                            onDelete={handleDelete}
+                            onUpdate={handleUpdate}
+                            onCreateNew={handleCreateNew}
+                            onDuplicate={handleDuplicate}
+                            onSync={handleSync}
+                            onDesync={handleDesync}
+                            onSummaryOpen={() => setIsSummaryOpen(true)}
+                        />
+                    )}
                 </div>
             </main>
             <InvoiceSummary

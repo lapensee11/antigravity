@@ -15,6 +15,8 @@ export const DateInput: React.FC<DateInputProps> = ({ value = "", onChange, clas
                 type="date"
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                onClick={(e) => (e.target as HTMLInputElement).select()}
                 className={cn(
                     "w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all cursor-pointer font-outfit uppercase tracking-tight",
                     className

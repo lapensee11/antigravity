@@ -183,9 +183,14 @@ export interface ProductionStep {
 
 export interface Nutrition {
     calories: number;
+    water?: number;
     protein: number;
     carbs: number;
     fat: number;
+    minerals?: number;
+    sugars?: number;
+    starch?: number;
+    fiber?: number;
     glycemicIndex: number;
     glycemicLoad: number;
 }
@@ -215,6 +220,7 @@ export interface Recipe {
     image?: string;
     reference?: string;
     isSubRecipe?: boolean; // Optionnel : true si c'est une sous-recette
+    code?: string; // Code généré automatiquement : (Code-Sous-Famille)-R-## ou (Code-Sous-Famille)-SR-##
 }
 
 // Finance

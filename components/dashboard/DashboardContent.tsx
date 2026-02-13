@@ -78,14 +78,14 @@ export function DashboardContent({ data }: DashboardProps) {
         {
             title: "Dépenses (Mois)",
             value: `${data.materialCost.toLocaleString()} DH`,
-            change: data.prevMaterialCost > 0
-                ? `${(((data.materialCost - data.prevMaterialCost) / data.prevMaterialCost) * 100).toFixed(1)}%`
+            change: (data.prevMaterialCost ?? 0) > 0
+                ? `${(((data.materialCost - (data.prevMaterialCost ?? 0)) / (data.prevMaterialCost ?? 1)) * 100).toFixed(1)}%`
                 : "N/A",
-            trend: data.materialCost >= (data.prevMaterialCost || 0) ? "up" : "down",
+            trend: data.materialCost >= (data.prevMaterialCost ?? 0) ? "up" : "down",
             icon: TrendingDown,
             color: "text-red-600",
             bg: "bg-red-50",
-            subValue: `Précédent: ${(data.prevMaterialCost || 0).toLocaleString()} DH`
+            subValue: `Précédent: ${(data.prevMaterialCost ?? 0).toLocaleString()} DH`
         },
         {
             title: "Masse Salariale",
@@ -459,18 +459,17 @@ export function DashboardContent({ data }: DashboardProps) {
 
                     {/* Table Status - 1/3 width */}
                     <div className="lg:col-span-1">
-                        <GlassCard className="p-4 border-none shadow-xl shadow-slate-200/50 h-full flex flex-col">
-                            <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                                <Database className="w-4 h-4 text-blue-500" />
+                        <GlassCard className="p-6 border-none shadow-xl shadow-slate-200/50 h-full flex flex-col">
+                            <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                                <Database className="w-5 h-5 text-blue-500" />
                                 État des Tables (Local)
                             </h3>
-                            <div className="grid grid-cols-2 gap-2 flex-1">
+                            <div className="grid grid-cols-2 gap-4">
                                 {[
                                     { label: "FACTURES", count: data.tableCounts?.invoices ?? 0, icon: ShoppingCart, color: "text-blue-500" },
                                     { label: "ARTICLES", count: data.tableCounts?.articles ?? 0, icon: Package, color: "text-green-500" },
                                     { label: "PERSONNEL", count: data.tableCounts?.employees ?? 0, icon: Users, color: "text-orange-500" },
                                     { label: "TIERS", count: data.tableCounts?.tiers ?? 0, icon: Users, color: "text-purple-500" },
-                                    { label: "RECETTES", count: data.tableCounts?.recipes ?? 0, icon: ChefHat, color: "text-purple-600" },
                                 ].map((item, idx) => {
                                     const Icon = item.icon;
                                     return (
@@ -479,16 +478,16 @@ export function DashboardContent({ data }: DashboardProps) {
                                             initial={{ opacity: 0, scale: 0.9 }}
                                             animate={{ opacity: 1, scale: 1 }}
                                             transition={{ delay: idx * 0.05 }}
-                                            className="p-2.5 bg-white rounded-lg border border-slate-200 hover:border-slate-300 hover:shadow-sm transition-all cursor-default flex items-center"
+                                            className="p-5 bg-white rounded-2xl border border-slate-200 hover:border-slate-300 hover:shadow-md transition-all cursor-default flex items-center"
                                         >
                                             <div className="flex items-center justify-between gap-3 w-full">
-                                                <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                                                    <div className={cn("p-1.5 rounded", item.color)}>
-                                                        <Icon className="w-4 h-4" />
+                                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                                    <div className={cn("p-3 bg-slate-50 rounded-xl", item.color)}>
+                                                        <Icon className="w-5 h-5" />
                                                     </div>
-                                                    <span className="text-xs font-bold text-slate-600 uppercase tracking-tight leading-tight truncate">{item.label}</span>
+                                                    <span className="text-sm font-bold text-slate-600 uppercase tracking-tight leading-tight truncate">{item.label}</span>
                                                 </div>
-                                                <span className="text-xl font-extrabold text-slate-800 whitespace-nowrap">{item.count}</span>
+                                                <span className="text-2xl font-extrabold text-slate-800 whitespace-nowrap">{item.count}</span>
                                             </div>
                                         </motion.div>
                                     );
