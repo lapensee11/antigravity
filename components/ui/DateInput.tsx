@@ -10,7 +10,7 @@ interface DateInputProps {
 
 export const DateInput: React.FC<DateInputProps> = ({ value = "", onChange, className }) => {
     return (
-        <div className="relative w-full">
+        <div className="relative w-full group">
             <input
                 type="date"
                 value={value}
@@ -29,7 +29,7 @@ export const DateInput: React.FC<DateInputProps> = ({ value = "", onChange, clas
                         e.stopPropagation();
                         onChange("");
                     }}
-                    className="absolute right-7 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-200 rounded-full text-slate-400 hover:text-red-500 transition-colors z-10"
+                    className="absolute right-7 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-200 rounded-full text-slate-400 hover:text-red-500 transition-opacity z-10 opacity-0 group-hover:opacity-100"
                     title="Effacer la date"
                 >
                     <X className="w-3.5 h-3.5" />

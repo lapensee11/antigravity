@@ -20,7 +20,8 @@ import {
     Save,
     MoreHorizontal,
     Leaf,
-    Printer
+    Printer,
+    ImagePlus
 } from "lucide-react";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
@@ -60,13 +61,49 @@ export function ProductionContent() {
     const [searchFocusIndex, setSearchFocusIndex] = useState<number>(0);
     const nameInputRefs = useRef<(HTMLInputElement | null)[]>([]);
     const quantityInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const imageInputRef = useRef<HTMLInputElement | null>(null);
 
-    // Set initial selected recipe when recipes are loaded
+    // Compresse une image pour limiter la taille en base (max 200×200, JPEG 75%)
+    const compressImage = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+            img.onload = () => {
+                URL.revokeObjectURL(url);
+                const max = 200;
+                let w = img.width, h = img.height;
+                if (w > max || h > max) {
+                    if (w > h) { h = (h / w) * max; w = max; } else { w = (w / h) * max; h = max; }
+                }
+                const canvas = document.createElement("canvas");
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) { reject(new Error("Canvas 2D")); return; }
+                ctx.drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL("image/jpeg", 0.75));
+            };
+            img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Chargement image")); };
+            img.src = url;
+        });
+    };
+
+    const filteredRecipes = useMemo(() => {
+        return recipes.filter(recipe => {
+            const matchesSearch = recipe.name.toLowerCase().includes(searchQuery.toLowerCase());
+            const matchesFamily = filterFamily === "Tous" || recipe.familyId === filterFamily;
+            return matchesSearch && matchesFamily;
+        });
+    }, [recipes, searchQuery, filterFamily]);
+
+    // Sélectionner la première recette au chargement et quand la sélection n'est plus dans la liste filtrée
     useEffect(() => {
-        if (recipes.length > 0 && !selectedRecipeId) {
-            setSelectedRecipeId(recipes[0].id);
+        if (filteredRecipes.length === 0) return;
+        const isSelectedInList = selectedRecipeId && filteredRecipes.some(r => r.id === selectedRecipeId);
+        if (!isSelectedInList) {
+            setSelectedRecipeId(filteredRecipes[0].id);
         }
-    }, [recipes, selectedRecipeId]);
+    }, [filteredRecipes, selectedRecipeId]);
 
     // Function to get pivot price from latest transaction (same logic as ArticleEditor)
     const getPivotPriceFromLatestTransaction = (article: Article | undefined): number => {
@@ -417,22 +454,21 @@ export function ProductionContent() {
 
     const handleDeleteRecipe = async () => {
         if (!selectedRecipeId) return;
-        if (window.confirm("Êtes-vous sûr de vouloir supprimer cette recette ? Cette action est irréversible.")) {
-            try {
-                await recipeDeletion.mutateAsync(selectedRecipeId);
-                // Invalider le cache des comptages d'articles pour mettre à jour la structure
-                queryClient.invalidateQueries({ queryKey: ["articleCounts"] });
-                // React Query will automatically refetch recipes
-                // Update selected recipe after deletion
-                const remainingRecipes = recipes.filter(r => r.id !== selectedRecipeId);
-                if (remainingRecipes.length > 0) {
-                    setSelectedRecipeId(remainingRecipes[0].id);
-                    } else {
-                        setSelectedRecipeId(null);
-                    }
-            } catch (error) {
-                alert("Erreur lors de la suppression");
+        const rec = recipes.find(r => r.id === selectedRecipeId);
+        const name = rec?.name || "cette recette";
+        if (!window.confirm(`Voulez-vous supprimer la recette « ${name} » ?`)) return;
+        if (!window.confirm("Cette action est irréversible. Confirmer définitivement la suppression ?")) return;
+        try {
+            await recipeDeletion.mutateAsync(selectedRecipeId);
+            queryClient.invalidateQueries({ queryKey: ["articleCounts"] });
+            const remainingRecipes = recipes.filter(r => r.id !== selectedRecipeId);
+            if (remainingRecipes.length > 0) {
+                setSelectedRecipeId(remainingRecipes[0].id);
+            } else {
+                setSelectedRecipeId(null);
             }
+        } catch (error) {
+            alert("Erreur lors de la suppression");
         }
     };
 
@@ -443,12 +479,6 @@ export function ProductionContent() {
     useEffect(() => {
         setSearchFocusIndex(0);
     }, [activeRowSearch]);
-
-    const filteredRecipes = recipes.filter(recipe => {
-        const matchesSearch = recipe.name.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesFamily = filterFamily === "Tous" || recipe.familyId === filterFamily;
-        return matchesSearch && matchesFamily;
-    });
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -542,6 +572,11 @@ export function ProductionContent() {
         if (format === "A4") {
             const data = {
                 name: recipe.name,
+                familyName: (() => {
+                    const sf = subFamilies.find(s => s.id === recipe.subFamilyId);
+                    const fam = families.find(f => f.id === sf?.familyId);
+                    return fam?.name ?? (recipe as any).familyId ?? "";
+                })(),
                 subFamilyName: subFamily?.name || "",
                 yieldUnit: recipe.yieldUnit || "portion(s)",
                 yieldQty: recipe.yield || 1,
@@ -553,15 +588,28 @@ export function ProductionContent() {
                 }),
                 image1: recipe.image,
                 steps: recipe.steps || [],
+                editDate: new Date().toLocaleDateString("fr-FR"),
                 nutrition: recipe.nutrition || {},
-                costing: {
-                    materialCost: totals.materialCost,
-                    totalCost: totals.totalCost,
-                    totalWeight,
-                    weightAfterLoss,
-                    costPerKg,
-                    lossRate,
-                },
+                costing: { costPerKg },
+                weighings: (() => {
+                    const displayItems = (recipe.costing as any)?.displayItems;
+                    if (displayItems && displayItems.length > 0) {
+                        return displayItems.map((item: any) => ({
+                            name: item.name || recipe.name,
+                            weight: item.weight ?? weightAfterLoss,
+                            cost: item.price ?? (costPerKg * (item.weight ?? weightAfterLoss) / 1000),
+                        }));
+                    }
+                    return [{ name: recipe.name, weight: weightAfterLoss, cost: totals.totalCost }];
+                })(),
+                allergens: (() => {
+                    const allergenSet = new Set<string>();
+                    currentIngs.forEach(ing => {
+                        const article = articles.find(a => a.id === ing.articleId);
+                        (article?.allergens || []).forEach((a: string) => allergenSet.add(a));
+                    });
+                    return Array.from(allergenSet).sort();
+                })(),
             };
             const blob = await pdf(<RecipePdfA4 data={data} />).toBlob();
             const url = URL.createObjectURL(blob);
@@ -569,6 +617,11 @@ export function ProductionContent() {
         } else {
             const data = {
                 name: recipe.name,
+                familyName: (() => {
+                    const sf = subFamilies.find(s => s.id === recipe.subFamilyId);
+                    const fam = families.find(f => f.id === sf?.familyId);
+                    return fam?.name ?? (recipe as any).familyId ?? "";
+                })(),
                 subFamilyName: subFamily?.name || "",
                 yieldUnit: recipe.yieldUnit || "portion(s)",
                 yieldQty: recipe.yield || 1,
@@ -578,7 +631,30 @@ export function ProductionContent() {
                     const quantity = (ing.quantity || 0) * multiplier;
                     return { name: ing.name, quantity, unit };
                 }),
+                image1: recipe.image,
                 steps: recipe.steps || [],
+                editDate: new Date().toLocaleDateString("fr-FR"),
+                nutrition: recipe.nutrition || {},
+                costing: { costPerKg },
+                weighings: (() => {
+                    const displayItems = (recipe.costing as any)?.displayItems;
+                    if (displayItems && displayItems.length > 0) {
+                        return displayItems.map((item: any) => ({
+                            name: item.name || recipe.name,
+                            weight: item.weight ?? weightAfterLoss,
+                            cost: item.price ?? (costPerKg * (item.weight ?? weightAfterLoss) / 1000),
+                        }));
+                    }
+                    return [{ name: recipe.name, weight: weightAfterLoss, cost: totals.totalCost }];
+                })(),
+                allergens: (() => {
+                    const allergenSet = new Set<string>();
+                    currentIngs.forEach(ing => {
+                        const article = articles.find(a => a.id === ing.articleId);
+                        (article?.allergens || []).forEach((a: string) => allergenSet.add(a));
+                    });
+                    return Array.from(allergenSet).sort();
+                })(),
             };
             const blob = await pdf(<RecipePdfA5 data={data} />).toBlob();
             const url = URL.createObjectURL(blob);
@@ -603,8 +679,8 @@ export function ProductionContent() {
                             </div>
 
                             {/* Family Search */}
-                            <div className="relative">
-                                <div className="relative">
+                            <div className="flex items-center gap-2 relative">
+                                <div className="relative flex-1">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                     <input
                                         type="text"
@@ -649,6 +725,27 @@ export function ProductionContent() {
                                         </button>
                                     )}
                                 </div>
+                                <button
+                                    type="button"
+                                    title={isEditing && editData ? "Enregistrer" : "Modifier"}
+                                    disabled={!selectedRecipe}
+                                    onClick={() => {
+                                        if (isEditing && editData) {
+                                            handleSave();
+                                        } else if (selectedRecipe) {
+                                            setEditData({ ...selectedRecipe });
+                                            setIsEditing(true);
+                                        }
+                                    }}
+                                    className={cn(
+                                        "w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl text-white shadow-lg transition-colors",
+                                        isEditing && editData
+                                            ? "bg-emerald-600 hover:bg-emerald-700"
+                                            : "bg-blue-500 hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                                    )}
+                                >
+                                    {isEditing && editData ? <Save className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+                                </button>
                                 {showFamilyDropdown && filteredFamilies.length > 0 && (
                                     <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
                                         {filteredFamilies.map((fam, idx) => (
@@ -680,8 +777,8 @@ export function ProductionContent() {
                             </div>
 
                             {/* Sub-Family Search */}
-                            <div className="relative">
-                                <div className="relative">
+                            <div className="flex items-center gap-2 relative">
+                                <div className="relative flex-1">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                     <input
                                         type="text"
@@ -730,6 +827,15 @@ export function ProductionContent() {
                                         </button>
                                     )}
                                 </div>
+                                <button
+                                    type="button"
+                                    title="Supprimer"
+                                    disabled={!selectedRecipe}
+                                    onClick={handleDeleteRecipe}
+                                    className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl bg-red-500 hover:bg-red-600 text-white shadow-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
                                 {showSubFamilyDropdown && filteredSubFamilies.length > 0 && (
                                     <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
                                         {filteredSubFamilies.map((subFam, idx) => {
@@ -740,11 +846,8 @@ export function ProductionContent() {
                                                     onClick={() => {
                                                         setSubFamilySearch(subFam.name);
                                                         setShowSubFamilyDropdown(false);
-                                                        // Filter recipes by sub-family
                                                         const filtered = recipes.filter(r => r.subFamilyId === subFam.name);
-                                                        if (filtered.length > 0) {
-                                                            setSelectedRecipeId(filtered[0].id);
-                                                        }
+                                                        if (filtered.length > 0) setSelectedRecipeId(filtered[0].id);
                                                     }}
                                                     className={cn(
                                                         "px-4 py-2 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group",
@@ -765,8 +868,8 @@ export function ProductionContent() {
                                                         idx === subFamilySearchFocusIndex ? "bg-emerald-200 text-emerald-700" : "text-slate-400 bg-slate-100 group-hover:bg-emerald-100 group-hover:text-emerald-600"
                                                     )}>{subFam.code}</span>
                                                 </div>
-                                    );
-                                })}
+                                            );
+                                        })}
                                     </div>
                                 )}
                             </div>
@@ -812,13 +915,12 @@ export function ProductionContent() {
                                         setEditData(newRecipe);
                                         setIsEditing(true);
                                     }}
-                                    className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white shadow-lg hover:bg-emerald-700 hover:scale-105 transition-all shrink-0"
+                                    className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg transition-colors"
                                 >
                                     <Plus className="w-5 h-5" />
                                 </button>
                             </div>
                         </div>
-
                         <div
                             ref={sidebarListRef}
                             className="flex-1 overflow-y-auto custom-scrollbar border-t border-slate-200"
@@ -831,7 +933,7 @@ export function ProductionContent() {
                                         onClick={() => setSelectedRecipeId(recipe.id)}
                                         className={cn(
                                             "flex items-center gap-4 p-4 border-b border-slate-100 transition-all cursor-pointer group relative hover:bg-white",
-                                            isSelected ? "bg-emerald-50/60" : "bg-[#F6F8FC]"
+                                            isSelected ? "bg-emerald-50/60 pl-[23px]" : "bg-[#F6F8FC]"
                                         )}
                                     >
                                         {isSelected && (
@@ -959,13 +1061,6 @@ export function ProductionContent() {
                                                                     {editData.code}
                                                                 </span>
                                                             )}
-                                                        <input
-                                                            type="text"
-                                                            value={editData.reference || ""}
-                                                            onChange={(e) => updateEditData('reference', e.target.value)}
-                                                            placeholder="Référence"
-                                                            className="text-xs font-bold text-slate-400 bg-slate-50 border border-slate-200 rounded px-2 py-1 focus:ring-2 focus:ring-emerald-500 outline-none text-right w-32"
-                                                        />
                                                         </div>
                                                     </div>
                                                 </div>
@@ -985,59 +1080,56 @@ export function ProductionContent() {
                                                             </>
                                                         )}
                                                     </div>
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        <h1 className="text-4xl font-black tracking-tight text-slate-800 mt-1">{selectedRecipe.name}</h1>
-                                                        <button
-                                                            onClick={() => {
-                                                                setEditData({ ...selectedRecipe });
-                                                                setIsEditing(true);
-                                                            }}
-                                                            className="flex items-center gap-1.5 bg-white border border-slate-200 hover:border-emerald-200 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 px-3 py-1.5 rounded-lg font-bold text-xs transition-all shadow-sm mt-1"
-                                                        >
-                                                            <Pencil className="w-3.5 h-3.5" />
-                                                            Modifier
-                                                        </button>
-                                                        <button
-                                                            onClick={handleDeleteRecipe}
-                                                            className="flex items-center gap-1.5 bg-white border border-slate-200 hover:border-red-200 hover:bg-red-50 text-slate-600 hover:text-red-700 px-3 py-1.5 rounded-lg font-bold text-xs transition-all shadow-sm mt-1"
-                                                        >
-                                                            <Trash2 className="w-3.5 h-3.5" />
-                                                            Supprimer
-                                                        </button>
-                                                    </div>
+                                                    <h1 className="text-4xl font-black tracking-tight text-slate-800 mt-1">{selectedRecipe.name}</h1>
                                                     {selectedRecipe.code && (
                                                         <span className="text-sm font-mono font-bold text-slate-500 mt-1 block">
                                                             {selectedRecipe.code}
                                                         </span>
                                                     )}
-                                                    {selectedRecipe.reference && (
-                                                        <div className="text-right w-full mt-1">
-                                                            <span className="text-xs font-black text-slate-400 tracking-wider">REF: {selectedRecipe.reference}</span>
-                                                        </div>
-                                                    )}
                                                 </>
                                             )}
                                         </div>
 
-                                        <div className="flex gap-4 items-center">
-                                            {isEditing ? (
-                                                <div className="flex gap-2">
-                                                    <button
-                                                        onClick={handleCancel}
-                                                        className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm transition-all"
-                                                    >
-                                                        <X className="w-4 h-4" />
-                                                        Annuler
-                                                    </button>
-                                                    <button
-                                                        onClick={handleSave}
-                                                        className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-emerald-200"
-                                                    >
-                                                        <Save className="w-4 h-4" />
-                                                        Enregistrer
-                                                    </button>
-                                                </div>
-                                            ) : null}
+                                        <div className="flex gap-4 items-center shrink-0">
+                                            <div
+                                                role={isEditing && editData ? "button" : undefined}
+                                                tabIndex={isEditing && editData ? 0 : undefined}
+                                                onClick={() => isEditing && editData && imageInputRef.current?.click()}
+                                                onKeyDown={(e) => { if (isEditing && editData && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); imageInputRef.current?.click(); } }}
+                                                className={cn(
+                                                    "w-[110px] h-[110px] rounded-xl bg-slate-200 overflow-hidden border-2 shrink-0 relative group",
+                                                    isEditing && editData ? "border-slate-400 hover:border-emerald-500 cursor-pointer" : "border-slate-300 cursor-default"
+                                                )}
+                                            >
+                                                {((isEditing && editData ? editData : selectedRecipe) as any)?.image ? (
+                                                    <>
+                                                        <img
+                                                            src={((isEditing && editData ? editData : selectedRecipe) as any)?.image}
+                                                            alt=""
+                                                            className="w-full h-full object-cover"
+                                                        />
+                                                        {isEditing && editData && (
+                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-0.5 rounded-xl transition-opacity pointer-events-none">
+                                                                <ImagePlus className="w-5 h-5 text-white" />
+                                                                <span className="text-[9px] font-bold text-white">Changer</span>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        {isEditing && editData ? (
+                                                            <div className="w-full h-full flex flex-col items-center justify-center gap-0.5 text-slate-400 group-hover:text-emerald-600 group-hover:bg-slate-100 transition-colors rounded-xl">
+                                                                <ImagePlus className="w-6 h-6" />
+                                                                <span className="text-[9px] font-bold">Ajouter photo</span>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center bg-slate-100 text-slate-300 rounded-xl">
+                                                                <ChefHat className="w-8 h-8" />
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1045,7 +1137,7 @@ export function ProductionContent() {
                                 <div className="px-8 border-b border-slate-100 flex gap-8 items-center bg-white sticky top-0 z-30 shadow-sm h-14 shrink-0">
                                     {[
                                         { id: "ingredients", label: "Ingrédients", icon: Utensils },
-                                        { id: "steps", label: "Préparation", icon: Timer },
+                                        { id: "steps", label: "Tableau des Valeurs", icon: Timer },
                                         { id: "nutrition", label: "A4", icon: Printer },
                                         { id: "costing", label: "A5", icon: Printer },
                                     ].map((tab) => {
@@ -1070,6 +1162,23 @@ export function ProductionContent() {
                                 </div>
 
                                 <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
+                                    {isEditing && editData && (
+                                        <input
+                                            ref={imageInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file || !editData) return;
+                                                try {
+                                                    const base64 = await compressImage(file);
+                                                    updateEditData("image", base64);
+                                                } catch (_) { /* ignore */ }
+                                                e.target.value = "";
+                                            }}
+                                        />
+                                    )}
                                     <div className="max-w-5xl mx-auto space-y-6">
                                         {activeTab === "ingredients" && (
                                             <div className="col-span-12 space-y-8">
@@ -1358,20 +1467,6 @@ export function ProductionContent() {
                                                                 1
                                                             </div>
                                                             <h3 className="font-black text-sm text-emerald-900">RECETTES</h3>
-                                                        </div>
-                                                        <div className="flex items-center gap-1.5">
-                                                            <button className="p-1 hover:bg-emerald-100 rounded-lg transition-colors" title="Imprimer A4">
-                                                                <div className="flex flex-col items-center gap-0.5">
-                                                                    <Printer className="w-3.5 h-3.5 text-emerald-700" />
-                                                                    <span className="text-[8px] font-bold text-emerald-700">A4</span>
-                                                                </div>
-                                                            </button>
-                                                            <button className="p-1 hover:bg-emerald-100 rounded-lg transition-colors" title="Imprimer A5">
-                                                                <div className="flex flex-col items-center gap-0.5">
-                                                                    <Printer className="w-3.5 h-3.5 text-emerald-700" />
-                                                                    <span className="text-[8px] font-bold text-emerald-700">A5</span>
-                                                                </div>
-                                                            </button>
                                                         </div>
                                                     </div>
 
@@ -1695,6 +1790,9 @@ export function ProductionContent() {
                                                 {/* Right: Summary Card (50%) */}
                                                 <div className="bg-emerald-900 rounded-2xl p-6 shadow-xl relative overflow-hidden flex flex-col h-full">
                                                     <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-800/20 rounded-full -translate-y-1/2 translate-x-1/2" />
+                                                    <div className="absolute top-4 right-4 w-12 h-12 opacity-90">
+                                                        <img src="/logo-boujniba.png" alt="Boujniba" className="w-full h-full object-contain" />
+                                                    </div>
                                                     <div className="relative mb-6">
                                                         <h3 className="text-emerald-300 font-bold text-xs uppercase tracking-[0.2em] mb-4">Prix / kg</h3>
                                                         <div className="flex items-baseline gap-2">
@@ -1878,17 +1976,17 @@ export function ProductionContent() {
                                             <div className="grid grid-cols-2 gap-4 mt-6">
                                                 {/* Left: Etapes de Préparation */}
                                                 <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-                                                    <div className="p-6 border-b border-slate-100">
+                                                    <div className="px-4 py-3 border-b border-slate-100">
                                                         <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                                                             <ChefHat className="w-5 h-5 text-emerald-500" />
                                                             Etapes de Préparation
                                                         </h3>
                                                     </div>
-                                                    <div className="flex-1 overflow-y-auto p-6">
-                                                        <div className="space-y-4">
+                                                    <div className="flex-1 overflow-y-auto p-4">
+                                                        <div className="space-y-2">
                                                             {((isEditing && editData ? editData : selectedRecipe)?.steps || []).map((step, idx) => (
-                                                                <div key={idx} className="flex items-start gap-4 p-4 bg-slate-50 rounded-lg border border-slate-100 hover:border-emerald-200 transition-colors">
-                                                                    <div className="w-8 h-8 rounded-full bg-emerald-100 border-2 border-emerald-200 text-emerald-600 font-black flex items-center justify-center flex-shrink-0 text-sm">
+                                                                <div key={idx} className="flex gap-3 p-2.5 bg-slate-50 rounded-lg border border-slate-100 hover:border-emerald-200 transition-colors">
+                                                                    <div className="w-5 h-5 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-600 font-black flex items-center justify-center flex-shrink-0 text-[10px] leading-none mt-0.5">
                                                                         {step.order || idx + 1}
                                                                     </div>
                                                                     <div className="flex-1 min-w-0">
@@ -1946,7 +2044,7 @@ export function ProductionContent() {
                                                                         const newStep = { order: editData.steps.length + 1, description: "", duration: 0 };
                                                                         updateEditData('steps', [...editData.steps, newStep]);
                                                                     }}
-                                                                    className="w-full py-3 border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center gap-2 text-slate-400 font-bold hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all"
+                                                                    className="w-full py-2 border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center gap-2 text-slate-400 font-bold hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all"
                                                                 >
                                                                     <Plus className="w-4 h-4" />
                                                                     Ajouter une étape
@@ -2120,6 +2218,26 @@ export function ProductionContent() {
                                                                     />
                                                                 </div>
                                                             </div>
+
+                                                            {/* Allergènes */}
+                                                            {(() => {
+                                                                const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
+                                                                const allergenSet = new Set<string>();
+                                                                currentIngs.forEach(ing => {
+                                                                    const article = articles.find(a => a.id === ing.articleId);
+                                                                    (article?.allergens || []).forEach((a: string) => allergenSet.add(a));
+                                                                });
+                                                                const allergenList = Array.from(allergenSet).sort();
+                                                                if (allergenList.length === 0) return null;
+                                                                return (
+                                                                    <div className="mt-4 p-3 bg-amber-50/50 rounded-lg border border-amber-200">
+                                                                        <label className="text-[10px] font-bold text-amber-700 uppercase block mb-2">Allergènes</label>
+                                                                        <p className="text-sm font-medium text-slate-800">
+                                                                            {allergenList.join(", ")}
+                                                                        </p>
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -2127,92 +2245,81 @@ export function ProductionContent() {
                                             </>
                                         )}
 
-                                        {activeTab === "steps" && (
-                                            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8">
-                                                <h3 className="font-bold text-xl text-slate-800 mb-8 flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
-                                                        <ChefHat className="w-5 h-5" />
-                                                    </div>
-                                                    Processus de Fabrication
-                                                </h3>
-                                                <div className="space-y-8 relative">
-                                                    <div className="absolute left-5 top-4 bottom-4 w-0.5 bg-slate-100" />
-                                                    {((isEditing && editData ? editData : selectedRecipe)?.steps || []).map((step, idx) => (
-                                                        <div key={idx} className="relative pl-16 group">
-                                                            <div className="absolute left-0 top-0 w-10 h-10 rounded-full bg-white border-4 border-slate-100 text-emerald-600 font-black flex items-center justify-center z-10 group-hover:border-emerald-200 transition-colors">
-                                                                {step.order || idx + 1}
-                                                            </div>
-                                                            <div className="bg-slate-50 rounded-xl p-5 border border-slate-100 group-hover:border-emerald-200 group-hover:bg-emerald-50/30 transition-all relative">
-                                                                {isEditing && editData ? (
-                                                                    <div className="flex flex-col gap-3">
-                                                                        <textarea
-                                                                            value={step.description}
-                                                                            onChange={(e) => {
-                                                                                const newSteps = [...editData.steps];
-                                                                                newSteps[idx] = { ...step, description: e.target.value };
-                                                                                updateEditData('steps', newSteps);
-                                                                            }}
-                                                                            className="w-full bg-white border border-slate-200 rounded p-2 text-sm focus:outline-none focus:border-emerald-500 min-h-[60px]"
-                                                                            placeholder="Description de l'étape..."
-                                                                        />
-                                                                        <div className="flex justify-between items-center">
-                                                                            <div className="flex items-center gap-2">
-                                                                                <Clock className="w-3.5 h-3.5 text-emerald-500" />
-                                                                                <input
-                                                                                    type="number"
-                                                                                    value={step.duration}
-                                                                                    onChange={(e) => {
-                                                                                        const newSteps = [...editData.steps];
-                                                                                        newSteps[idx] = { ...step, duration: Number(e.target.value) };
-                                                                                        updateEditData('steps', newSteps);
-                                                                                    }}
-                                                                                    className="w-16 bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-600 focus:outline-none focus:border-emerald-500"
-                                                                                />
-                                                                                <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">min</span>
-                                                                            </div>
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    const newSteps = editData.steps.filter((_, i) => i !== idx);
-                                                                                    updateEditData('steps', newSteps);
-                                                                                }}
-                                                                                className="text-red-400 hover:text-red-600 p-1"
-                                                                            >
-                                                                                <Trash2 className="w-4 h-4" />
-                                                                            </button>
-                                                                        </div>
-                                                                    </div>
-                                                                ) : (
-                                                                    <>
-                                                                        <p className="text-slate-700 font-medium text-lg mb-2">{step.description}</p>
-                                                                        <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wide">
-                                                                            <Clock className="w-3.5 h-3.5" />
-                                                                            {step.duration} minutes
-                                                                        </div>
-                                                                    </>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    ))}
-
-                                                    {isEditing && editData && (
-                                                        <div className="relative pl-16">
-                                                            <div className="absolute left-0 top-0 w-10 h-10 rounded-full bg-emerald-50 border-4 border-dashed border-emerald-200 text-emerald-300 font-black flex items-center justify-center z-10">
-                                                                <Plus className="w-5 h-5" />
-                                                            </div>
-                                                            <button
-                                                                onClick={() => {
-                                                                    const newStep = { order: editData.steps.length + 1, description: "", duration: 0 };
-                                                                    updateEditData('steps', [...editData.steps, newStep]);
-                                                                }}
-                                                                className="w-full h-10 border-2 border-dashed border-slate-200 rounded-xl flex items-center justify-center text-slate-400 font-bold hover:border-emerald-400 hover:text-emerald-600 hover:bg-emerald-50 transition-all"
-                                                            >
-                                                                Ajouter une étape
-                                                            </button>
-                                                        </div>
-                                                    )}
+                                        {activeTab === "steps" && (() => {
+                                            const recipe = isEditing && editData ? editData : selectedRecipe;
+                                            const totals = recipe ? calculateRecipeTotals(recipe, multiplier) : { totalWeight: 0, totalCost: 0 };
+                                            const currentIngs = recipe?.ingredients || [];
+                                            const totalWeight = currentIngs.reduce((sum, ing) => {
+                                                const article = articles.find(a => a.id === ing.articleId);
+                                                const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
+                                            }, 0);
+                                            const lossRate = recipe?.costing?.lossRate || 0;
+                                            const weightAfterLoss = totalWeight * (1 - lossRate / 100);
+                                            const baseCostPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
+                                            const displayItems = (recipe?.costing as any)?.displayItems || [
+                                                { id: "default", name: recipe?.name, weight: weightAfterLoss, price: totals.totalCost }
+                                            ];
+                                            const nutPer100 = recipe ? calculateRecipeNutrition(
+                                                { ...recipe, ingredients: recipe.ingredients || [] },
+                                                articles,
+                                                recipes
+                                            ) : null;
+                                            const fmt = (v: number | undefined) => v != null ? v.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
+                                            const fmtInt = (v: number | undefined) => v != null ? Math.round(v).toString() : "-";
+                                            return (
+                                            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-left border-collapse">
+                                                        <thead>
+                                                            <tr className="bg-[#1E293B] text-slate-300">
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider">Nom</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Poids</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Prix</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Energie</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Eau</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Protéines</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Lipides</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Minéraux</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Glucides</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Sucres</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Amidon</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">Fibres</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">IG</th>
+                                                                <th className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-right">CG</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-slate-100">
+                                                            {displayItems.map((item: any, idx: number) => {
+                                                                const w = item.weight || 0;
+                                                                const factor = w / 100;
+                                                                const price = item.price != null ? item.price : (baseCostPerKg > 0 ? (w / 1000) * baseCostPerKg : 0);
+                                                                const n = nutPer100;
+                                                                return (
+                                                                    <tr key={item.id || idx} className="hover:bg-slate-50">
+                                                                        <td className="px-3 py-2 text-sm font-bold text-slate-800">{item.name || "-"}</td>
+                                                                        <td className="px-3 py-2 text-sm font-bold text-slate-600 text-right">{w.toLocaleString("fr-FR")} g</td>
+                                                                        <td className="px-3 py-2 text-sm font-bold text-slate-600 text-right">{fmt(price)} Dh</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmtInt((n.calories || 0) * factor) : "-"}</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmt((n.water || 0) * factor) : "-"}</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmt((n.protein || 0) * factor) : "-"}</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmt((n.fat || 0) * factor) : "-"}</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmt((n.minerals || 0) * factor) : "-"}</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmt((n.carbs || 0) * factor) : "-"}</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmt((n.sugars || 0) * factor) : "-"}</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmt((n.starch || 0) * factor) : "-"}</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmt((n.fiber || 0) * factor) : "-"}</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmtInt((n.glycemicIndex || 0) * factor) : "-"}</td>
+                                                                        <td className="px-3 py-2 text-xs text-slate-600 text-right">{n ? fmt((n.glycemicLoad || 0) * factor) : "-"}</td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             </div>
-                                        )}
+                                            );
+                                        })()}
 
                                         {activeTab === "costing" && (
                                             <div className="flex justify-center items-start p-8 bg-slate-50 min-h-screen relative">
@@ -2223,77 +2330,215 @@ export function ProductionContent() {
                                                     <Printer className="w-5 h-5" />
                                                     Exporter PDF
                                                 </button>
-                                                {/* Format A5 - 148x210mm, ratio ~1:1.414 */}
-                                                <div className="print-recipe-only bg-white shadow-2xl w-full max-w-[148mm] min-h-[210mm] p-8 flex flex-col" style={{ aspectRatio: '148/210' }}>
-                                                    {/* En-tête */}
-                                                    <div className="border-b-2 border-emerald-600 pb-3 mb-4">
-                                                        <h1 className="text-2xl font-black text-slate-900 mb-2">
-                                                            {(isEditing && editData ? editData : selectedRecipe)?.name || "Recette"}
-                                                        </h1>
-                                                        <div className="flex items-center gap-3 text-xs text-slate-600">
-                                                            <span className="flex items-center gap-1">
-                                                                <ChefHat className="w-3 h-3 text-emerald-600" />
-                                                                {(() => {
-                                                                    const subFamily = subFamilies.find(sf => sf.id === ((isEditing && editData ? editData : selectedRecipe)?.subFamilyId));
-                                                                    return subFamily?.name || "";
-                                                                })()}
-                                                            </span>
-                                                            <span className="flex items-center gap-1">
-                                                                <Scale className="w-3 h-3 text-emerald-600" />
-                                                                {selectedRecipe?.yield || 1} {selectedRecipe?.yieldUnit || "portion(s)"}
-                                                            </span>
+                                                {/* Format A5 - 148x210mm, aligné sur A4 */}
+                                                <div className="print-recipe-only bg-white shadow-2xl w-full max-w-[148mm] min-h-[210mm] p-6 flex flex-col font-sans" style={{ aspectRatio: '148/210', fontSize: '10px' }} lang="fr">
+                                                    {/* En-tête : logo à gauche, titre à droite */}
+                                                    <div className="flex justify-between items-start pb-2 mb-3 border-b-2 border-emerald-600">
+                                                        <img src="/logo-boujniba.png" alt="Boujniba" className="h-[45px] w-auto object-contain" />
+                                                        <div className="text-right">
+                                                            <h1 className="text-lg font-bold text-slate-900 mb-0.5">
+                                                                {(isEditing && editData ? editData : selectedRecipe)?.name || "Recette"}
+                                                            </h1>
+                                                            {(() => {
+                                                                const rec = isEditing && editData ? editData : selectedRecipe;
+                                                                const sf = subFamilies.find(s => s.id === rec?.subFamilyId);
+                                                                const fam = families.find(f => f.id === sf?.familyId);
+                                                                const familyName = fam?.name ?? (rec as any)?.familyId ?? "";
+                                                                const subFamilyName = sf?.name ?? "";
+                                                                if (familyName || subFamilyName) {
+                                                                    return (
+                                                                        <p className="text-[9px] text-slate-400">
+                                                                            {[familyName, subFamilyName].filter(Boolean).join(" — ")}
+                                                                        </p>
+                                                                    );
+                                                                }
+                                                                return null;
+                                                            })()}
+                                                            <p className="text-[9px] text-slate-500 mt-1">
+                                                                Édité le {new Date().toLocaleDateString("fr-FR")}
+                                                            </p>
                                                         </div>
                                                     </div>
 
-                                                    {/* Ingrédients */}
-                                                    <div className="mb-4 flex-1">
-                                                        <h2 className="text-lg font-bold text-emerald-700 mb-2 flex items-center gap-2">
-                                                            <Utensils className="w-4 h-4" />
-                                                            Ingrédients
-                                                        </h2>
-                                                        <div className="space-y-1.5">
-                                                            {(() => {
-                                                                const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
-                                                                return currentIngs.map((ing, idx) => {
-                                                                    const article = articles.find(a => a.id === ing.articleId);
-                                                                    const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
-                                                                    const quantity = (ing.quantity || 0) * multiplier;
-                                                                    return (
-                                                                        <div key={idx} className="flex justify-between items-center py-1.5 border-b border-slate-100">
-                                                                            <span className="text-sm font-medium text-slate-700">{ing.name}</span>
-                                                                            <span className="text-sm font-bold text-slate-900">{quantity.toLocaleString('fr-FR')} {unit}</span>
-                                                                        </div>
-                                                                    );
-                                                                });
-                                                            })()}
+                                                    {/* Ingrédients (2/3) + Image (1/3) */}
+                                                    <div className="mb-3 flex gap-3 items-start">
+                                                        <div className="w-2/3">
+                                                            <h2 className="text-xs font-bold text-emerald-700 mb-1.5">
+                                                                Ingrédients
+                                                            </h2>
+                                                            <div className="space-y-0">
+                                                                {(() => {
+                                                                    const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
+                                                                    return currentIngs.map((ing, idx) => {
+                                                                        const article = articles.find(a => a.id === ing.articleId);
+                                                                        const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                        const quantity = (ing.quantity || 0) * multiplier;
+                                                                        return (
+                                                                            <div key={idx} className="flex justify-between items-center py-1 border-b border-slate-200 text-[10px]">
+                                                                                <span className="text-slate-700">{ing.name}</span>
+                                                                                <span className="font-bold text-slate-900">{quantity.toLocaleString('fr-FR')} {unit}</span>
+                                                                            </div>
+                                                                        );
+                                                                    });
+                                                                })()}
+                                                            </div>
+                                                        </div>
+                                                        <div className="w-1/3 flex justify-end shrink-0 -mt-2 relative">
+                                                            <div
+                                                                role={isEditing && editData ? "button" : undefined}
+                                                                tabIndex={isEditing && editData ? 0 : undefined}
+                                                                onClick={() => isEditing && editData && imageInputRef.current?.click()}
+                                                                onKeyDown={(e) => { if (isEditing && editData && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); imageInputRef.current?.click(); } }}
+                                                                className={cn(
+                                                                    "w-[70px] h-[70px] rounded-lg bg-slate-200 overflow-hidden shrink-0 border-2 transition-all relative group",
+                                                                    isEditing && editData ? "border-slate-400 hover:border-emerald-500 cursor-pointer" : "border-slate-300 cursor-default"
+                                                                )}
+                                                            >
+                                                                {((isEditing && editData ? editData : selectedRecipe) as any)?.image ? (
+                                                                    <>
+                                                                        <img src={((isEditing && editData ? editData : selectedRecipe) as any)?.image} alt="" className="w-full h-full object-cover rounded-lg" />
+                                                                        {isEditing && editData && (
+                                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-opacity pointer-events-none">
+                                                                                <ImagePlus className="w-5 h-5 text-white" />
+                                                                                <span className="text-[9px] font-bold text-white">Changer</span>
+                                                                            </div>
+                                                                        )}
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        {isEditing && editData ? (
+                                                                            <div className="w-full h-full rounded-lg flex flex-col items-center justify-center gap-0.5 text-slate-400 group-hover:text-emerald-600 group-hover:bg-slate-100 transition-colors">
+                                                                                <ImagePlus className="w-6 h-6" />
+                                                                                <span className="text-[9px] font-bold">Ajouter photo</span>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="w-full h-full rounded-lg bg-slate-200" />
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                            {isEditing && editData && ((isEditing && editData ? editData : selectedRecipe) as any)?.image && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => updateEditData("image", "")}
+                                                                    className="absolute -bottom-5 right-0 text-[9px] text-slate-500 hover:text-red-600 underline"
+                                                                >
+                                                                    Supprimer photo
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </div>
 
                                                     {/* Étapes de Préparation */}
-                                                    <div className="border-t-2 border-slate-200 pt-4">
-                                                        <h2 className="text-lg font-bold text-emerald-700 mb-2 flex items-center gap-2">
-                                                            <ChefHat className="w-4 h-4" />
+                                                    <div className="flex-1 min-h-0 max-h-[185px] overflow-hidden">
+                                                        <h2 className="text-xs font-bold text-emerald-700 mb-1.5">
                                                             Préparation
                                                         </h2>
                                                         <div className="space-y-2">
                                                             {((isEditing && editData ? editData : selectedRecipe)?.steps || []).map((step, idx) => (
-                                                                <div key={idx} className="flex gap-2">
-                                                                    <div className="w-6 h-6 rounded-full bg-emerald-100 border-2 border-emerald-600 text-emerald-700 font-black flex items-center justify-center flex-shrink-0 text-xs">
+                                                                <div key={idx} className="flex gap-2 items-start">
+                                                                    <div className="w-4 h-4 rounded-full bg-emerald-100 border-2 border-emerald-600 text-emerald-700 font-bold flex items-center justify-center flex-shrink-0 text-[8px]">
                                                                         {step.order || idx + 1}
                                                                     </div>
                                                                     <div className="flex-1">
-                                                                        <p className="text-sm text-slate-700">{step.description}</p>
+                                                                        <p className="text-[10px] text-slate-600 leading-relaxed" style={{ textAlign: 'justify' }}>{step.description}</p>
                                                                         {(step.duration || 0) > 0 && (
-                                                                            <div className="flex items-center gap-1 text-xs text-slate-500 mt-0.5">
-                                                                                <Clock className="w-3 h-3" />
-                                                                                {step.duration} min
-                                                                            </div>
+                                                                            <p className="text-[9px] text-slate-500 mt-0.5">{step.duration} min</p>
                                                                         )}
                                                                     </div>
                                                                 </div>
                                                             ))}
                                                         </div>
                                                     </div>
+
+                                                    {/* Section bas de page : Allergènes + Valeurs Nutritionnelles + Informations de Coût (identique au PDF A5) */}
+                                                    {(() => {
+                                                        const recipeForAllergens = isEditing && editData ? editData : selectedRecipe;
+                                                        const allergenSet = new Set<string>();
+                                                        (recipeForAllergens?.ingredients || []).forEach(ing => {
+                                                            const article = articles.find(a => a.id === ing.articleId);
+                                                            (article?.allergens || []).forEach((a: string) => allergenSet.add(a));
+                                                        });
+                                                        const allergenList = Array.from(allergenSet).sort();
+                                                        return (
+                                                            <div className="mt-auto shrink-0 space-y-2">
+                                                                {allergenList.length > 0 && (
+                                                                    <div className="w-full rounded-lg border-2 border-amber-300 bg-amber-50 px-2 py-1.5 flex flex-wrap items-center gap-x-1.5">
+                                                                        <span className="text-[8px] font-bold text-amber-700 uppercase tracking-wider shrink-0">Allergènes</span>
+                                                                        <span className="text-[8px] text-slate-600">{allergenList.join(", ")}</span>
+                                                                    </div>
+                                                                )}
+                                                                <div className="flex gap-2 w-full">
+                                                                    <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                                                                        <h2 className="text-[9px] font-bold text-emerald-700 mb-1.5 pb-1 border-b-2 border-emerald-600">
+                                                                            Valeurs Nutritionnelles (pour 100g)
+                                                                        </h2>
+                                                                        {(() => {
+                                                                            const nut = (isEditing && editData ? editData : selectedRecipe)?.nutrition;
+                                                                            return (
+                                                                                <>
+                                                                                    <div className="rounded border border-sky-200 bg-sky-50 p-1.5 mb-1">
+                                                                                        <div className="text-[7px] font-bold text-sky-800 uppercase mb-1">Énergie & macros</div>
+                                                                                        <div className="flex gap-1 text-[8px]">
+                                                                                            <span>Énergie <span className="text-[6px] font-bold">{nut?.calories || 0}</span> Kcal</span>
+                                                                                            <span>• Eau <span className="text-[6px] font-bold">{((nut as any)?.water || 0)}</span>%</span>
+                                                                                            <span>• Prot. <span className="text-[6px] font-bold">{nut?.protein || 0}</span>g</span>
+                                                                                            <span>• Lip <span className="text-[6px] font-bold">{nut?.fat || 0}</span>g</span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="rounded border border-orange-200 bg-orange-50 p-1.5">
+                                                                                        <div className="text-[7px] font-bold text-orange-800 uppercase mb-1">Glucides & IG</div>
+                                                                                        <div className="flex gap-1 text-[8px]">
+                                                                                            <span>Glu. <span className="text-[6px] font-bold">{nut?.carbs || 0}</span>g</span>
+                                                                                            <span>• Suc. <span className="text-[6px] font-bold">{((nut as any)?.sugars || 0)}</span>g</span>
+                                                                                            <span>• Fib. <span className="text-[6px] font-bold">{((nut as any)?.fiber || 0)}</span>g</span>
+                                                                                            <span>• IG <span className="text-[6px] font-bold">{(nut as any)?.glycemicIndex ?? "-"}</span></span>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </>
+                                                                            );
+                                                                        })()}
+                                                                    </div>
+                                                                    <div className="flex-1 rounded-lg border border-emerald-200 bg-emerald-50/80 p-2">
+                                                                        <h2 className="text-[9px] font-bold text-emerald-700 mb-1.5 pb-1 border-b-2 border-emerald-600">
+                                                                            Informations de Coût
+                                                                        </h2>
+                                                                        {(() => {
+                                                                            const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
+                                                                            const totalWeight = currentIngs.reduce((sum, ing) => {
+                                                                                const article = articles.find(a => a.id === ing.articleId);
+                                                                                const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
+                                                                                return sum + convertToProductionWeight(article, ing.quantity || 0, unit) * multiplier;
+                                                                            }, 0);
+                                                                            const lossRate = (isEditing && editData ? editData : selectedRecipe)?.costing?.lossRate || 0;
+                                                                            const weightAfterLoss = totalWeight * (1 - lossRate / 100);
+                                                                            const displayItems = ((isEditing && editData ? editData : selectedRecipe)?.costing as any)?.displayItems;
+                                                                            const weighings = displayItems && displayItems.length > 0
+                                                                                ? displayItems.map((item: any) => ({
+                                                                                    name: item.name || (isEditing && editData ? editData : selectedRecipe)?.name,
+                                                                                    weight: item.weight ?? weightAfterLoss,
+                                                                                }))
+                                                                                : [{ name: (isEditing && editData ? editData : selectedRecipe)?.name, weight: weightAfterLoss }];
+                                                                            return (
+                                                                                <div className="text-[9px]">
+                                                                                    <div className="grid grid-cols-[1fr_60px] gap-1 text-[7px] font-bold text-emerald-700 uppercase pb-0.5 border-b border-emerald-200">
+                                                                                            <span>Nom</span>
+                                                                                            <span className="text-right">Poids</span>
+                                                                                        </div>
+                                                                                        {weighings.map((w: { name: string; weight: number }, i: number) => (
+                                                                                            <div key={i} className="grid grid-cols-[1fr_60px] gap-1 py-1 border-b border-slate-200/60 text-[8px] mt-0.5">
+                                                                                                <span className="text-slate-700 truncate">{w.name}</span>
+                                                                                                <span className="text-slate-600 text-right">{w.weight.toLocaleString('fr-FR')} g</span>
+                                                                                            </div>
+                                                                                        ))}
+                                                                                    </div>
+                                                                            );
+                                                                        })()}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
                                         )}
@@ -2307,36 +2552,43 @@ export function ProductionContent() {
                                                     <Printer className="w-5 h-5" />
                                                     Exporter PDF
                                                 </button>
-                                                {/* Format A4 - 210x297mm, ratio ~1:1.414 */}
-                                                <div className="print-recipe-only bg-white shadow-2xl w-full max-w-[210mm] min-h-[297mm] p-12 flex flex-col" style={{ aspectRatio: '210/297' }} lang="fr">
-                                                    {/* En-tête */}
-                                                    <div className="border-b-2 border-emerald-600 pb-4 mb-6">
-                                                        <h1 className="text-3xl font-black text-slate-900 mb-2">
-                                                            {(isEditing && editData ? editData : selectedRecipe)?.name || "Recette"}
-                                                        </h1>
-                                                        <div className="flex items-center gap-4 text-sm text-slate-600">
-                                                            <span className="flex items-center gap-1">
-                                                                <ChefHat className="w-4 h-4 text-emerald-600" />
-                                                                {(() => {
-                                                                    const subFamily = subFamilies.find(sf => sf.id === ((isEditing && editData ? editData : selectedRecipe)?.subFamilyId));
-                                                                    return subFamily?.name || "";
-                                                                })()}
-                                                            </span>
-                                                            <span className="flex items-center gap-1">
-                                                                <Scale className="w-4 h-4 text-emerald-600" />
-                                                                Rendement: {selectedRecipe?.yield || 1} {selectedRecipe?.yieldUnit || "portion(s)"}
-                                                            </span>
+                                                {/* Format A4 — Aperçu fidèle du PDF exporté (210x297mm) */}
+                                                <div className="print-recipe-only bg-white shadow-2xl w-full max-w-[210mm] min-h-[297mm] p-7 flex flex-col font-sans" style={{ aspectRatio: '210/297', fontSize: '11px' }} lang="fr">
+                                                    {/* En-tête : logo à gauche, titre à droite, au-dessus de la ligne verte */}
+                                                    <div className="flex justify-between items-start pb-3 mb-5 border-b-2 border-emerald-600">
+                                                        <img src="/logo-boujniba.png" alt="Boujniba" className="h-[58px] w-auto object-contain" />
+                                                        <div className="text-right">
+                                                            <h1 className="text-2xl font-bold text-slate-900 mb-1">
+                                                                {(isEditing && editData ? editData : selectedRecipe)?.name || "Recette"}
+                                                            </h1>
+                                                            {(() => {
+                                                                const rec = isEditing && editData ? editData : selectedRecipe;
+                                                                const sf = subFamilies.find(s => s.id === rec?.subFamilyId);
+                                                                const fam = families.find(f => f.id === sf?.familyId);
+                                                                const familyName = fam?.name ?? (rec as any)?.familyId ?? "";
+                                                                const subFamilyName = sf?.name ?? "";
+                                                                if (familyName || subFamilyName) {
+                                                                    return (
+                                                                        <p className="text-[10px] text-slate-400">
+                                                                            {[familyName, subFamilyName].filter(Boolean).join(" — ")}
+                                                                        </p>
+                                                                    );
+                                                                }
+                                                                return null;
+                                                            })()}
+                                                            <p className="text-[10px] text-slate-500 mt-1">
+                                                                Édité le {new Date().toLocaleDateString("fr-FR")}
+                                                            </p>
                                                         </div>
                                                     </div>
 
-                                                    {/* Ingrédients (2/3) + Images (1/3) superposées */}
-                                                    <div className="mb-6 flex gap-4">
+                                                    {/* Ingrédients (2/3) + Image (1/3) */}
+                                                    <div className="mb-4 flex gap-4 items-start">
                                                         <div className="w-2/3">
-                                                            <h2 className="text-xl font-bold text-emerald-700 mb-3 flex items-center gap-2">
-                                                                <Utensils className="w-5 h-5" />
+                                                            <h2 className="text-sm font-bold text-emerald-700 mb-2">
                                                                 Ingrédients
                                                             </h2>
-                                                            <div className="space-y-2">
+                                                            <div className="space-y-0">
                                                                 {(() => {
                                                                     const currentIngs = (isEditing && editData ? editData : selectedRecipe)?.ingredients || [];
                                                                     return currentIngs.map((ing, idx) => {
@@ -2344,8 +2596,8 @@ export function ProductionContent() {
                                                                         const unit = ing.unit || article?.unitProduction || article?.unitPivot || article?.unitAchat || "";
                                                                         const quantity = (ing.quantity || 0) * multiplier;
                                                                         return (
-                                                                            <div key={idx} className="flex justify-between items-center py-2 border-b border-slate-100">
-                                                                                <span className="font-medium text-slate-700">{ing.name}</span>
+                                                                            <div key={idx} className="flex justify-between items-center py-1.5 border-b border-slate-200 text-[11px]">
+                                                                                <span className="text-slate-700">{ing.name}</span>
                                                                                 <span className="font-bold text-slate-900">{quantity.toLocaleString('fr-FR')} {unit}</span>
                                                                             </div>
                                                                         );
@@ -2353,52 +2605,91 @@ export function ProductionContent() {
                                                                 })()}
                                                             </div>
                                                         </div>
-                                                        <div className="w-1/3 flex justify-end shrink-0">
-                                                            <div className="flex flex-col gap-2">
-                                                                <div className="w-[130px] h-[130px] rounded-2xl bg-slate-200 overflow-hidden shrink-0 border-2 border-slate-300 shadow-sm transition-all duration-300 hover:scale-105 hover:shadow-lg hover:border-emerald-400 hover:ring-2 hover:ring-emerald-200">
-                                                                    {((isEditing && editData ? editData : selectedRecipe) as any)?.image ? (
-                                                                        <img src={((isEditing && editData ? editData : selectedRecipe) as any)?.image} alt="" className="w-full h-full object-cover rounded-2xl" />
-                                                                    ) : (
-                                                                        <div className="w-full h-full rounded-2xl bg-slate-200" />
-                                                                    )}
-                                                                </div>
-                                                                <div className="w-[130px] h-[130px] rounded-2xl bg-slate-300 shrink-0 border-2 border-slate-300 shadow-sm transition-all duration-300 hover:scale-105 hover:shadow-lg hover:border-emerald-400 hover:ring-2 hover:ring-emerald-200" />
+                                                        <div className="w-1/3 flex justify-end shrink-0 -mt-4 relative">
+                                                            <div
+                                                                role={isEditing && editData ? "button" : undefined}
+                                                                tabIndex={isEditing && editData ? 0 : undefined}
+                                                                onClick={() => isEditing && editData && imageInputRef.current?.click()}
+                                                                onKeyDown={(e) => { if (isEditing && editData && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); imageInputRef.current?.click(); } }}
+                                                                className={cn(
+                                                                    "w-[100px] h-[100px] rounded-xl bg-slate-200 overflow-hidden shrink-0 border-2 transition-all relative group",
+                                                                    isEditing && editData ? "border-slate-400 hover:border-emerald-500 cursor-pointer" : "border-slate-300 cursor-default"
+                                                                )}
+                                                            >
+                                                                {((isEditing && editData ? editData : selectedRecipe) as any)?.image ? (
+                                                                    <>
+                                                                        <img src={((isEditing && editData ? editData : selectedRecipe) as any)?.image} alt="" className="w-full h-full object-cover rounded-xl" />
+                                                                        {isEditing && editData && (
+                                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 rounded-xl transition-opacity pointer-events-none">
+                                                                                <ImagePlus className="w-6 h-6 text-white" />
+                                                                                <span className="text-[10px] font-bold text-white">Changer</span>
+                                                                            </div>
+                                                                        )}
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        {isEditing && editData ? (
+                                                                            <div className="w-full h-full rounded-xl flex flex-col items-center justify-center gap-1 text-slate-400 group-hover:text-emerald-600 group-hover:bg-slate-100 transition-colors">
+                                                                                <ImagePlus className="w-8 h-8" />
+                                                                                <span className="text-[10px] font-bold">Ajouter photo</span>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="w-full h-full rounded-xl bg-slate-200" />
+                                                                        )}
+                                                                    </>
+                                                                )}
                                                             </div>
+                                                            {isEditing && editData && ((isEditing && editData ? editData : selectedRecipe) as any)?.image && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => updateEditData("image", "")}
+                                                                    className="absolute -bottom-6 right-0 text-[10px] text-slate-500 hover:text-red-600 underline"
+                                                                >
+                                                                    Supprimer photo
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </div>
 
                                                     {/* Étapes de Préparation */}
-                                                    <div className="mb-6 flex-1 a4-recipe-content">
-                                                        <h2 className="text-xl font-bold text-emerald-700 mb-3 flex items-center gap-2">
-                                                            <ChefHat className="w-5 h-5" />
+                                                    <div className="mb-4 flex-1 w-full min-h-0">
+                                                        <h2 className="text-sm font-bold text-emerald-700 mb-2">
                                                             Étapes de Préparation
                                                         </h2>
-                                                        <div className="space-y-3">
+                                                        <div className="space-y-3 w-full">
                                                             {((isEditing && editData ? editData : selectedRecipe)?.steps || []).map((step, idx) => (
-                                                                <div key={idx} className="flex gap-3">
-                                                                    <div className="w-8 h-8 rounded-full bg-emerald-100 border-2 border-emerald-600 text-emerald-700 font-black flex items-center justify-center flex-shrink-0 text-sm">
+                                                                <div key={idx} className="flex gap-3 w-full items-start">
+                                                                    <div className="w-5 h-5 rounded-full bg-emerald-100 border-2 border-emerald-600 text-emerald-700 font-bold flex items-center justify-center flex-shrink-0 text-[8px]">
                                                                         {step.order || idx + 1}
                                                                     </div>
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <p className="recipe-step-desc text-slate-700 mb-1" style={{ textAlign: 'justify' }}>{step.description}</p>
-                                                                        {(step.duration || 0) > 0 && (
-                                                                            <div className="flex items-center gap-1 text-xs text-slate-500">
-                                                                                <Clock className="w-3 h-3" />
-                                                                                {step.duration} minutes
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
+                                                                    <p className="flex-1 text-[11px] text-slate-600 leading-relaxed" style={{ textAlign: 'justify' }}>{step.description}</p>
                                                                 </div>
                                                             ))}
                                                         </div>
                                                     </div>
 
-                                                    {/* Blocs Nutrition + Coût côte à côte en bas (comme le PDF A4) */}
-                                                    <div className="flex gap-4 mt-6">
-                                                        {/* Valeurs Nutritionnelles — même rendu que le PDF A4 */}
-                                                        <div className="flex-1 rounded-xl border border-slate-300 bg-slate-50 p-4 shadow-sm">
-                                                            <h2 className="text-base font-bold text-emerald-700 mb-3 pb-2 border-b-2 border-emerald-600 flex items-center gap-2">
-                                                                <Leaf className="w-5 h-5" />
+                                                    {/* Ligne Allergènes — encadrement pleine largeur au-dessus des 2 grids */}
+                                                    {(() => {
+                                                        const recipeForAllergens = isEditing && editData ? editData : selectedRecipe;
+                                                        const allergenSet = new Set<string>();
+                                                        (recipeForAllergens?.ingredients || []).forEach(ing => {
+                                                            const article = articles.find(a => a.id === ing.articleId);
+                                                            (article?.allergens || []).forEach((a: string) => allergenSet.add(a));
+                                                        });
+                                                        const allergenList = Array.from(allergenSet).sort();
+                                                        if (allergenList.length === 0) return null;
+                                                        return (
+                                                            <div className="w-full rounded-xl border-2 border-amber-200 bg-amber-50/80 px-4 py-2.5 mb-3 flex flex-wrap items-center gap-x-2">
+                                                                <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider shrink-0">Allergènes</span>
+                                                                <span className="text-[10px] text-slate-600">{allergenList.join(", ")}</span>
+                                                            </div>
+                                                        );
+                                                    })()}
+
+                                                    {/* Blocs Nutrition + Coût fixés en bas */}
+                                                    <div className="flex gap-3 mt-auto shrink-0 w-full">
+                                                        <div className="flex-1 rounded-lg border border-slate-300 bg-slate-50 p-2.5">
+                                                            <h2 className="text-xs font-bold text-emerald-700 mb-2 pb-1.5 border-b-2 border-emerald-600">
                                                                 Valeurs Nutritionnelles (pour 100g)
                                                             </h2>
                                                             {(() => {
@@ -2411,25 +2702,25 @@ export function ProductionContent() {
                                                                             <div className="flex gap-2 mb-2">
                                                                                 <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/60 rounded text-xs">
                                                                                     <span className="text-sky-900">Énergie</span>
-                                                                                    <span className="font-bold text-sky-700">{nut?.calories || 0} Kcal</span>
+                                                                                    <span className="font-bold text-sky-700 text-[9px]">{nut?.calories || 0} Kcal</span>
                                                                                 </div>
                                                                                 <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/60 rounded text-xs">
                                                                                     <span className="text-sky-900">Eau</span>
-                                                                                    <span className="font-bold text-sky-700">{((nut as any)?.water || 0)} %</span>
+                                                                                    <span className="font-bold text-sky-700 text-[9px]">{((nut as any)?.water || 0)} %</span>
                                                                                 </div>
                                                                             </div>
                                                                             <div className="flex gap-2">
                                                                                 <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/60 rounded text-xs">
                                                                                     <span className="text-sky-900">Prot.</span>
-                                                                                    <span className="font-bold text-sky-700">{nut?.protein || 0} g</span>
+                                                                                    <span className="font-bold text-sky-700 text-[9px]">{nut?.protein || 0} g</span>
                                                                                 </div>
                                                                                 <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/60 rounded text-xs">
                                                                                     <span className="text-sky-900">Lip</span>
-                                                                                    <span className="font-bold text-sky-700">{nut?.fat || 0} g</span>
+                                                                                    <span className="font-bold text-sky-700 text-[9px]">{nut?.fat || 0} g</span>
                                                                                 </div>
                                                                                 <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/60 rounded text-xs">
                                                                                     <span className="text-sky-900">Min.</span>
-                                                                                    <span className="font-bold text-sky-700">{((nut as any)?.minerals || 0)} g</span>
+                                                                                    <span className="font-bold text-sky-700 text-[9px]">{((nut as any)?.minerals || 0)} g</span>
                                                                                 </div>
                                                                             </div>
                                                                         </div>
@@ -2439,25 +2730,25 @@ export function ProductionContent() {
                                                                             <div className="flex gap-2 mb-2">
                                                                                 <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/50 rounded text-xs">
                                                                                     <span className="text-orange-900">Glu.</span>
-                                                                                    <span className="font-bold text-orange-700">{nut?.carbs || 0} g</span>
+                                                                                    <span className="font-bold text-orange-700 text-[9px]">{nut?.carbs || 0} g</span>
                                                                                 </div>
                                                                                 <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/50 rounded text-xs">
                                                                                     <span className="text-orange-900">Suc.</span>
-                                                                                    <span className="font-bold text-orange-700">{((nut as any)?.sugars || 0)} g</span>
+                                                                                    <span className="font-bold text-orange-700 text-[9px]">{((nut as any)?.sugars || 0)} g</span>
                                                                                 </div>
                                                                                 <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/50 rounded text-xs">
                                                                                     <span className="text-orange-900">Fib.</span>
-                                                                                    <span className="font-bold text-orange-700">{((nut as any)?.fiber || 0)} g</span>
+                                                                                    <span className="font-bold text-orange-700 text-[9px]">{((nut as any)?.fiber || 0)} g</span>
                                                                                 </div>
                                                                             </div>
                                                                             <div className="flex gap-2">
                                                                                 <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/50 rounded text-xs">
                                                                                     <span className="text-orange-900">IG</span>
-                                                                                    <span className="font-bold text-orange-700">{(nut as any)?.glycemicIndex ?? "-"}</span>
+                                                                                    <span className="font-bold text-orange-700 text-[9px]">{(nut as any)?.glycemicIndex ?? "-"}</span>
                                                                                 </div>
                                                                                 <div className="flex-1 flex justify-between items-center px-2 py-1.5 bg-white/50 rounded text-xs">
                                                                                     <span className="text-orange-900">CG</span>
-                                                                                    <span className="font-bold text-orange-700">{(nut as any)?.glycemicLoad ?? "-"}</span>
+                                                                                    <span className="font-bold text-orange-700 text-[9px]">{(nut as any)?.glycemicLoad ?? "-"}</span>
                                                                                 </div>
                                                                             </div>
                                                                         </div>
@@ -2466,10 +2757,8 @@ export function ProductionContent() {
                                                             })()}
                                                         </div>
 
-                                                        {/* Informations de Coût */}
-                                                        <div className="flex-1 rounded-xl border-2 border-emerald-200 bg-emerald-50/80 p-4 shadow-sm">
-                                                            <h2 className="text-base font-bold text-emerald-700 mb-3 pb-2 border-b-2 border-emerald-600 flex items-center gap-2">
-                                                                <DollarSign className="w-5 h-5" />
+                                                        <div className="flex-1 rounded-lg border border-emerald-200 bg-emerald-50/80 p-2.5">
+                                                            <h2 className="text-xs font-bold text-emerald-700 mb-2 pb-1.5 border-b-2 border-emerald-600">
                                                                 Informations de Coût
                                                             </h2>
                                                             {(() => {
@@ -2483,31 +2772,35 @@ export function ProductionContent() {
                                                                 const lossRate = (isEditing && editData ? editData : selectedRecipe)?.costing?.lossRate || 0;
                                                                 const weightAfterLoss = totalWeight * (1 - lossRate / 100);
                                                                 const costPerKg = weightAfterLoss > 0 ? totals.totalCost / (weightAfterLoss / 1000) : 0;
+                                                                const displayItems = ((isEditing && editData ? editData : selectedRecipe)?.costing as any)?.displayItems;
+                                                                const weighings = displayItems && displayItems.length > 0
+                                                                    ? displayItems.map((item: any) => ({
+                                                                        name: item.name || (isEditing && editData ? editData : selectedRecipe)?.name,
+                                                                        weight: item.weight ?? weightAfterLoss,
+                                                                        cost: item.price ?? (costPerKg * (item.weight ?? weightAfterLoss) / 1000),
+                                                                    }))
+                                                                    : [{ name: (isEditing && editData ? editData : selectedRecipe)?.name, weight: weightAfterLoss, cost: totals.totalCost }];
                                                                 return (
-                                                                    <div className="space-y-2 text-sm">
-                                                                        <div className="flex justify-between py-1.5 border-b border-slate-200/60">
-                                                                            <span className="text-slate-600">Coût Matière</span>
-                                                                            <span className="font-bold text-slate-900">{totals.materialCost.toFixed(2)} Dh</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between py-1.5 border-b border-slate-200/60">
-                                                                            <span className="text-slate-600">Coût Total</span>
-                                                                            <span className="font-bold text-slate-900">{totals.totalCost.toFixed(2)} Dh</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between py-1.5 border-b border-slate-200/60">
-                                                                            <span className="text-slate-600">Poids Brut</span>
-                                                                            <span className="font-bold text-slate-900">{totalWeight.toLocaleString('fr-FR')} g</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between py-1.5 border-b border-slate-200/60">
-                                                                            <span className="text-slate-600">Poids Net</span>
-                                                                            <span className="font-bold text-slate-900">{weightAfterLoss.toLocaleString('fr-FR')} g</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between py-1.5 border-b border-slate-200/60">
+                                                                    <div className="space-y-3 text-sm">
+                                                                        <div className="flex justify-between py-1.5">
                                                                             <span className="text-slate-600">Coût / Kg</span>
                                                                             <span className="font-bold text-slate-900">{costPerKg.toFixed(2)} Dh</span>
                                                                         </div>
-                                                                        <div className="flex justify-between py-1.5">
-                                                                            <span className="text-slate-600">Taux de Perte</span>
-                                                                            <span className="font-bold text-slate-900">{lossRate} %</span>
+                                                                        <div className="border-t border-emerald-200 pt-3 mt-3">
+                                                                            <div className="grid grid-cols-[minmax(0,90px)_60px_1fr_65px] gap-x-2 text-[10px] font-bold text-emerald-700 uppercase tracking-wider pb-1 border-b border-emerald-200">
+                                                                                <span>Nom</span>
+                                                                                <span className="text-right">Poids</span>
+                                                                                <span />
+                                                                                <span className="text-right pl-4">Prix</span>
+                                                                            </div>
+                                                                            {weighings.map((w: { name: string; weight: number; cost: number }, i: number) => (
+                                                                                <div key={i} className="grid grid-cols-[minmax(0,90px)_60px_1fr_65px] gap-x-2 py-1.5 border-b border-slate-200/60 text-xs">
+                                                                                    <span className="text-slate-700 truncate">{w.name}</span>
+                                                                                    <span className="text-slate-600 text-right">{w.weight.toLocaleString('fr-FR')} g</span>
+                                                                                    <span />
+                                                                                    <span className="font-bold text-slate-900 text-right pl-4">{w.cost.toFixed(2)} Dh</span>
+                                                                                </div>
+                                                                            ))}
                                                                         </div>
                                                                     </div>
                                                                 );

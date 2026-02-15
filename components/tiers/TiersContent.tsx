@@ -8,10 +8,13 @@ import { cn, formatPhoneNumber } from "@/lib/utils";
 import { saveTier, deleteTier, getTiers } from "@/lib/data-service";
 import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
 import { Tier } from "@/lib/types";
+import { useInvoices, useClientInvoices } from "@/lib/hooks/use-data";
 
 export function TiersContent({ initialTiers }: { initialTiers: Tier[] }) {
     // State
     const [tiers, setTiers] = useState<Tier[]>(initialTiers);
+    const { data: purchaseInvoices = [] } = useInvoices();
+    const { data: clientInvoices = [] } = useClientInvoices();
     const [selectedTier, setSelectedTier] = useState<Tier | null>(null);
     const [typeFilter, setTypeFilter] = useState<"TOUS" | "Fournisseur" | "Client">("TOUS");
     const [searchQuery, setSearchQuery] = useState("");
@@ -38,6 +41,19 @@ export function TiersContent({ initialTiers }: { initialTiers: Tier[] }) {
             (tier.phone && tier.phone.includes(searchQuery));
         return matchesType && matchesSearch;
     });
+
+    // Afficher le premier tiers de la liste filtrée (panneau droit) après changement du sélecteur
+    useEffect(() => {
+        if (filteredTiers.length === 0) {
+            if (selectedTier?.id !== "new") setSelectedTier(null);
+            return;
+        }
+        if (selectedTier?.id === "new") return; // Ne pas écraser la création en cours
+        const currentInList = selectedTier && filteredTiers.some(t => t.id === selectedTier.id);
+        if (!currentInList) {
+            setSelectedTier(filteredTiers[0]);
+        }
+    }, [filteredTiers]);
 
     // Auto-Code Generation
     const getNextTierCode = (type: "Fournisseur" | "Client"): string => {
@@ -256,6 +272,8 @@ export function TiersContent({ initialTiers }: { initialTiers: Tier[] }) {
                 < div className="flex-1 bg-[#F2F2F7] p-0 overflow-hidden flex flex-col" >
                     <TiersEditor
                         tier={selectedTier}
+                        purchaseInvoices={purchaseInvoices}
+                        clientInvoices={clientInvoices}
                         onSave={async (savedTier) => {
                             let updatedTier = { ...savedTier };
                             if (savedTier.id === "new") {

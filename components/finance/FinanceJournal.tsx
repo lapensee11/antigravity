@@ -2,6 +2,7 @@ import { Transaction, Invoice } from "@/lib/types";
 import { Check, Edit2, Copy, Trash2, X, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
+import { Pagination } from "@/components/ui/Pagination";
 
 interface FinanceJournalProps {
     transactions: Transaction[];
@@ -10,19 +11,27 @@ interface FinanceJournalProps {
     onEdit: (id: string) => void;
     onDuplicate: (id: string) => void;
     onDelete: (id: string) => void;
-    onUpdate?: (transaction: Transaction) => void; // New prop for updating
+    onUpdate?: (transaction: Transaction) => void;
     invoices?: Invoice[];
-    tiers?: string[]; // New prop for tiers list
+    tiers?: string[];
     isAddingNew?: boolean;
     onSaveNew?: (transaction: Partial<Transaction>) => void;
     onCancelNew?: () => void;
+    total?: number;
+    totalCredit?: number;
+    totalDebit?: number;
+    page?: number;
+    pageSize?: number;
+    onPageChange?: (page: number) => void;
+    onPageSizeChange?: (pageSize: number) => void;
+    isLoading?: boolean;
 }
 
 export function FinanceJournal({
     transactions,
     accountType,
     onToggleReconcile,
-    onEdit, // Currently unused in favor of internal edit state, but kept for signature
+    onEdit,
     onDuplicate,
     onDelete,
     onUpdate,
@@ -30,7 +39,15 @@ export function FinanceJournal({
     tiers = [],
     isAddingNew = false,
     onSaveNew,
-    onCancelNew
+    onCancelNew,
+    total = 0,
+    totalCredit = 0,
+    totalDebit = 0,
+    page = 0,
+    pageSize = 50,
+    onPageChange,
+    onPageSizeChange,
+    isLoading = false
 }: FinanceJournalProps) {
     // New Transaction State
     const [newTx, setNewTx] = useState<Partial<Transaction>>({
@@ -175,42 +192,53 @@ export function FinanceJournal({
         return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     };
 
+    const showPagination = total > (pageSize || 50) && onPageChange;
+
     return (
-        <div className="w-full pb-20 px-8">
+        <div className="w-full flex flex-col flex-1 min-h-0 px-8 pt-0">
             <datalist id="tiers-list">
                 {tiers.map((t, i) => <option key={i} value={t} />)}
             </datalist>
 
             <div className={cn(
-                "overflow-hidden rounded-2xl border-2 transition-colors duration-500 bg-white shadow-sm",
+                "flex flex-col flex-1 min-h-0 rounded-2xl border-2 transition-colors duration-500 bg-white shadow-sm overflow-hidden",
                 accountType === "Banque" ? "border-[#C8A890]/30" :
                     accountType === "Caisse" ? "border-[#93BFA2]/30" :
                         accountType === "Coffre" ? "border-[#98B2C2]/30" : "border-slate-200"
             )}>
-                <table className="w-full text-sm border-collapse">
-                    <thead className={cn(
-                        "text-xs uppercase font-semibold transition-colors duration-500",
-                        accountType === "Banque" ? "bg-[#F2DAC3]/10 text-[#C8A890]" :
-                            accountType === "Caisse" ? "bg-[#C4E4CF]/10 text-[#93BFA2]" :
-                                accountType === "Coffre" ? "bg-[#D6E4EB]/10 text-[#98B2C2]" : "bg-slate-50 text-slate-500"
-                    )}>
-                        <tr className={cn(
-                            "border-b transition-colors duration-500",
-                            accountType === "Banque" ? "border-[#C8A890]/20" :
-                                accountType === "Caisse" ? "border-[#93BFA2]/20" :
-                                    accountType === "Coffre" ? "border-[#98B2C2]/20" : "border-slate-200"
+                {/* Header fixe */}
+                <div className="shrink-0 overflow-hidden">
+                    <table className="w-full text-sm border-collapse table-fixed">
+                        <colgroup>
+                            <col className="w-[40px]" /><col className="w-[128px]" /><col className="w-[192px]" /><col className="w-[256px]" /><col className="w-[160px]" /><col className="w-[160px]" /><col className="w-[112px]" /><col className="w-[112px]" /><col className="w-[144px]" />
+                        </colgroup>
+                        <thead className={cn(
+                            "text-xs uppercase font-semibold transition-colors duration-500",
+                            accountType === "Banque" ? "bg-[#F2DAC3]/30 text-[#5D4037]" :
+                                accountType === "Caisse" ? "bg-[#C4E4CF]/30 text-[#2D5A3D]" :
+                                    accountType === "Coffre" ? "bg-[#D6E4EB]/30 text-[#3D5A6A]" : "bg-slate-50 text-slate-500"
                         )}>
-                            <th className="px-2 py-3 text-center w-10 border-r border-slate-200/50">P.</th>
-                            <th className="px-2 py-3 text-left w-32 border-r border-slate-200/50">Date</th>
-                            <th className="px-2 py-3 text-left w-48 border-r border-slate-200/50">Tiers</th>
-                            <th className="px-2 py-3 text-left w-64 border-r border-slate-200/50">Libellé</th>
-                            <th className="px-2 py-3 text-left w-40 border-r border-slate-200/50">N° Pièce</th>
-                            <th className="px-2 py-3 text-left w-40 border-r border-slate-200/50">N° Facture(s)</th>
-                            <th className="px-2 py-3 text-right text-red-600 w-28 border-r border-slate-200/50">Débit</th>
-                            <th className="px-2 py-3 text-right text-green-600 w-28 border-r border-slate-200/50">Crédit</th>
-                            <th className="px-2 py-3 text-right w-36 pl-4">Actions</th>
-                        </tr>
-                    </thead>
+                            <tr className={cn("border-b-2", accountType === "Banque" ? "border-[#C8A890]/30" : accountType === "Caisse" ? "border-[#93BFA2]/30" : accountType === "Coffre" ? "border-[#98B2C2]/30" : "border-slate-200")}>
+                                <th className="px-2 py-3 text-center border-r border-slate-200/50">P.</th>
+                                <th className="px-2 py-3 text-left border-r border-slate-200/50">Date</th>
+                                <th className="px-2 py-3 text-left border-r border-slate-200/50">Tiers</th>
+                                <th className="px-2 py-3 text-left border-r border-slate-200/50">Libellé</th>
+                                <th className="px-2 py-3 text-left border-r border-slate-200/50">N° Pièce</th>
+                                <th className="px-2 py-3 text-left border-r border-slate-200/50">N° Facture(s)</th>
+                                <th className="px-2 py-3 text-right text-red-600 border-r border-slate-200/50">Débit</th>
+                                <th className="px-2 py-3 text-right text-green-600 border-r border-slate-200/50">Crédit</th>
+                                <th className="px-2 py-3 text-right pl-4">Actions</th>
+                            </tr>
+                        </thead>
+                    </table>
+                </div>
+
+                {/* Corps scrollable (seul le tbody scroll) */}
+                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar border-t-0">
+                    <table className="w-full text-sm border-collapse table-fixed">
+                        <colgroup>
+                            <col className="w-[40px]" /><col className="w-[128px]" /><col className="w-[192px]" /><col className="w-[256px]" /><col className="w-[160px]" /><col className="w-[160px]" /><col className="w-[112px]" /><col className="w-[112px]" /><col className="w-[144px]" />
+                        </colgroup>
                     <tbody className="divide-y divide-slate-100">
                         {/* New Transaction Row */}
                         {isAddingNew && (
@@ -513,8 +541,46 @@ export function FinanceJournal({
                             );
                         })}
                     </tbody>
-                </table>
+                    </table>
+                </div>
+
+                {/* Footer du tableau intégré */}
+                <div className={cn(
+                    "shrink-0 text-xs font-bold border-t-2 transition-colors duration-500 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]",
+                    accountType === "Banque" ? "bg-[#F2DAC3]/30 border-[#C8A890]/40 text-[#5D4037]" :
+                        accountType === "Caisse" ? "bg-[#C4E4CF]/30 border-[#93BFA2]/40 text-[#2D5A3D]" :
+                            accountType === "Coffre" ? "bg-[#D6E4EB]/30 border-[#98B2C2]/40 text-[#3D5A6A]" : "bg-slate-50 border-slate-200 text-slate-700"
+                )}>
+                    <table className="w-full text-sm border-collapse table-fixed">
+                        <colgroup>
+                            <col className="w-[40px]" /><col className="w-[128px]" /><col className="w-[192px]" /><col className="w-[256px]" /><col className="w-[160px]" /><col className="w-[160px]" /><col className="w-[112px]" /><col className="w-[112px]" /><col className="w-[144px]" />
+                        </colgroup>
+                        <tbody>
+                            <tr>
+                                <td colSpan={6} className="px-2 py-3 text-right font-bold">Totaux sélection</td>
+                                <td className="px-2 py-3 text-right text-red-600 font-mono">{totalDebit.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}</td>
+                                <td className="px-2 py-3 text-right text-green-600 font-mono">{totalCredit.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}</td>
+                                <td className="px-2 py-3" />
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
+
+            {showPagination ? (
+                <div className="shrink-0 py-3 px-6 bg-[#F6F9FD] border-t border-slate-200/50">
+                    <div className="max-w-4xl mx-auto">
+                        <Pagination
+                            page={page}
+                            pageSize={pageSize}
+                            total={total}
+                            totalPages={Math.ceil(total / pageSize)}
+                            onPageChange={onPageChange}
+                            onPageSizeChange={onPageSizeChange}
+                        />
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }

@@ -1,6 +1,8 @@
 import React, { useRef, useState, forwardRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Trash2, Plus, Calendar } from "lucide-react";
+import { Trash2, Plus, Printer } from "lucide-react";
+import { CheckPrintModal } from "../CheckPrintModal";
+import { generateCheckPdf } from "@/lib/check-pdf";
 import { cn } from "@/lib/utils";
 import { DateInput } from "@/components/ui/DateInput";
 
@@ -26,6 +28,7 @@ interface InvoicePaymentsProps {
     invoiceSyncTime?: string;
     balanceDue: number;
     deposit: number;
+    supplierName?: string;
     onExit?: () => void;
 }
 
@@ -92,6 +95,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
     invoiceSyncTime,
     balanceDue,
     deposit,
+    supplierName = "",
     onExit
 }) => {
     // Refs
@@ -107,6 +111,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
     const [activePaymentRow, setActivePaymentRow] = useState<number | null>(null);
     const [paymentModeFocusIndex, setPaymentModeFocusIndex] = useState<number>(-1);
     const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+    const [checkPrintPaymentIndex, setCheckPrintPaymentIndex] = useState<number | null>(null);
 
     // Click outside handler for payment mode dropdown
     useEffect(() => {
@@ -181,7 +186,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                 <th className="px-4 py-3 text-center w-24">Compte</th>
                                 <th className="px-4 py-3 text-left w-32">N° Pièce/Chèque</th>
                                 <th className="px-4 py-3 text-left">Note</th>
-                                <th className="px-2 py-3 w-8"></th>
+                                <th className="px-2 py-3 text-center w-20">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -443,24 +448,36 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                             />
                                         </td>
 
-                                        {/* Delete */}
-                                        <td className="px-2 py-2 text-center">
-                                            <button
-                                                onClick={() => {
-                                                    const newPayments = payments.filter((_, i) => i !== index);
-                                                    onPaymentsChange(newPayments);
-                                                }}
-                                                className="text-slate-300 hover:text-red-500 transition-colors"
-                                            >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
+                                        {/* Actions */}
+                                        <td className="px-2 py-2">
+                                            <div className="flex items-center justify-center gap-1">
+                                                {payment.mode === "Chèques" && (
+                                                    <button
+                                                        onClick={() => setCheckPrintPaymentIndex(index)}
+                                                        className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                                        title="Imprimer chèque"
+                                                    >
+                                                        <Printer className="w-4 h-4" />
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => {
+                                                        const newPayments = payments.filter((_, i) => i !== index);
+                                                        onPaymentsChange(newPayments);
+                                                    }}
+                                                    className="p-1.5 text-slate-300 hover:text-red-500 transition-colors"
+                                                    title="Supprimer"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 );
                             })}
                             {(payments.length === 0) && (
                                 <tr>
-                                    <td colSpan={7} className="py-6 text-center text-slate-400 italic text-xs">
+                                    <td colSpan={8} className="py-6 text-center text-slate-400 italic text-xs">
                                         Aucun paiement. Cliquez sur le bouton "+".
                                     </td>
                                 </tr>
@@ -469,6 +486,24 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                     </table>
                 </div>
             </div>
+
+            {checkPrintPaymentIndex !== null && payments[checkPrintPaymentIndex] && (
+                <CheckPrintModal
+                    amount={payments[checkPrintPaymentIndex].amount}
+                    ordre={supplierName}
+                    onClose={() => setCheckPrintPaymentIndex(null)}
+                    onPrint={(data) => {
+                        try {
+                            const blob = generateCheckPdf(data);
+                            const url = URL.createObjectURL(blob);
+                            window.open(url, "_blank", "noopener,noreferrer");
+                        } catch (err) {
+                            console.error("Erreur impression chèque:", err);
+                            alert("Erreur lors de la génération du PDF.");
+                        }
+                    }}
+                />
+            )}
 
             {/* Financial Summary */}
             <div className="flex justify-end -mt-3">

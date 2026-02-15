@@ -3,98 +3,66 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { FinanceJournal } from "@/components/finance/FinanceJournal";
 import { Transaction } from "@/lib/types";
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { Wallet, Landmark, Archive, Search, Calendar, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { saveTransaction, deleteTransaction, getTransactions } from "@/lib/data-service";
-import { useInvoices } from "@/lib/hooks/use-data";
+import { useQueryClient } from "@tanstack/react-query";
+import { useInvoices, useTransactionsPaginated, useAccountBalances, useTransactionMutation, useTransactionDeletion } from "@/lib/hooks/use-data";
 import { BankReconciliationModal } from "./BankReconciliationModal";
 import { Scale } from "lucide-react";
-import { useEffect } from "react";
 
-export function FinanceContent({ initialTransactions }: { initialTransactions: Transaction[] }) {
+export function FinanceContent() {
     const { data: invoices = [] } = useInvoices();
-    const [transactions, setTransactions] = useState<Transaction[]>(initialTransactions);
     const [activeAccount, setActiveAccount] = useState<"Banque" | "Caisse" | "Coffre">("Banque");
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [isReconModalOpen, setIsReconModalOpen] = useState(false);
-
-    // Refresh transactions function
-    const refreshTransactions = async () => {
-        const updatedTransactions = await getTransactions();
-        setTransactions(updatedTransactions);
-    };
-
-    const handleReconModalClose = () => {
-        setIsReconModalOpen(false);
-    };
-
-    const handleTransactionsUpdated = async () => {
-        // Refresh transactions immediately when reconciliation happens
-        await refreshTransactions();
-    };
-
+    const [page, setPage] = useState(0);
+    const [pageSize, setPageSize] = useState(50);
     const [searchQuery, setSearchQuery] = useState("");
     const [periodFilter, setPeriodFilter] = useState<"Toutes" | "Quinzaine" | "Mois" | "Période">("Toutes");
     const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: "", end: "" });
 
-    // Derive balances from all transactions
-    const balances = useMemo(() => {
-        const stats = { Banque: 0, Caisse: 0, Coffre: 0 };
-        transactions.forEach(t => {
-            const amount = t.type === "Recette" ? t.amount : -t.amount;
-            if (stats[t.account] !== undefined) {
-                stats[t.account] += amount;
-            }
-        });
-        return stats;
-    }, [transactions]);
+    const queryClient = useQueryClient();
+    const transactionMutation = useTransactionMutation();
+    const transactionDeletion = useTransactionDeletion();
 
-    const filteredTransactions = transactions.filter(t => {
-        if (t.account !== activeAccount) return false;
+    const { data: balancesData } = useAccountBalances();
+    const balances = balancesData ?? { Banque: 0, Caisse: 0, Coffre: 0 };
 
-        if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            const matchesLabel = t.label.toLowerCase().includes(query);
-            const matchesAmount = t.amount.toString().includes(query);
-            const matchesCategory = t.category.toLowerCase().includes(query);
-            const matchesTier = t.tier?.toLowerCase().includes(query);
+    const { data: paginatedData, isLoading: transactionsLoading } = useTransactionsPaginated({
+        page,
+        pageSize,
+        filters: {
+            account: activeAccount,
+            periodFilter,
+            dateFrom: dateRange.start || undefined,
+            dateTo: dateRange.end || undefined,
+            searchQuery: searchQuery || undefined,
+        },
+    });
 
-            if (!matchesLabel && !matchesAmount && !matchesCategory && !matchesTier) return false;
-        }
+    const transactions = paginatedData?.transactions ?? [];
+    const total = paginatedData?.total ?? 0;
+    const totalCredit = paginatedData?.totalCredit ?? 0;
+    const totalDebit = paginatedData?.totalDebit ?? 0;
+    const uniqueTiers = [...new Set([...(paginatedData?.uniqueTiers ?? []), "Client Divers", "Fournisseur X"])].filter(Boolean).sort();
 
-        const tDate = new Date(t.date);
-        const now = new Date();
+    useEffect(() => setPage(0), [activeAccount, periodFilter, dateRange.start, dateRange.end, searchQuery]);
 
-        if (periodFilter === "Mois") {
-            if (tDate.getMonth() !== now.getMonth() || tDate.getFullYear() !== now.getFullYear()) return false;
-        } else if (periodFilter === "Quinzaine") {
-            const diffTime = Math.abs(now.getTime() - tDate.getTime());
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            if (diffDays > 15) return false;
-        } else if (periodFilter === "Période") {
-            if (dateRange.start && tDate < new Date(dateRange.start)) return false;
-            if (dateRange.end && tDate > new Date(dateRange.end)) return false;
-        }
-
-        return true;
-    }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    const totalCredit = filteredTransactions.filter(t => t.type === "Recette").reduce((acc, t) => acc + t.amount, 0);
-    const totalDebit = filteredTransactions.filter(t => t.type === "Depense").reduce((acc, t) => acc + t.amount, 0);
+    const handleReconModalClose = () => setIsReconModalOpen(false);
+    const handleTransactionsUpdated = () => {
+        queryClient.invalidateQueries({ queryKey: ["transactions"] });
+        queryClient.invalidateQueries({ queryKey: ["accountBalances"] });
+    };
 
     const handleToggleReconcile = async (id: string) => {
         const tx = transactions.find(t => t.id === id);
         if (!tx) return;
-
-        const updatedTx = {
+        await transactionMutation.mutateAsync({
             ...tx,
             isReconciled: !tx.isReconciled,
             reconciledDate: !tx.isReconciled ? new Date().toISOString() : undefined
-        };
-
-        setTransactions(prev => prev.map(t => t.id === id ? updatedTx : t));
-        await saveTransaction(updatedTx);
+        });
     };
 
     const handleDuplicate = async (id: string) => {
@@ -107,15 +75,13 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
                 isReconciled: false,
                 reconciledDate: undefined
             };
-            setTransactions([newTx, ...transactions]);
-            await saveTransaction(newTx);
+            await transactionMutation.mutateAsync(newTx);
         }
     };
 
     const handleDelete = async (id: string) => {
         if (confirm("Voulez-vous vraiment supprimer cette opération ?")) {
-            setTransactions(prev => prev.filter(t => t.id !== id));
-            await deleteTransaction(id);
+            await transactionDeletion.mutateAsync(id);
         }
     };
 
@@ -132,18 +98,13 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
             pieceNumber: newTx.pieceNumber,
             isReconciled: false
         };
-
-        setTransactions([transaction, ...transactions]);
+        await transactionMutation.mutateAsync(transaction);
         setIsAddingNew(false);
-        await saveTransaction(transaction);
     };
 
     const handleUpdateTransaction = async (updatedTx: Transaction) => {
-        setTransactions(prev => prev.map(t => t.id === updatedTx.id ? updatedTx : t));
-        await saveTransaction(updatedTx);
+        await transactionMutation.mutateAsync(updatedTx);
     };
-
-    const uniqueTiers = Array.from(new Set([...transactions.map(t => t.tier || ""), "Client Divers", "Fournisseur X"])).filter(Boolean).sort();
 
     return (
         <div className="flex bg-[#F6F9FD] min-h-screen">
@@ -237,7 +198,7 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+                    <div className="grid grid-cols-1 xl:grid-cols-3 xl:grid-rows-[auto_1fr] gap-x-6 gap-y-1 overflow-hidden flex-1 min-h-0">
                         <div className="flex flex-col gap-3 w-full">
                             <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-slate-200 w-full h-[54px] items-center">
                                 {["Toutes", "Quinzaine", "Mois", "Période"].map((p) => (
@@ -356,9 +317,9 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
                         </div>
                     </div>
 
-                    <div className="flex-1 flex flex-col gap-4 overflow-hidden">
+                    <div className="flex flex-col gap-0 xl:col-span-3 pt-0 min-h-0 overflow-hidden">
                         <FinanceJournal
-                            transactions={filteredTransactions}
+                            transactions={transactions}
                             invoices={invoices}
                             accountType={activeAccount}
                             onToggleReconcile={handleToggleReconcile}
@@ -370,6 +331,14 @@ export function FinanceContent({ initialTransactions }: { initialTransactions: T
                             isAddingNew={isAddingNew}
                             onSaveNew={handleSaveNewTransaction}
                             onCancelNew={() => setIsAddingNew(false)}
+                            total={total}
+                            totalCredit={totalCredit}
+                            totalDebit={totalDebit}
+                            page={page}
+                            pageSize={pageSize}
+                            onPageChange={setPage}
+                            onPageSizeChange={(size) => { setPageSize(size); setPage(0); }}
+                            isLoading={transactionsLoading}
                         />
                     </div>
                 </div>

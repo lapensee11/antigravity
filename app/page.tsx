@@ -33,8 +33,8 @@ export default function Home() {
             setData({
                 revenue: stats.totalSales,
                 prevRevenue: stats.prevTotalSales,
-                materialCost: stats.pendingAmount,
-                prevMaterialCost: stats.prevTotalSales * 0.3, // Simulated previous month expenses
+                materialCost: stats.materialCost ?? stats.pendingAmount,
+                prevMaterialCost: stats.prevMaterialCost ?? 0,
                 grossMargin: stats.totalSales - (stats.pendingAmount * 0.4), // Simulated
                 marginRate: 60,
                 laborCost: stats.lastClosedMonthLaborCost || 0,
@@ -56,6 +56,7 @@ export default function Home() {
                 monthlyComparison: (stats.monthlyComparison && stats.monthlyComparison.length > 0) 
                     ? stats.monthlyComparison 
                     : defaultMonthlyData,
+                monthlyFamilySales: stats.monthlyFamilySales || [],
                 tableCounts: {
                     articles: tableCounts.articles,
                     tiers: tableCounts.tiers,

@@ -8,6 +8,7 @@ import { Pagination } from "@/components/ui/Pagination";
 
 interface InvoiceListProps {
     invoices: Invoice[];
+    allInvoices?: Invoice[];
     selectedInvoiceId: string | null;
     onSelectInvoice: (invoice: Invoice | null) => void;
     suppliers: Tier[];
@@ -21,6 +22,7 @@ interface InvoiceListProps {
 
 export function InvoiceList({
     invoices,
+    allInvoices = [],
     selectedInvoiceId,
     onSelectInvoice,
     suppliers,
@@ -38,9 +40,13 @@ export function InvoiceList({
     const [sortColumn, setSortColumn] = useState<"date" | "supplier" | "number" | "total" | null>(null);
     const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
+    // When any filter is active, search across ALL invoices; otherwise use paginated subset
+    const hasActiveFilter = !!(supplierSearch || dateFrom || dateTo || declaredFilter !== "Tous");
+    const invoicesToFilter = hasActiveFilter ? allInvoices : invoices;
+
     // Filter invoices
     const filteredInvoices = useMemo(() => {
-        let filtered = invoices;
+        let filtered = invoicesToFilter;
 
         // Date filter
         if (dateFrom) {
@@ -106,7 +112,7 @@ export function InvoiceList({
         });
 
         return filtered;
-    }, [invoices, dateFrom, dateTo, declaredFilter, supplierSearch, suppliers, sortColumn, sortDirection]);
+    }, [invoicesToFilter, dateFrom, dateTo, declaredFilter, supplierSearch, suppliers, sortColumn, sortDirection]);
 
     const totalTTC = filteredInvoices.reduce((sum, inv) => sum + (inv.totalTTC || 0), 0);
     const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -365,7 +371,7 @@ export function InvoiceList({
                             </th>
                             <th className="px-4 py-3 text-center text-xs font-bold text-white uppercase">
                                 <div className="flex items-center justify-center gap-1">
-                                    <span>Décl</span>
+                                    <span>D-S</span>
                                 </div>
                             </th>
                         </tr>
@@ -445,8 +451,12 @@ export function InvoiceList({
                 </table>
             </div>
             
-            {/* Pagination */}
-            {total !== undefined && onPageChange && (
+            {/* Pagination : masquée quand filtres actifs (on affiche toutes les factures correspondantes) */}
+            {hasActiveFilter ? (
+                <div className="p-4 border-t border-slate-200 bg-white text-center text-sm text-slate-600">
+                    {filteredInvoices.length} facture{filteredInvoices.length > 1 ? "s" : ""} correspondant aux critères
+                </div>
+            ) : total !== undefined && onPageChange ? (
                 <div className="p-4 border-t border-slate-200 bg-white">
                     <Pagination
                         page={page}
@@ -457,7 +467,7 @@ export function InvoiceList({
                         onPageSizeChange={onPageSizeChange}
                     />
                 </div>
-            )}
+            ) : null}
         </div>
     );
 }

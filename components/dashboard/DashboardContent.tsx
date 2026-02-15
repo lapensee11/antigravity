@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { CashOutflowModal } from "@/components/dashboard/CashOutflowModal";
 import { motion } from "framer-motion";
 import {
     TrendingUp,
@@ -44,6 +46,7 @@ interface DashboardProps {
         staffCount: number;
         chartData: { name: string; revenue: number; margin: number }[];
         monthlyComparison: { month: string; currentYear: number; prevYear: number }[];
+        monthlyFamilySales?: { month: string; families: Record<string, number> }[];
         tableCounts?: {
             articles: number;
             tiers: number;
@@ -60,12 +63,14 @@ interface DashboardProps {
 }
 
 export function DashboardContent({ data }: DashboardProps) {
+    const [cashOutflowModalOpen, setCashOutflowModalOpen] = useState(false);
     if (!data) return <div>Erreur lors du chargement des données.</div>;
 
+    const fmt = (n: number) => Math.round(n).toLocaleString("fr-FR", { maximumFractionDigits: 0, minimumFractionDigits: 0 });
     const cards = [
         {
             title: "Ventes (Mois)",
-            value: `${data.revenue.toLocaleString()} DH`,
+            value: `${fmt(data.revenue)} DH`,
             change: data.prevRevenue > 0
                 ? `${(((data.revenue - data.prevRevenue) / data.prevRevenue) * 100).toFixed(1)}%`
                 : "N/A",
@@ -73,11 +78,11 @@ export function DashboardContent({ data }: DashboardProps) {
             icon: DollarSign,
             color: "text-blue-600",
             bg: "bg-blue-50",
-            subValue: `Précédent: ${data.prevRevenue.toLocaleString()} DH`
+            subValue: `Précédent: ${fmt(data.prevRevenue)} DH`
         },
         {
             title: "Dépenses (Mois)",
-            value: `${data.materialCost.toLocaleString()} DH`,
+            value: `${fmt(data.materialCost)} DH`,
             change: (data.prevMaterialCost ?? 0) > 0
                 ? `${(((data.materialCost - (data.prevMaterialCost ?? 0)) / (data.prevMaterialCost ?? 1)) * 100).toFixed(1)}%`
                 : "N/A",
@@ -85,25 +90,26 @@ export function DashboardContent({ data }: DashboardProps) {
             icon: TrendingDown,
             color: "text-red-600",
             bg: "bg-red-50",
-            subValue: `Précédent: ${(data.prevMaterialCost ?? 0).toLocaleString()} DH`
+            subValue: `Précédent: ${fmt(data.prevMaterialCost ?? 0)} DH`
         },
         {
             title: "Masse Salariale",
-            value: `${data.laborCost.toLocaleString()} DH`,
+            value: `${fmt(data.laborCost)} DH`,
             change: data.laborRatio > 0 ? `${data.laborRatio.toFixed(1)}% du CA` : "N/A",
-            trend: "up", // Always green for percentage display
+            trend: "up",
             icon: Users,
             color: "text-purple-600",
             bg: "bg-purple-50"
         },
         {
-            title: "Recettes / Sous-Recettes",
-            value: `${data.recipeCount} / ${data.subRecipeCount || 0}`,
-            change: "Total",
+            title: "Sorties Caisse",
+            value: "Saisie",
+            change: "Par jour",
             trend: "neutral",
-            icon: ChefHat,
+            icon: Wallet,
             color: "text-orange-600",
-            bg: "bg-orange-50"
+            bg: "bg-orange-50",
+            onClick: true as const,
         }
     ];
 
@@ -114,11 +120,11 @@ export function DashboardContent({ data }: DashboardProps) {
         // Row 1
         { icon: FileText, label: "Achats", href: "/achats", color: "bg-blue-200", hoverColor: "hover:bg-blue-300", iconColor: "text-blue-600", textColor: "text-blue-900" },
         { icon: ShoppingCart, label: "Ventes", href: "/ventes", color: "bg-orange-200", hoverColor: "hover:bg-orange-300", iconColor: "text-orange-600", textColor: "text-orange-900" },
-        { icon: Landmark, label: "Banque", href: "/finance", color: "bg-cyan-200", hoverColor: "hover:bg-cyan-300", iconColor: "text-cyan-600", textColor: "text-cyan-900" },
+        { icon: Landmark, label: "Banque", href: "/finance", color: "bg-amber-200", hoverColor: "hover:bg-amber-300", iconColor: "text-amber-600", textColor: "text-amber-900" },
         // Row 2
-        { icon: Package, label: "Articles", href: "/articles", color: "bg-green-200", hoverColor: "hover:bg-green-300", iconColor: "text-green-600", textColor: "text-green-900" },
+        { icon: Package, label: "Articles", href: "/articles", color: "bg-sky-200", hoverColor: "hover:bg-sky-300", iconColor: "text-sky-600", textColor: "text-sky-900" },
         { icon: Users, label: "Tiers", href: "/tiers", color: "bg-purple-200", hoverColor: "hover:bg-purple-300", iconColor: "text-purple-600", textColor: "text-purple-900" },
-        { icon: ChefHat, label: "Production", href: "/production", color: "bg-indigo-200", hoverColor: "hover:bg-indigo-300", iconColor: "text-indigo-600", textColor: "text-indigo-900" },
+        { icon: ChefHat, label: "Production", href: "/production", color: "bg-green-200", hoverColor: "hover:bg-green-300", iconColor: "text-green-600", textColor: "text-green-900" },
     ];
 
     // Generate monthly chart data (annuel)
@@ -149,9 +155,34 @@ export function DashboardContent({ data }: DashboardProps) {
         pastelColors.purple, pastelColors.orange, pastelColors.green, pastelColors.cyan
     ];
 
-    // Generate daily chart data (mensuel) - using chartData as base
-    const monthlyChartData = data.chartData || [];
-    const monthlyMaxValue = Math.max(...monthlyChartData.map(d => d.revenue), 1);
+    // Familles de vente principales - évolution mensuelle (courbes)
+    const monthlyFamilySales = data.monthlyFamilySales || [];
+    const familyLabels: Record<string, string> = {
+        "BOULANGERIE": "Boulangerie",
+        "CROIS.": "Croissants",
+        "VIEN.": "Viennoiseries",
+        "PAT INDIVID.": "Pâtisserie indiv.",
+        "PAT ENTRE.": "Pâtisserie entreprise",
+        "FOURS SECS": "Fours secs",
+        "BELDI": "Beldi",
+        "PRÉ-EMB.": "Pré-emballés",
+        "SALÉS": "Salés",
+        "CONFISERIE": "Confiserie",
+        "PAIN SG": "Pain SG",
+        "GÂTEAUX SG": "Gâteaux SG"
+    };
+    const familyKeys = Object.keys(familyLabels);
+    const familyTotals = familyKeys.reduce((acc, k) => {
+        acc[k] = monthlyFamilySales.reduce((s, m) => s + (m.families[k] || 0), 0);
+        return acc;
+    }, {} as Record<string, number>);
+    const topFamilies = familyKeys
+        .filter(k => familyTotals[k] > 0)
+        .sort((a, b) => familyTotals[b] - familyTotals[a])
+        .slice(0, 6);
+    const familyEvolutionMax = topFamilies.length > 0
+        ? Math.max(...topFamilies.flatMap(f => monthlyFamilySales.map(m => m.families[f] || 0)), 1)
+        : 1;
 
     return (
         <div className="flex min-h-screen bg-[#F6F8FC] font-outfit">
@@ -198,7 +229,13 @@ export function DashboardContent({ data }: DashboardProps) {
                             animate={{ opacity: 1, scale: 1 }}
                             transition={{ delay: idx * 0.1 }}
                         >
-                            <GlassCard className="p-6 border-none shadow-xl shadow-slate-200/50 hover:shadow-2xl hover:scale-[1.02] transition-all cursor-default overflow-hidden relative group">
+                            <GlassCard
+                                className={cn(
+                                    "p-6 border-none shadow-xl shadow-slate-200/50 hover:shadow-2xl hover:scale-[1.02] transition-all overflow-hidden relative group",
+                                    (card as any).onClick ? "cursor-pointer" : "cursor-default"
+                                )}
+                                onClick={(card as any).onClick ? () => setCashOutflowModalOpen(true) : undefined}
+                            >
                                 <div className={cn("absolute top-0 right-0 w-24 h-24 blur-3xl opacity-20 transition-all group-hover:opacity-40", card.bg)} />
                                 <div className="flex justify-between items-start mb-4 relative z-10">
                                     <div className={cn("p-3 rounded-2xl", card.bg)}>
@@ -218,14 +255,14 @@ export function DashboardContent({ data }: DashboardProps) {
                                     <h3 className="text-slate-500 font-medium text-sm mb-1">{card.title}</h3>
                                     {(card.title === "Ventes (Mois)" || card.title === "Dépenses (Mois)") && (card as any).subValue ? (
                                         <div className="flex items-baseline justify-between gap-2">
-                                            <p className="text-3xl font-extrabold text-slate-800 tracking-tight">{card.value}</p>
+                                            <p className="text-2xl font-extrabold text-slate-800 tracking-tight">{card.value}</p>
                                             <p className="text-[10px] text-slate-400 font-bold italic whitespace-nowrap">
                                                 {(card as any).subValue}
                                             </p>
                                         </div>
                                     ) : (
                                         <>
-                                            <p className="text-3xl font-extrabold text-slate-800 tracking-tight">{card.value}</p>
+                                            <p className="text-2xl font-extrabold text-slate-800 tracking-tight">{card.value}</p>
                                             {(card as any).subValue && (
                                                 <p className="text-[10px] text-slate-400 mt-1 font-bold italic">
                                                     {(card as any).subValue}
@@ -330,85 +367,75 @@ export function DashboardContent({ data }: DashboardProps) {
                         </div>
                     </GlassCard>
 
-                    {/* Graphique Mensuel */}
+                    {/* Évolution des familles de vente principales (courbes) */}
                     <GlassCard className="p-6 border-none shadow-xl shadow-slate-200/50">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                                <Calendar className="w-5 h-5 text-green-500" />
-                                Comparaison Mensuelle
+                                <TrendingUp className="w-5 h-5 text-green-500" />
+                                Évolution familles de vente
                             </h3>
-                            <div className="flex gap-3 text-xs font-bold">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-blue-300 rounded-full" />
-                                    <span className="text-slate-600">REVENU</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-green-300 rounded-full" />
-                                    <span className="text-slate-600">MARGE</span>
-                                </div>
+                            <div className="flex flex-wrap gap-2 justify-end text-[10px] font-bold max-w-[280px]">
+                                {topFamilies.map((f, i) => (
+                                    <div key={f} className="flex items-center gap-1.5">
+                                        <div
+                                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                                            style={{
+                                                background: `linear-gradient(135deg, ${annualColors[i % annualColors.length].to}, ${annualColors[i % annualColors.length].from})`
+                                            }}
+                                        />
+                                        <span className="text-slate-600 truncate">{familyLabels[f]}</span>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                         <div className="h-64 w-full bg-slate-50 rounded-lg p-4 border border-slate-200 relative" style={{ minHeight: '256px' }}>
-                            {monthlyChartData.length > 0 ? (
-                                <div className="h-full flex items-end gap-2" style={{ height: '100%', minHeight: '200px' }}>
-                                    {monthlyChartData.map((item, idx) => {
-                                        const revenueValue = item.revenue || 0;
-                                        const marginValue = item.margin || 0;
-                                        const effectiveMax = monthlyMaxValue > 0 ? monthlyMaxValue : 1;
-                                        
-                                        // Calculate heights in pixels
-                                        const containerHeight = 200; // Fixed height in pixels
-                                        const revenueHeightPx = revenueValue > 0 
-                                            ? Math.max((revenueValue / effectiveMax) * containerHeight, 10) // Minimum 10px
-                                            : 0;
-                                        const marginHeightPx = marginValue > 0 
-                                            ? Math.max((marginValue / effectiveMax) * containerHeight, 10) // Minimum 10px
-                                            : 0;
-                                        
-                                        return (
-                                            <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 group" style={{ height: '100%' }}>
-                                                <div className="w-full flex justify-center items-end gap-1 relative" style={{ height: '100%', alignItems: 'flex-end' }}>
-                                                    {/* Barre Revenu */}
-                                                    {revenueHeightPx > 0 && (
-                                                        <motion.div
-                                                            initial={{ height: 0 }}
-                                                            animate={{ height: `${revenueHeightPx}px` }}
-                                                            transition={{ delay: idx * 0.05, duration: 0.5 }}
-                                                            className="w-[45%] rounded-t-md shadow-md hover:shadow-lg transition-all cursor-pointer"
-                                                            style={{ 
-                                                                background: `linear-gradient(to top, ${pastelColors.blue.to}, ${pastelColors.blue.from})`
-                                                            }}
-                                                        >
-                                                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap z-50 pointer-events-none">
-                                                                {item.revenue.toLocaleString('fr-FR')} DH
-                                                            </div>
-                                                        </motion.div>
-                                                    )}
-                                                    {/* Barre Marge */}
-                                                    {marginHeightPx > 0 && (
-                                                        <motion.div
-                                                            initial={{ height: 0 }}
-                                                            animate={{ height: `${marginHeightPx}px` }}
-                                                            transition={{ delay: idx * 0.05 + 0.1, duration: 0.5 }}
-                                                            className="w-[45%] rounded-t-md shadow-md hover:shadow-lg transition-all cursor-pointer"
-                                                            style={{ 
-                                                                background: `linear-gradient(to top, ${pastelColors.green.to}, ${pastelColors.green.from})`
-                                                            }}
-                                                        >
-                                                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap z-50 pointer-events-none">
-                                                                {item.margin.toLocaleString('fr-FR')} DH
-                                                            </div>
-                                                        </motion.div>
-                                                    )}
-                                                </div>
-                                                <span className="text-[10px] font-bold text-slate-600 mt-auto uppercase">{item.name}</span>
-                                            </div>
+                            {monthlyFamilySales.length > 0 && topFamilies.length > 0 ? (
+                                <svg viewBox="0 0 400 180" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+                                    <defs>
+                                        {topFamilies.map((f, i) => (
+                                            <linearGradient key={f} id={`grad-fam-${i}`} x1="0%" y1="0%" x2="0%" y2="100%">
+                                                <stop offset="0%" stopColor={annualColors[i % annualColors.length].to} />
+                                                <stop offset="100%" stopColor={annualColors[i % annualColors.length].from} />
+                                            </linearGradient>
+                                        ))}
+                                    </defs>
+                                    {/* Grille */}
+                                    {[0, 1, 2, 3, 4].map((r) => (
+                                        <line key={r} x1={50} y1={20 + r * 32} x2={380} y2={20 + r * 32} stroke="#e2e8f0" strokeWidth="0.5" />
+                                    ))}
+                                    {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((c) => (
+                                        <line key={c} x1={50 + c * 30} y1={20} x2={50 + c * 30} y2={160} stroke="#e2e8f0" strokeWidth="0.5" />
+                                    ))}
+                                    {/* Mois en bas */}
+                                    {monthlyFamilySales.map((m, idx) => (
+                                        <text key={m.month} x={50 + idx * 30 + 15} y={175} textAnchor="middle" fill="#64748b" style={{ fontSize: 9 }}>{m.month}</text>
+                                    ))}
+                                    {/* Courbes par famille */}
+                                    {topFamilies.map((famKey, famIdx) => {
+                                        const pts = monthlyFamilySales.map((m, idx) => {
+                                            const v = m.families[famKey] || 0;
+                                            const ratio = familyEvolutionMax > 0 ? v / familyEvolutionMax : 0;
+                                            const y = 160 - Math.min(ratio * 130, 130);
+                                            const x = 50 + idx * 30 + 15;
+                                            return `${idx === 0 ? "M" : "L"} ${x} ${y}`;
+                                        });
+                                        const d = pts.join(" ");
+                                            return (
+                                            <path
+                                                key={famKey}
+                                                d={d}
+                                                fill="none"
+                                                stroke={`url(#grad-fam-${famIdx})`}
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                            />
                                         );
                                     })}
-                                </div>
+                                </svg>
                             ) : (
                                 <div className="h-full flex items-center justify-center">
-                                    <p className="text-slate-400 text-sm">Aucune donnée disponible</p>
+                                    <p className="text-slate-400 text-sm">Aucune donnée de vente par famille disponible</p>
                                 </div>
                             )}
                         </div>
@@ -548,6 +575,10 @@ export function DashboardContent({ data }: DashboardProps) {
                     </GlassCard>
                 </div>
             </main>
+            <CashOutflowModal
+                isOpen={cashOutflowModalOpen}
+                onClose={() => setCashOutflowModalOpen(false)}
+            />
         </div>
     );
 }

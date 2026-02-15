@@ -32,8 +32,9 @@ export default function DashboardPage() {
             setData({
                 revenue: stats.totalSales,
                 prevRevenue: stats.prevTotalSales,
-                materialCost: stats.pendingAmount,
-                grossMargin: stats.totalSales - (stats.pendingAmount * 0.4), // Simulated
+                materialCost: stats.materialCost ?? stats.pendingAmount,
+                prevMaterialCost: stats.prevMaterialCost ?? 0,
+                grossMargin: stats.totalSales - ((stats.materialCost ?? stats.pendingAmount) * 0.4), // Simulated
                 marginRate: 60,
                 laborCost: 15000, // Simulated
                 laborRatio: 25,
@@ -50,7 +51,8 @@ export default function DashboardPage() {
                 ],
                 monthlyComparison: (stats.monthlyComparison && stats.monthlyComparison.length > 0) 
                     ? stats.monthlyComparison 
-                    : defaultMonthlyData
+                    : defaultMonthlyData,
+                monthlyFamilySales: stats.monthlyFamilySales || []
             });
         }
         fetchData();

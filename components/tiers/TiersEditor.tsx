@@ -1,18 +1,29 @@
 import { GlassInput, GlassButton } from "@/components/ui/GlassComponents";
-import { Tier, TierType } from "@/lib/types";
+import { Tier, TierType, Invoice, ClientInvoice } from "@/lib/types";
 import { Save, User, Building, CreditCard, Phone, Mail, Globe, MapPin, Pencil, Trash2, FileText, Plus, Briefcase } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
-import { cn, formatPhoneNumber } from "@/lib/utils";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { cn, formatPhoneNumber, formatIce } from "@/lib/utils";
 
 interface TiersEditorProps {
     tier?: Tier | null;
+    purchaseInvoices?: Invoice[];
+    clientInvoices?: ClientInvoice[];
     onSave: (tier: Tier) => void;
     onDelete?: (id: string) => void;
     onGetTypeCode?: (type: "Fournisseur" | "Client") => string;
 }
 
-export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEditorProps) {
+type OperationRow = { date: string; ref: string; amount: number; isDeclared: boolean; type: "achat" | "client" };
+
+function formatDateJjMmAa(dateStr: string): string {
+    if (!dateStr) return "-";
+    const [y, m, d] = dateStr.split("-");
+    if (!d || !m || !y) return dateStr;
+    return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${(y || "").slice(-2)}`;
+}
+
+export function TiersEditor({ tier, purchaseInvoices = [], clientInvoices = [], onSave, onDelete, onGetTypeCode }: TiersEditorProps) {
     const router = useRouter();
     const [formData, setFormData] = useState<Partial<Tier>>({});
     const [activeTab, setActiveTab] = useState("Contact");
@@ -73,6 +84,42 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
             if (onDelete) onDelete(formData.id);
         }
     };
+
+    // Historique des opérations : factures fournisseur (achat) ou client selon le type du tiers
+    const operations = useMemo((): OperationRow[] => {
+        const tid = tier?.id;
+        if (!tid || tid === "new") return [];
+        const rows: OperationRow[] = [];
+        if (formData.type === "Fournisseur") {
+            purchaseInvoices
+                .filter((inv) => inv.supplierId === tid)
+                .forEach((inv) => {
+                    rows.push({
+                        date: inv.date,
+                        ref: inv.number,
+                        amount: inv.totalTTC ?? 0,
+                        isDeclared: inv.status === "Synced" || inv.status === "Validated",
+                        type: "achat",
+                    });
+                });
+        } else {
+            clientInvoices
+                .filter((inv) => inv.clientId === tid)
+                .forEach((inv) => {
+                    rows.push({
+                        date: inv.date,
+                        ref: inv.number,
+                        amount: inv.totalTtc ?? 0,
+                        isDeclared: true,
+                        type: "client",
+                    });
+                });
+        }
+        rows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return rows;
+    }, [tier?.id, formData.type, purchaseInvoices, clientInvoices]);
+
+    const totalOperations = useMemo(() => operations.reduce((s, o) => s + o.amount, 0), [operations]);
 
     if (!tier) {
         return (
@@ -151,10 +198,10 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
                                 Chiffre d'Affaires <Briefcase className="w-2.5 h-2.5" />
                             </div>
                             <div className="text-2xl font-black text-slate-800">
-                                0,00 <span className="text-sm font-normal text-slate-400">DH</span>
+                                {(totalOperations || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} <span className="text-sm font-normal text-slate-400">DH</span>
                             </div>
                             <div className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter mt-1 opacity-60">
-                                0 Opérations
+                                {operations.length} Opération{operations.length !== 1 ? "s" : ""}
                             </div>
                         </div>
 
@@ -395,10 +442,18 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
                                         <label className="w-16 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right shrink-0 opacity-70">ICE</label>
                                         <div className="flex-1">
                                             {isEditing ? (
-                                                <GlassInput value={formData.ice || ""} onChange={e => handleChange("ice", e.target.value)} className="bg-white h-9 text-sm border-slate-100 font-mono" />
+                                                <GlassInput
+                                                value={formData.ice || ""}
+                                                onChange={e => handleChange("ice", e.target.value)}
+                                                onBlur={e => {
+                                                    const formatted = formatIce(e.target.value);
+                                                    if (formatted && formatted !== formData.ice) handleChange("ice", formatted);
+                                                }}
+                                                className="bg-white h-9 text-sm border-slate-100 font-mono"
+                                            />
                                             ) : (
                                                 <div className="h-9 flex items-center px-3 text-sm font-bold text-slate-700 font-mono bg-white/50 rounded-xl border border-transparent">
-                                                    {formData.ice || "-"}
+                                                    {formatIce(formData.ice) || "-"}
                                                 </div>
                                             )}
                                         </div>
@@ -546,8 +601,7 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
                                 if (formData.type === "Fournisseur") {
                                     router.push(`/achats?action=new&supplierId=${formData.id}&supplierName=${encodeURIComponent(formData.name || "")}`);
                                 } else {
-                                    // Client
-                                    router.push(`/ventes?action=new&clientId=${formData.id}&clientName=${encodeURIComponent(formData.name || "")}`);
+                                    router.push(`/facturation?clientId=${formData.id}&clientName=${encodeURIComponent(formData.name || "")}`);
                                 }
                             }}
                             className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg shadow-blue-500/20 transition-all font-bold text-[10px] uppercase tracking-widest"
@@ -561,19 +615,35 @@ export function TiersEditor({ tier, onSave, onDelete, onGetTypeCode }: TiersEdit
                         <table className="w-full text-sm">
                             <thead className="bg-slate-50/50 border-b border-slate-100">
                                 <tr>
-                                    <th className="px-8 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
-                                    <th className="px-8 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Référence</th>
-                                    <th className="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Montant TTC</th>
-                                    <th className="px-8 py-5 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Statut</th>
+                                    <th className="px-4 py-2 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
+                                    <th className="px-4 py-2 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">N° facture</th>
+                                    <th className="px-4 py-2 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Montant TTC</th>
+                                    <th className="px-4 py-2 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest w-10" title="Déclaré" />
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-50">
-                                {/* Empty History Message */}
-                                <tr>
-                                    <td colSpan={4} className="px-8 py-16 text-center text-slate-300 font-bold italic opacity-60">
-                                        Aucune opération enregistrée pour ce tiers.
-                                    </td>
-                                </tr>
+                                {operations.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={4} className="px-4 py-12 text-center text-slate-300 font-bold italic opacity-60 text-sm">
+                                            Aucune opération enregistrée pour ce tiers.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    operations.map((op) => (
+                                        <tr key={`${op.type}-${op.date}-${op.ref}`} className="hover:bg-slate-50/50 transition-colors">
+                                            <td className="px-4 py-1.5 text-xs font-medium text-slate-700">{formatDateJjMmAa(op.date)}</td>
+                                            <td className="px-4 py-1.5 text-xs font-mono font-bold text-slate-800">{op.ref}</td>
+                                            <td className="px-4 py-1.5 text-right text-xs font-bold text-slate-800">
+                                                {(op.amount || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DH
+                                            </td>
+                                            <td className="px-4 py-1.5 text-center">
+                                                {op.isDeclared ? (
+                                                    <span className="inline-flex w-4 h-4 rounded bg-[#4CAF50] shrink-0" title="Déclaré" />
+                                                ) : null}
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
                             </tbody>
                         </table>
                     </div>

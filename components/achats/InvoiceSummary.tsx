@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from "react";
-import { X, Check, CloudUpload, RefreshCw, Search, Download } from "lucide-react";
+import React, { useState, useMemo, useEffect } from "react";
+import { X, Check, CloudUpload, RefreshCw, Search, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { Invoice, Tier } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import * as XLSX from 'xlsx-js-style';
@@ -24,6 +24,10 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
     const [supplierSearch, setSupplierSearch] = useState("");
     const [periodFilter, setPeriodFilter] = useState<"TOUT" | "MOIS" | "TRIMESTRE">("TOUT");
     const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: "", end: "" });
+    const [page, setPage] = useState(0);
+    const pageSize = 50;
+
+    useEffect(() => { setPage(0); }, [statusFilter, supplierSearch, dateRange]);
 
     // Period Handler
     const setPeriod = (period: "TOUT" | "MOIS" | "TRIMESTRE") => {
@@ -65,6 +69,15 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
         }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [invoices, statusFilter, supplierSearch, dateRange, tiers]);
 
+    const paginatedInvoices = useMemo(() => {
+        const start = page * pageSize;
+        return filteredInvoices.slice(start, start + pageSize);
+    }, [filteredInvoices, page, pageSize]);
+
+    const sumTotalTTC = useMemo(() => {
+        return filteredInvoices.reduce((acc, inv) => acc + (inv.totalTTC || 0), 0);
+    }, [filteredInvoices]);
+
     // 2. Early return AFTER all hooks
     if (!isOpen) return null;
 
@@ -89,11 +102,34 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                             <h2 className="text-2xl font-black text-white font-outfit tracking-tighter leading-none">
                                 RÉSUMÉ <span className="text-blue-500 text-sm font-bold ml-1 tracking-widest bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">DOCS</span>
                             </h2>
-                            <div className="flex items-center gap-2 mt-2">
+                            <div className="flex items-center gap-3 mt-2">
                                 <div className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
                                     {filteredInvoices.length} FACTURES FILTRÉES
                                 </span>
+                                {filteredInvoices.length > 0 && (
+                                <div className="flex items-center gap-1 bg-[#0F172A]/50 rounded-lg px-2 py-1 border border-white/5">
+                                    <button
+                                        onClick={() => setPage(p => Math.max(0, p - 1))}
+                                        disabled={page === 0}
+                                        className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                        title="Page précédente"
+                                    >
+                                        <ChevronLeft className="w-4 h-4" />
+                                    </button>
+                                    <span className="text-[10px] font-bold text-slate-300 min-w-[80px] text-center">
+                                        {page * pageSize + 1}-{Math.min((page + 1) * pageSize, filteredInvoices.length)} / {filteredInvoices.length}
+                                    </span>
+                                    <button
+                                        onClick={() => setPage(p => Math.min(Math.ceil(filteredInvoices.length / pageSize) - 1, p + 1))}
+                                        disabled={page >= Math.ceil(filteredInvoices.length / pageSize) - 1 || filteredInvoices.length === 0}
+                                        className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                        title="Page suivante"
+                                    >
+                                        <ChevronRight className="w-4 h-4" />
+                                    </button>
+                                </div>
+                                )}
                             </div>
                         </div>
 
@@ -297,23 +333,23 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                 </div>
 
                 {/* Table Container */}
-                <div className="flex-1 overflow-auto p-4 xl:p-8 custom-scrollbar">
-                    <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+                <div className="flex-1 flex flex-col min-h-0 p-4 xl:p-8">
+                    <div className="flex-1 min-h-0 overflow-auto bg-white rounded-2xl shadow-xl border border-slate-200 custom-scrollbar">
                         <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-slate-50 border-b-2 border-slate-100">
-                                    <th className="py-2 px-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Date</th>
-                                    <th className="py-2 px-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Nom du fournisseur</th>
-                                    <th className="py-2 px-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">N° facture</th>
-                                    <th className="py-2 px-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">État</th>
-                                    <th className="py-2 px-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Total TTC</th>
-                                    <th className="py-2 px-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Payé</th>
-                                    <th className="py-2 px-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Reste</th>
-                                    <th className="py-2 px-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Synchro</th>
+                            <thead className="sticky top-0 z-10">
+                                <tr className="bg-[#1E293B] border-b-2 border-slate-200">
+                                    <th className="py-2 px-4 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Date</th>
+                                    <th className="py-2 px-4 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Nom du fournisseur</th>
+                                    <th className="py-2 px-4 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">N° facture</th>
+                                    <th className="py-2 px-4 text-center text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">État</th>
+                                    <th className="py-2 px-4 text-right text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Total TTC</th>
+                                    <th className="py-2 px-4 text-right text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Payé</th>
+                                    <th className="py-2 px-4 text-right text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Reste</th>
+                                    <th className="py-2 px-4 text-center text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Synchro</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {filteredInvoices.map((inv) => {
+                                {paginatedInvoices.map((inv) => {
                                     const isValidated = inv.status === "Validated";
                                     
                                     // Balance Calculation
@@ -385,6 +421,17 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                     </tr>
                                 )}
                             </tbody>
+                            <tfoot className="sticky bottom-0 z-10">
+                                <tr className="bg-[#1E293B] border-t-2 border-slate-200">
+                                    <td colSpan={4} className="py-3 px-4 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">
+                                        Total TTC
+                                    </td>
+                                    <td className="py-3 px-4 text-right text-[13px] font-black text-white whitespace-nowrap">
+                                        {sumTotalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-60">Dh</span>
+                                    </td>
+                                    <td colSpan={3} className="py-3 px-4" />
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
                 </div>

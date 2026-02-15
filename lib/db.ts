@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import { Article, Invoice, Tier, StaffMember, Recipe, Family, SubFamily, StructureType, Transaction, AppSetting, AccountingAccount, Partner, CMIEntry } from './types';
+import { Article, Invoice, Tier, StaffMember, Recipe, Family, SubFamily, StructureType, Transaction, AppSetting, AccountingAccount, Partner, CMIEntry, ClientInvoice, DailyCashOutflow } from './types';
 import { quickSyncStructure } from './structure-sync';
 import { migrateTransactionLabels } from './data-service';
 
@@ -19,6 +19,8 @@ export class BakoDB extends Dexie {
     settings!: EntityTable<AppSetting, 'key'>;
     partners!: EntityTable<Partner, 'id'>;
     cmi_entries!: EntityTable<CMIEntry, 'id'>;
+    clientInvoices!: EntityTable<ClientInvoice, 'id'>;
+    cashOutflows!: EntityTable<DailyCashOutflow, 'id'>;
 
     constructor() {
         super('BakoDB');
@@ -76,6 +78,47 @@ export class BakoDB extends Dexie {
             settings: 'key',
             partners: 'id',
             cmi_entries: 'id, date'
+        });
+
+        // Version 11: Client invoices (factures clients)
+        this.version(11).stores({
+            invoices: 'id, supplierId, date, status, totalTTC, syncTime',
+            employees: 'id, lastName, role',
+            articles: 'id, name, subFamilyId, linkedRecipeId, isSubRecipe',
+            tiers: 'id, name, type, code',
+            recipes: 'id, name, subFamilyId, familyId, isSubRecipe',
+            families: 'id, name, typeId',
+            subFamilies: 'id, name, familyId',
+            structureTypes: 'id, name',
+            transactions: 'id, date, type, account, invoiceId, isReconciled',
+            salesData: 'id, date',
+            accountingNatures: 'id, name',
+            accounting_accounts: '++id, code, label, class, type',
+            settings: 'key',
+            partners: 'id',
+            cmi_entries: 'id, date',
+            clientInvoices: 'id, clientId, number, date'
+        });
+
+        // Version 12: Sorties de caisse par jour (purgeables)
+        this.version(12).stores({
+            invoices: 'id, supplierId, date, status, totalTTC, syncTime',
+            employees: 'id, lastName, role',
+            articles: 'id, name, subFamilyId, linkedRecipeId, isSubRecipe',
+            tiers: 'id, name, type, code',
+            recipes: 'id, name, subFamilyId, familyId, isSubRecipe',
+            families: 'id, name, typeId',
+            subFamilies: 'id, name, familyId',
+            structureTypes: 'id, name',
+            transactions: 'id, date, type, account, invoiceId, isReconciled',
+            salesData: 'id, date',
+            accountingNatures: 'id, name',
+            accounting_accounts: '++id, code, label, class, type',
+            settings: 'key',
+            partners: 'id',
+            cmi_entries: 'id, date',
+            clientInvoices: 'id, clientId, number, date',
+            cashOutflows: 'id, date'
         });
     }
 }

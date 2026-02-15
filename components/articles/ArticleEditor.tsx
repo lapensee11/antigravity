@@ -18,9 +18,11 @@ interface ArticleEditorProps {
     onSave: (article: Article) => void;
     onDelete: (id: string) => void;
     forceEditTrigger?: number; // New prop to trigger edit from parent
+    /** Type d'onglet sélectionné (FA=1, FF=2, FP=3, FV=4, TOUS) pour filtrer familles/sous-familles */
+    selectedType?: "TOUS" | "1" | "2" | "3" | "4";
 }
 
-export function ArticleEditor({ article, existingArticles = [], invoices = [], onSave, onDelete }: ArticleEditorProps) {
+export function ArticleEditor({ article, existingArticles = [], invoices = [], onSave, onDelete, selectedType = "TOUS" }: ArticleEditorProps) {
     const [formData, setFormData] = useState<Partial<Article>>({});
     // We keep isEditing as true for most cases now, or simply rely on it being always active
     const [isEditing, setIsEditing] = useState(true);
@@ -127,8 +129,10 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                     return article;
                 });
 
-                // Sync family selector
-                if (article.subFamilyId) {
+                // Sync family selector (article.familyId prioritaire pour les sous-recettes)
+                if (article.familyId) {
+                    setSelectedFamilyId(article.familyId);
+                } else if (article.subFamilyId) {
                     const sub = subFamilies.find(s => s.id === article.subFamilyId);
                     if (sub) setSelectedFamilyId(sub.familyId);
                 } else {
@@ -271,7 +275,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     };
 
     // Derived display values
-    const family = families.find(f => f.id === (selectedFamilyId || (formData.subFamilyId ? subFamilies.find(s => s.id === formData.subFamilyId)?.familyId : "")));
+    const family = families.find(f => f.id === (selectedFamilyId || article?.familyId || (formData.subFamilyId ? subFamilies.find(s => s.id === formData.subFamilyId)?.familyId : "")));
     const subFamily = subFamilies.find(s => s.id === formData.subFamilyId);
 
     const displayCode = formData.code || "NO-CODE";
@@ -327,12 +331,16 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
     };
     const typeName = family ? getTypeName(families.find(f => f.id === family.id)?.typeId) : "";
 
-    // Filter families to only show types 1 (Achats) and 2 (Fonctionnement)
+    // Filtrer les familles selon l'onglet choisi (FA/FF/FP/FV) ou toutes si "TOUS"
     const filteredFamilies = useMemo(() => {
-        return families
-            .filter(f => f.typeId === "1" || f.typeId === "2")
-            .sort((a, b) => a.code.localeCompare(b.code));
-    }, [families]);
+        let list = families;
+        if (selectedType !== "TOUS") {
+            list = families.filter(f => f.typeId === selectedType);
+        } else {
+            list = families.filter(f => f.typeId === "1" || f.typeId === "2" || f.typeId === "3" || f.typeId === "4");
+        }
+        return list.sort((a, b) => a.code.localeCompare(b.code));
+    }, [families, selectedType]);
 
     // Filtered SubFamilies based on selected Family
     const filteredSubFamilies = useMemo(() => {
@@ -894,6 +902,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             />
                                         </div>
                                     </div>
+
                                 </div>
                             ) : (
                                 <div className="flex-1 flex flex-col items-center justify-center text-slate-300 italic text-sm">
@@ -901,6 +910,24 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                         <span className="text-2xl opacity-50">∅</span>
                                     </div>
                                     Zone Logistique & Stockage vide
+                                </div>
+                            )}
+
+                            {/* Allergènes (matière première FA01-FA07, sous-recettes, recettes FP) */}
+                            {shouldShowNutritionalValues && (
+                                <div className="mt-4 p-3 bg-amber-50/50 rounded-lg border border-amber-200">
+                                    <label className="text-[10px] font-bold text-amber-700 uppercase block mb-2">Allergènes</label>
+                                    <input
+                                        type="text"
+                                        value={(formData.allergens || []).join(", ")}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            const arr = val ? val.split(",").map(s => s.trim()).filter(Boolean) : [];
+                                            handleChange("allergens", arr);
+                                        }}
+                                        placeholder="Gluten, Lait, Œufs, … (séparés par des virgules)"
+                                        className="w-full bg-white border border-amber-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                    />
                                 </div>
                             )}
                         </div>

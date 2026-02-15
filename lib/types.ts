@@ -30,6 +30,8 @@ export interface Article {
     name: string;
     code: string;
     subFamilyId: string;
+    /** Dénormalisé : famille (ex. FP). Héritée de la recette pour les sous-recettes. */
+    familyId?: string;
 
     unitPivot: string;
     unitAchat: string;
@@ -130,6 +132,31 @@ export interface Invoice {
     // Additional fields
     classification?: string;
     period?: string;
+
+    // Scanner Document & Photo (base64 JPEG compressé, agrandissable au clic)
+    documentImage?: string;
+    photoImage?: string;
+}
+
+// Client Invoices (Factures Clients) - separate from purchase invoices
+export interface ClientInvoiceLine {
+    id: string;
+    designation: string;
+    qty: number;
+    puHt: number;       // Unit price excl. VAT (stored; can be derived from puTtc)
+    tauxTva: number;    // VAT % (default 20)
+    totalHt: number;
+    totalTtc: number;
+}
+
+export interface ClientInvoice {
+    id: string;
+    clientId: string;
+    number: string;     // FA(AA)-(MM)-Ordre e.g. FA26-02-001
+    date: string;
+    lines: ClientInvoiceLine[];
+    totalHt: number;
+    totalTtc: number;
 }
 
 // Tiers
@@ -345,4 +372,17 @@ export interface Partner {
     exoneratedPercentage: string;
     taxablePercentage: string;
     color: string;
+}
+
+/** Sorties de caisse par jour - données obsolètes, purgeables */
+export interface DailyCashOutflow {
+    id: string; // YYYY-MM-DD
+    date: string; // YYYY-MM-DD
+    shifts: { id: string; label: string; personnel?: string }[];
+    especes: number[];
+    achatsCh: number[];
+    avances: number[];
+    cmi: { nb: number; mt: number }[];
+    glovo: number[];
+    caisse?: number;
 }

@@ -13,7 +13,7 @@ import {
     CreditCard,
     Settings,
     LogOut,
-    Book
+    Receipt
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -27,6 +27,7 @@ const menuItems = [
     { icon: ChefHat, label: "Production", href: "/production" },
     { icon: Landmark, label: "Banque", href: "/finance" },
     { icon: ShoppingCart, label: "Ventes", href: "/ventes" },
+    { icon: Receipt, label: "Facturation", href: "/facturation" },
     { icon: CreditCard, label: "Paye", href: "/paye" },
 ];
 
@@ -36,8 +37,8 @@ export function Sidebar() {
     return (
         <aside className="fixed left-0 top-0 bottom-0 w-64 flex flex-col z-50 bg-[#F6F8FC] border-r border-slate-200">
             <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Logo Area */}
-                <div className="p-6 border-b border-[#E8E2D2] flex justify-center">
+                {/* Logo Area - cliquable → Dashboard */}
+                <Link href="/" className="p-6 border-b border-[#E8E2D2] flex justify-center hover:bg-white/30 transition-colors cursor-pointer">
                     <div className="w-full max-w-[120px]">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
@@ -46,7 +47,7 @@ export function Sidebar() {
                             className="w-full h-auto object-contain drop-shadow-sm"
                         />
                     </div>
-                </div>
+                </Link>
 
                 {/* Menu Items */}
                 <nav className="flex-1 overflow-y-auto py-6 space-y-1 custom-scrollbar">

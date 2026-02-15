@@ -1088,60 +1088,60 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                     "sticky top-0 z-20 text-[10px] font-black pointer-events-none text-slate-300 uppercase tracking-widest shadow-sm transition-colors duration-300 border-t-2 border-white",
                                     viewMode === "Compta" ? "bg-[#451a03] border-b border-amber-900" : "bg-[#1E293B]"
                                 )}>
-                                    <tr>
+                                    <tr className="[&>th]:py-1.5">
                                         {/* Date - Left Aligned with Strong Border */}
                                         <th className={cn(
-                                            "px-3 py-3 border-r text-left min-w-[125px] z-30 transition-colors duration-300",
-                                            viewMode === "Compta" ? "bg-[#451a03] border-amber-900" : "bg-[#1E293B] border-[#334155]"
+                                            "border-r text-left min-w-[125px] z-30 transition-colors duration-300",
+                                            viewMode === "Compta" ? "px-4 py-1.5 bg-[#451a03] border-amber-900" : "px-3 py-1 bg-[#1E293B] border-[#334155]"
                                         )}>Date</th>
 
                                         {/* CA Group - Layout for Saisie vs Compta */}
                                         {viewMode === "Compta" ? (
                                             <>
                                                 {/* 1: Exo */}
-                                                <th className="px-3 py-3 text-right text-amber-200/70 min-w-[80px]">Exo</th>
+                                                <th className="px-4 py-1.5 text-right text-amber-200/70 min-w-[90px]">Exo</th>
                                                 {/* 2: Dont Glovo (Exo) */}
-                                                <th className="px-3 py-3 text-right text-yellow-400 font-bold min-w-[90px]">Dont Glovo</th>
+                                                <th className="px-4 py-1.5 text-right text-yellow-400 font-bold min-w-[100px]">Dont Glovo</th>
                                                 {/* 3: Imp. HT */}
-                                                <th className="px-3 py-3 text-right text-amber-200/70 min-w-[80px]">Imp. HT</th>
+                                                <th className="px-4 py-1.5 text-right text-amber-200/70 min-w-[90px]">Imp. HT</th>
                                                 {/* 4: Dont Glovo (Imp) */}
-                                                <th className="px-3 py-3 text-right text-yellow-400 font-bold min-w-[90px]">Dont Glovo</th>
+                                                <th className="px-4 py-1.5 text-right text-yellow-400 font-bold min-w-[100px]">Dont Glovo</th>
                                                 {/* 5: Total HT */}
-                                                <th className="px-3 py-3 text-right text-amber-100 min-w-[90px]">Total HT</th>
+                                                <th className="px-4 py-1.5 text-right text-amber-100 min-w-[100px]">Total HT</th>
                                                 {/* 6: Total TTC */}
-                                                <th className="px-3 py-3 text-right text-slate-300 font-extrabold min-w-[90px] border-r-2 border-[#451a03]">Total TTC</th>
+                                                <th className="px-4 py-1.5 text-right text-slate-300 font-extrabold min-w-[100px] border-r-2 border-[#451a03]">Total TTC</th>
                                                 {/* 7: CMI */}
-                                                <th className="px-3 py-3 text-right text-emerald-400 min-w-[70px]">CMI</th>
+                                                <th className="px-4 py-1.5 text-right text-emerald-400 min-w-[80px]">CMI</th>
                                                 {/* 8: Chèques */}
-                                                <th className="px-3 py-3 text-right text-emerald-400 min-w-[70px]">Chèques</th>
+                                                <th className="px-4 py-1.5 text-right text-emerald-400 min-w-[80px]">Chèques</th>
                                                 {/* 8b: Espèces (D) */}
-                                                <th className="px-3 py-3 text-right text-orange-400 font-bold min-w-[85px] border-r-2 border-[#451a03]">Espèces (D)</th>
+                                                <th className="px-4 py-1.5 text-right text-orange-400 font-bold min-w-[95px] border-r-2 border-[#451a03]">Espèces (D)</th>
                                                 {/* 9: Glovo Brut */}
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-16 min-w-[70px]">Glv Brut</th>
+                                                <th className="px-3 py-1.5 text-right text-yellow-400 w-16 min-w-[80px]">Glv Brut</th>
                                                 {/* 10: Incid */}
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-16 min-w-[60px]">Incid</th>
+                                                <th className="px-3 py-1.5 text-right text-yellow-400 w-16 min-w-[70px]">Incid</th>
                                                 {/* 11: Cash */}
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-16 min-w-[60px]">Cash</th>
+                                                <th className="px-3 py-1.5 text-right text-yellow-400 w-16 min-w-[70px]">Cash</th>
                                                 {/* 12: Glovo Net */}
-                                                <th className="px-3 py-3 text-right text-yellow-400 font-extrabold min-w-[90px] border-r-2 border-[#451a03]">Glovo Net</th>
+                                                <th className="px-4 py-1.5 text-right text-yellow-400 font-extrabold min-w-[100px] border-r-2 border-[#451a03]">Glovo Net</th>
                                             </>
                                         ) : (
                                             <>
-                                                <th className="px-3 py-3 text-right text-slate-300">Exonéré</th>
-                                                <th className="px-3 py-3 text-right text-slate-300">Imp. HT</th>
-                                                <th className="px-3 py-3 text-right text-slate-300">Total HT</th>
-                                                <th className="px-3 py-3 text-right text-slate-300 font-extrabold border-r-2 border-[#1E293B]">Total TTC</th>
-                                                <th className="px-3 py-3 text-right text-emerald-400">CMI</th>
-                                                <th className="px-3 py-3 text-right text-emerald-400">Chèques</th>
-                                                <th className="px-3 py-3 text-right font-black text-emerald-400">Espèces</th>
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-16">Glv Brut</th>
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-16">Incid</th>
-                                                <th className="px-2 py-3 text-right text-yellow-400 w-16">Cash</th>
-                                                <th className="px-3 py-3 text-right text-yellow-400 font-extrabold border-r-2 border-[#1E293B]">Glovo Net</th>
-                                                <th className="px-3 py-3 text-right text-orange-400 font-bold">TTC (D)</th>
-                                                <th className="px-3 py-3 text-right text-orange-400 font-bold">D-Cash</th>
-                                                <th className="px-3 py-3 text-right text-orange-400 font-bold">Esp (D)</th>
-                                                <th className="px-2 py-3 text-center text-orange-400 w-16">Coeff</th>
+                                                <th className="px-3 py-1 text-right text-slate-300">Exonéré</th>
+                                                <th className="px-3 py-1 text-right text-slate-300">Imp. HT</th>
+                                                <th className="px-3 py-1 text-right text-slate-300">Total HT</th>
+                                                <th className="px-3 py-1 text-right text-slate-300 font-extrabold border-r-2 border-[#1E293B]">Total TTC</th>
+                                                <th className="px-3 py-1 text-right text-emerald-400">CMI</th>
+                                                <th className="px-3 py-1 text-right text-emerald-400">Chèques</th>
+                                                <th className="px-3 py-1 text-right font-black text-emerald-400">Espèces</th>
+                                                <th className="px-2 py-1 text-right text-yellow-400 w-16">Glv Brut</th>
+                                                <th className="px-2 py-1 text-right text-yellow-400 w-16">Incid</th>
+                                                <th className="px-2 py-1 text-right text-yellow-400 w-16">Cash</th>
+                                                <th className="px-3 py-1 text-right text-yellow-400 font-extrabold border-r-2 border-[#1E293B]">Glovo Net</th>
+                                                <th className="px-3 py-1 text-right text-orange-400 font-bold">TTC (D)</th>
+                                                <th className="px-3 py-1 text-right text-orange-400 font-bold">D-Cash</th>
+                                                <th className="px-3 py-1 text-right text-orange-400 font-bold">Esp (D)</th>
+                                                <th className="px-2 py-1 text-center text-orange-400 w-16">Coeff</th>
                                             </>
                                         )}
                                     </tr>
@@ -1169,7 +1169,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
 
                                             )}
                                         >
-                                            <td className="px-3 py-2 text-xs font-bold text-slate-700 whitespace-nowrap relative border-r-[2px] border-[#1E293B] text-left">
+                                            <td className={cn("text-xs font-bold text-slate-700 whitespace-nowrap relative border-r-[2px] border-[#1E293B] text-left", viewMode === "Compta" ? "px-4 py-1.5" : "px-3 py-1")}>
                                                 {/* Selection Indicator */}
                                                 {focusedRowIndex === i && (
                                                     <div className={cn(
@@ -1178,15 +1178,15 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                     )} />
                                                 )}
 
-                                                <div className="flex items-center justify-start gap-3">
-                                                    {/* Status Dot - Moved to Left of Date - ENLARGED */}
+                                                <div className="flex items-center justify-start gap-2">
+                                                    {/* Status Dot */}
                                                     {row.status === 'synced' && (
-                                                        <div className="w-3 h-3 rounded-full bg-emerald-500 shadow-sm border border-emerald-600 flex-shrink-0" title="Synchronisé" />
+                                                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm border border-emerald-600 flex-shrink-0" title="Synchronisé" />
                                                     )}
                                                     {row.status === 'draft' && (
-                                                        <div className="w-3 h-3 rounded-full bg-orange-400 shadow-sm border border-orange-500 flex-shrink-0" title="Brouillon" />
+                                                        <div className="w-2.5 h-2.5 rounded-full bg-orange-400 shadow-sm border border-orange-500 flex-shrink-0" title="Brouillon" />
                                                     )}
-                                                    {!row.status && <div className="w-3 h-3 bg-transparent flex-shrink-0" />}
+                                                    {!row.status && <div className="w-2.5 h-2.5 bg-transparent flex-shrink-0" />}
 
                                                     <span className={cn(
                                                         "uppercase tracking-tight font-mono truncate text-xs text-slate-600 font-bold"
@@ -1200,77 +1200,77 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                             {/* REORDERED COMPTA CELLS (12 fields) vs SAISIE CELLS */}
                                             {viewMode === "Compta" ? (
                                                 <>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-slate-900" : "text-slate-500")}>
+                                                    <td className={cn("px-4 py-1.5 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-slate-900" : "text-slate-500")}>
                                                         {parseFloat(row.compta.exo) !== 0 ? row.compta.exo : "-"}
                                                     </td>
                                                     {/* 2: Dont Glovo (Exo) */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-yellow-700 font-black" : "text-yellow-600")}>{(row as any).compta.glovoExo}</td>
+                                                    <td className={cn("px-4 py-1.5 text-right font-bold text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-yellow-700 font-black" : "text-yellow-600")}>{(row as any).compta.glovoExo}</td>
                                                     {/* 3: Imp. HT */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-slate-900" : "text-slate-500")}>
+                                                    <td className={cn("px-4 py-1.5 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-slate-900" : "text-slate-500")}>
                                                         {parseFloat(row.compta.impHt) !== 0 ? row.compta.impHt : "-"}
                                                     </td>
                                                     {/* 4: Dont Glovo (Imp) */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-yellow-700 font-black" : "text-yellow-600")}>{(row as any).compta.glovoImp}</td>
+                                                    <td className={cn("px-4 py-1.5 text-right font-bold text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-yellow-700 font-black" : "text-yellow-600")}>{(row as any).compta.glovoImp}</td>
                                                     {/* 5: Total HT */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[90px]", focusedRowIndex === i ? "text-slate-900" : "text-slate-500")}>
+                                                    <td className={cn("px-4 py-1.5 text-right font-bold text-xs font-mono tracking-tight min-w-[100px]", focusedRowIndex === i ? "text-slate-900" : "text-slate-500")}>
                                                         {parseFloat(row.compta.totHt) !== 0 ? row.compta.totHt : "-"}
                                                     </td>
                                                     {/* 6: Total TTC */}
-                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight min-w-[90px] border-r-2 border-[#451a03]", focusedRowIndex === i ? "text-slate-950" : "text-slate-500")}>{row.compta.ttc}</td>
+                                                    <td className={cn("px-4 py-1.5 text-right font-black text-xs font-mono tracking-tight min-w-[100px] border-r-2 border-[#451a03]", focusedRowIndex === i ? "text-slate-950" : "text-slate-500")}>{row.compta.ttc}</td>
 
                                                     {/* 7: CMI */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[70px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
+                                                    <td className={cn("px-4 py-1.5 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
                                                     {/* 8: Chèques */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[70px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
+                                                    <td className={cn("px-4 py-1.5 text-right font-bold text-xs font-mono tracking-tight min-w-[80px]", focusedRowIndex === i ? "text-emerald-300" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
                                                     {/* 8b: Espèces (D) */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight min-w-[85px] border-r-2 border-[#451a03]", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredEsp !== "0.00" ? row.declaredEsp : "-"}</td>
+                                                    <td className={cn("px-4 py-1.5 text-right font-bold text-xs font-mono tracking-tight min-w-[95px] border-r-2 border-[#451a03]", focusedRowIndex === i ? "text-orange-300" : "text-orange-600")}>{row.declaredEsp !== "0.00" ? row.declaredEsp : "-"}</td>
                                                     {/* 9: Glovo Brut */}
-                                                    <td className="px-2 py-1 text-right w-16 min-w-[70px] font-mono text-xs font-bold">
+                                                    <td className="px-3 py-1.5 text-right w-16 min-w-[80px] font-mono text-xs font-bold">
                                                         <span className={focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600"}>
                                                             {parseFloat(salesData[row.isoKey]?.real?.glovo?.brut || "0").toFixed(2)}
                                                         </span>
                                                     </td>
                                                     {/* 10: Incid */}
-                                                    <td className="px-2 py-1 text-right w-16 min-w-[60px] font-mono text-xs font-bold">
+                                                    <td className="px-3 py-1.5 text-right w-16 min-w-[70px] font-mono text-xs font-bold">
                                                         <span className={focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600"}>
                                                             {parseFloat(salesData[row.isoKey]?.real?.glovo?.incid || "0").toFixed(2)}
                                                         </span>
                                                     </td>
                                                     {/* 11: Cash */}
-                                                    <td className="px-2 py-1 text-right w-16 min-w-[60px] font-mono text-xs font-bold">
+                                                    <td className="px-3 py-1.5 text-right w-16 min-w-[70px] font-mono text-xs font-bold">
                                                         <span className={focusedRowIndex === i ? "text-yellow-800" : "text-yellow-700"}>
                                                             {parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0").toFixed(2)}
                                                         </span>
                                                     </td>
                                                     {/* 12: Glovo Net */}
-                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-[2px] border-[#451a03] min-w-[90px]", focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600")}>
+                                                    <td className={cn("px-4 py-1.5 text-right font-black text-xs font-mono tracking-tight border-r-[2px] border-[#451a03] min-w-[100px]", focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600")}>
                                                         {parseFloat(row.glovo || "0").toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </td>
 
                                                 </>
                                             ) : (
                                                 <>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-900 font-black" : "text-slate-500")}>
+                                                    <td className={cn("px-3 py-1 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-900 font-black" : "text-slate-500")}>
                                                         {row.exo !== "0.00" ? row.exo : "-"}
                                                     </td>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-900 font-black" : "text-slate-500")}>
+                                                    <td className={cn("px-3 py-1 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-900 font-black" : "text-slate-500")}>
                                                         {row.impHt !== "0.00" ? row.impHt : "-"}
                                                     </td>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-900 font-black" : "text-slate-500")}>
+                                                    <td className={cn("px-3 py-1 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-slate-900 font-black" : "text-slate-500")}>
                                                         {row.totHt !== "0.00" ? row.totHt : "-"}
                                                     </td>
 
                                                     <td className={cn(
-                                                        "px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-2 border-[#1E293B]",
+                                                        "px-3 py-1 text-right font-black text-xs font-mono tracking-tight border-r-2 border-[#1E293B]",
                                                         focusedRowIndex === i ? "text-slate-950 font-black" : "text-slate-500"
                                                     )}>
                                                         {row.ttc}
                                                     </td>
 
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-700" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-700" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
+                                                    <td className={cn("px-3 py-1 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-700" : "text-emerald-500")}>{row.cmi !== "0.00" ? row.cmi : "-"}</td>
+                                                    <td className={cn("px-3 py-1 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-700" : "text-emerald-500")}>{row.chq !== "0.00" ? row.chq : "-"}</td>
 
-                                                    <td className={cn("px-3 py-2 text-right font-black text-xs border-r-[2px] border-[#1E293B] font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-700" : "text-emerald-600")}>{row.esp}</td>
+                                                    <td className={cn("px-3 py-1 text-right font-black text-xs border-r-[2px] border-[#1E293B] font-mono tracking-tight", focusedRowIndex === i ? "text-emerald-700" : "text-emerald-600")}>{row.esp}</td>
 
 
                                                     {/* GLOVO ROW CELLS - UNIFIED YELLOW */}
@@ -1284,7 +1284,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                             onBlur={(e) => handleGlovoUpdate(row.isoKey, 'brut', parseFloat(e.target.value.replace(',', '.') || "0").toFixed(2))}
                                                             onChange={(e) => handleGlovoUpdate(row.isoKey, 'brut', e.target.value)}
                                                             className={cn(
-                                                                "w-full h-7 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
+                                                                "w-full h-6 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
                                                                 focusedRowIndex === i ? "text-yellow-700 hover:bg-slate-200" : "text-yellow-600 hover:bg-slate-50"
                                                             )}
                                                         />
@@ -1299,7 +1299,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                             onBlur={(e) => handleGlovoUpdate(row.isoKey, 'incid', parseFloat(e.target.value.replace(',', '.') || "0").toFixed(2))}
                                                             onChange={(e) => handleGlovoUpdate(row.isoKey, 'incid', e.target.value)}
                                                             className={cn(
-                                                                "w-full h-7 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
+                                                                "w-full h-6 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
                                                                 focusedRowIndex === i ? "text-yellow-700 hover:bg-slate-200" : "text-yellow-600 hover:bg-slate-50"
                                                             )}
                                                         />
@@ -1314,22 +1314,22 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                             onBlur={(e) => handleGlovoUpdate(row.isoKey, 'cash', parseFloat(e.target.value.replace(',', '.') || "0").toFixed(2))}
                                                             onChange={(e) => handleGlovoUpdate(row.isoKey, 'cash', e.target.value)}
                                                             className={cn(
-                                                                "w-full h-7 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
+                                                                "w-full h-6 bg-transparent text-right font-bold text-xs rounded px-1 transition-colors focus:ring-0 focus:outline-none font-mono tracking-tight placeholder:text-yellow-200/50",
                                                                 focusedRowIndex === i ? "text-yellow-800 hover:bg-slate-200" : "text-yellow-700 hover:bg-slate-50"
                                                             )}
                                                         />
                                                     </td>
-                                                    <td className={cn("px-3 py-2 text-right font-black text-xs font-mono tracking-tight border-r-2 border-[#1E293B]", focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600")}>
+                                                    <td className={cn("px-3 py-1 text-right font-black text-xs font-mono tracking-tight border-r-2 border-[#1E293B]", focusedRowIndex === i ? "text-yellow-700" : "text-yellow-600")}>
 
                                                         {parseFloat(row.glovo || "0").toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </td>
 
                                                     {/* DECLARED ROW CELLS - Removed in Compta */}
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-700" : "text-orange-600")}>{row.declaredTTC}</td>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-700" : "text-orange-600")}>
+                                                    <td className={cn("px-3 py-1 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-700" : "text-orange-600")}>{row.declaredTTC}</td>
+                                                    <td className={cn("px-3 py-1 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-700" : "text-orange-600")}>
                                                         {((parseFloat(row.declaredEsp) || 0) - (parseFloat(salesData[row.isoKey]?.real?.glovo?.cash || "0") || 0)).toFixed(2)}
                                                     </td>
-                                                    <td className={cn("px-3 py-2 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-700" : "text-orange-600")}>{row.declaredEsp}</td>
+                                                    <td className={cn("px-3 py-1 text-right font-bold text-xs font-mono tracking-tight", focusedRowIndex === i ? "text-orange-700" : "text-orange-600")}>{row.declaredEsp}</td>
 
 
                                                     <td className="px-2 py-1 text-center" onClick={(e) => e.stopPropagation()}>
@@ -1351,7 +1351,7 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                                                 <ChevronLeft className="w-4 h-4" />
                                                             </button>
 
-                                                            <div className="relative flex items-center h-8 px-1 min-w-[40px] justify-center">
+                                                            <div className="relative flex items-center h-6 px-1 min-w-[40px] justify-center">
                                                                 <input
                                                                     type="text"
                                                                     value={row.coeffImp}
@@ -1403,44 +1403,43 @@ export function VentesContent({ initialSalesData }: { initialSalesData: Record<s
                                     viewMode === "Compta" ? "bg-[#451a03] border-amber-900" : "bg-[#1E293B] border-[#334155]"
                                 )}>
                                     <tr>
-                                        <td className="px-3 py-4 text-left text-white">Total Période</td>
+                                        <td className={cn("py-4 text-left text-white", viewMode === "Compta" ? "px-4" : "px-3")}>Total Période</td>
 
                                         {/* REORDERED COMPTA FOOTER (12 fields) vs SAISIE FOOTER */}
                                         {viewMode === "Compta" ? (
                                             <>
                                                 {/* 1: Exo */}
-                                                <td className="px-3 py-4 text-right font-mono min-w-[90px]">{periodTotals.exo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-4 py-4 text-right font-mono min-w-[90px]">{periodTotals.exo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 2: Dont Glovo (Exo) */}
-                                                <td className="px-3 py-4 text-right font-bold text-yellow-400 font-mono min-w-[100px]">{periodTotals.glovoExo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-4 py-4 text-right font-bold text-yellow-400 font-mono min-w-[100px]">{periodTotals.glovoExo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 3: Imp. HT */}
-                                                <td className="px-3 py-4 text-right font-mono min-w-[90px]">{periodTotals.impHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-4 py-4 text-right font-mono min-w-[90px]">{periodTotals.impHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 4: Dont Glovo (Imp) */}
-                                                <td className="px-3 py-4 text-right font-bold text-yellow-400 font-mono min-w-[100px]">{periodTotals.glovoImp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-4 py-4 text-right font-bold text-yellow-400 font-mono min-w-[100px]">{periodTotals.glovoImp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 5: Total HT */}
-                                                <td className="px-3 py-4 text-right font-mono text-white min-w-[100px]">{periodTotals.totHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-4 py-4 text-right font-mono text-white min-w-[100px]">{periodTotals.totHt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 6: Total TTC */}
-                                                {/* 6: Total TTC */}
-                                                <td className="px-3 py-4 text-right font-black text-white font-mono min-w-[100px] border-r-2 border-[#451a03]">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-4 py-4 text-right font-black text-white font-mono min-w-[100px] border-r-2 border-[#451a03]">{periodTotals.ttc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 7: CMI */}
-                                                <td className="px-3 py-4 text-right text-emerald-400 font-mono min-w-[80px]">{periodTotals.cmi.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-4 py-4 text-right text-emerald-400 font-mono min-w-[80px]">{periodTotals.cmi.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 8: Chèques */}
-                                                <td className="px-3 py-4 text-right text-emerald-400 font-mono min-w-[80px]">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-4 py-4 text-right text-emerald-400 font-mono min-w-[80px]">{periodTotals.chq.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 8b: Espèces (D) */}
-                                                <td className="px-3 py-4 text-right text-orange-400 font-bold font-mono min-w-[90px] border-r-2 border-[#451a03]">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="px-4 py-4 text-right text-orange-400 font-bold font-mono min-w-[95px] border-r-2 border-[#451a03]">{periodTotals.declaredEsp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                 {/* 9: Glovo Brut */}
                                                 <td className="px-3 py-4 text-right font-black text-yellow-400 font-mono min-w-[80px]">
                                                     {periodTotals.glovoBrut.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 {/* 10: Incid */}
-                                                <td className="px-2 py-4 text-right text-yellow-500 font-mono min-w-[60px]">
+                                                <td className="px-3 py-4 text-right text-yellow-500 font-mono min-w-[70px]">
                                                     {periodTotals.glovoIncid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 {/* 11: Cash */}
-                                                <td className="px-2 py-4 text-right text-yellow-600 font-mono min-w-[60px]">
+                                                <td className="px-3 py-4 text-right text-yellow-600 font-mono min-w-[70px]">
                                                     {periodTotals.glovoCash.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 {/* 12: Glovo Net */}
-                                                <td className="px-3 py-4 text-right font-black text-yellow-300 font-mono border-r-2 border-[#451a03] min-w-[100px]">
+                                                <td className="px-4 py-4 text-right font-black text-yellow-300 font-mono border-r-2 border-[#451a03] min-w-[100px]">
                                                     {periodTotals.glovo.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                             </>

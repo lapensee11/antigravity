@@ -1,5 +1,5 @@
 import { db } from './db';
-import { Article, StaffMember, Invoice, Tier, Family, SubFamily, Recipe, StructureType, Transaction, AccountingAccount, AppSetting, Partner, CMIEntry, InvoiceStatus, Nutrition } from './types';
+import { Article, StaffMember, Invoice, Tier, Family, SubFamily, Recipe, StructureType, Transaction, AccountingAccount, AppSetting, Partner, CMIEntry, InvoiceStatus, Nutrition, ClientInvoice, ClientInvoiceLine, DailyCashOutflow } from './types';
 import { initialFamilies, initialSubFamilies } from './data';
 
 // ============================================================================
@@ -345,6 +345,40 @@ export function calculateRecipeNutrition(
         if (typeof sums.fiber === 'number') result.fiber = Math.round((sums.fiber / totalWeight) * 100) / 100;
 
         return result;
+    } finally {
+        visited.delete(recipe.id);
+    }
+}
+
+/**
+ * Calcule la liste des allergènes d'une recette à partir de ses ingrédients.
+ * Agrège les allergènes des articles et sous-recettes utilisés (récursif).
+ */
+export function calculateRecipeAllergens(
+    recipe: Recipe,
+    articles: Article[],
+    recipes: Recipe[],
+    visited = new Set<string>()
+): string[] {
+    if (visited.has(recipe.id)) return [];
+    visited.add(recipe.id);
+    try {
+        const allergenSet = new Set<string>();
+        const ingredients = recipe.ingredients || [];
+        for (const ing of ingredients) {
+            const article = articles.find(a => a.id === ing.articleId);
+            if (!article) continue;
+            // Article direct : utiliser ses allergènes
+            (article.allergens || []).forEach((a: string) => allergenSet.add(a));
+            // Sous-recette : récursion pour couvrir le cas où l'article n'a pas encore ses allergènes
+            if (article.isSubRecipe && article.linkedRecipeId) {
+                const linkedRecipe = recipes.find(r => r.id === article.linkedRecipeId);
+                if (linkedRecipe) {
+                    calculateRecipeAllergens(linkedRecipe, articles, recipes, visited).forEach(a => allergenSet.add(a));
+                }
+            }
+        }
+        return Array.from(allergenSet).sort();
     } finally {
         visited.delete(recipe.id);
     }
@@ -704,6 +738,57 @@ export async function deleteTier(id: string): Promise<{ success: true }> {
     return { success: true };
 }
 
+// CLIENT INVOICES (Factures Clients)
+export async function getClients(): Promise<Tier[]> {
+    const tiers = await db.tiers.toArray();
+    return tiers.filter(t => {
+        const type = (t.type || "").trim().toLowerCase();
+        // Inclure uniquement les Clients (Cli), exclure les Fournisseurs (Frs)
+        if (type === "fournisseur" || type === "fournisseurs" || type === "frs") return false;
+        return type === "client" || type === "clients" || type === "cli";
+    }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function getClientInvoices(): Promise<ClientInvoice[]> {
+    return (await db.clientInvoices.toArray()).sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+}
+
+export function generateClientInvoiceNumber(invoices: ClientInvoice[]): string {
+    const prefix = "FA-";
+    const orders = invoices
+        .filter(inv => inv.number && inv.number.startsWith(prefix))
+        .map(inv => {
+            const n = parseInt(inv.number!.replace(prefix, ""), 10);
+            return isNaN(n) ? 0 : n;
+        });
+    const maxOrd = orders.length > 0 ? Math.max(...orders) : 110;
+    const nextOrd = Math.max(maxOrd + 1, 111);
+    return `${prefix}${String(nextOrd).padStart(3, "0")}`;
+}
+
+function recalcClientInvoiceTotals(inv: ClientInvoice): ClientInvoice {
+    let totalHt = 0;
+    let totalTtc = 0;
+    for (const line of inv.lines || []) {
+        totalHt += line.totalHt || 0;
+        totalTtc += line.totalTtc || 0;
+    }
+    return { ...inv, totalHt, totalTtc };
+}
+
+export async function saveClientInvoice(invoice: ClientInvoice): Promise<{ success: true }> {
+    const recalc = recalcClientInvoiceTotals(invoice);
+    await db.clientInvoices.put(recalc);
+    return { success: true };
+}
+
+export async function deleteClientInvoice(id: string): Promise<{ success: true }> {
+    await db.clientInvoices.delete(id);
+    return { success: true };
+}
+
 // SIMULATIONS / SYNC
 async function updateAggregatedCheck(ref: string, allInvoices: Invoice[]) {
     let total = 0;
@@ -879,6 +964,24 @@ export async function saveRecipe(recipe: Recipe): Promise<{ success: true }> {
     return { success: true };
 }
 
+// Convertit Nutrition (Recipe) vers nutritionalInfo (Article)
+function nutritionToArticleInfo(nut: Nutrition | null): Article["nutritionalInfo"] | undefined {
+    if (!nut) return undefined;
+    const info: NonNullable<Article["nutritionalInfo"]> = {};
+    if (typeof nut.calories === "number") info.calories = nut.calories;
+    if (typeof nut.water === "number") info.water = nut.water;
+    if (typeof nut.protein === "number") info.protein = nut.protein;
+    if (typeof nut.fat === "number") info.fat = nut.fat;
+    if (typeof nut.minerals === "number") info.minerals = nut.minerals;
+    if (typeof nut.carbs === "number") info.carbs = nut.carbs;
+    if (typeof nut.sugars === "number") info.sugars = nut.sugars;
+    if (typeof nut.starch === "number") info.starch = nut.starch;
+    if (typeof nut.fiber === "number") info.fiber = nut.fiber;
+    if (typeof nut.glycemicIndex === "number") info.ig = nut.glycemicIndex;
+    if (typeof nut.glycemicLoad === "number") info.cg = nut.glycemicLoad;
+    return Object.keys(info).length > 0 ? info : undefined;
+}
+
 // Fonction pour créer ou mettre à jour l'article correspondant à une sous-recette
 async function createOrUpdateSubRecipeArticle(recipe: Recipe): Promise<void> {
     // S'assurer que la recette a bien isSubRecipe = true
@@ -889,7 +992,15 @@ async function createOrUpdateSubRecipeArticle(recipe: Recipe): Promise<void> {
     // For sub-recipe articles, we need to calculate cost per kg
     const allArticles = await db.articles.toArray();
     const invoices = await db.invoices.toArray();
+    const allRecipes = await db.recipes.toArray();
     const { costPerKg, costPerUnit } = calculateRecipeCost(recipe, allArticles, invoices);
+
+    // Valeurs nutritionnelles héritées de la sous-recette (calculées à partir des ingrédients)
+    const recipeNutrition = calculateRecipeNutrition(recipe, allArticles, allRecipes);
+    const nutritionalInfo = nutritionToArticleInfo(recipeNutrition);
+
+    // Allergènes agrégés à partir des ingrédients de la recette (et des sous-recettes imbriquées)
+    const computedAllergens = calculateRecipeAllergens(recipe, allArticles, allRecipes);
     
     // Use costPerKg if available (for kg-based pricing), otherwise fallback to costPerUnit
     const costPerUnitForArticle = costPerKg !== undefined && costPerKg > 0 ? costPerKg : costPerUnit;
@@ -915,13 +1026,26 @@ async function createOrUpdateSubRecipeArticle(recipe: Recipe): Promise<void> {
     const coeffProd = 1000;
     const unitProduction = "g";
     
-    // subFamilyId should already be a UUID after migration
-    // If it's not, log a warning but don't auto-fix (migration should have handled this)
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(recipe.subFamilyId);
-    if (!isUUID) {
-        console.warn(`[createOrUpdateSubRecipeArticle] Recipe "${recipe.name}" has non-UUID subFamilyId: "${recipe.subFamilyId}". Migration should have fixed this.`);
+    // Résoudre subFamilyId pour que l'article hérite de la famille de la recette
+    // Si la sous-famille de la recette n'appartient pas à sa famille, on prend une sous-famille de la bonne famille
+    const allSubFamilies = await db.subFamilies.toArray();
+    const recipeSubFamily = allSubFamilies.find(s => s.id === recipe.subFamilyId);
+    const belongsToRecipeFamily = recipeSubFamily && recipeSubFamily.familyId === recipe.familyId;
+    let correctSubFamilyId: string;
+    if (belongsToRecipeFamily) {
+        correctSubFamilyId = recipe.subFamilyId;
+    } else {
+        // Prendre la première sous-famille de la famille de la recette (FP)
+        const subInFamily = allSubFamilies.find(s => s.familyId === recipe.familyId);
+        correctSubFamilyId = subInFamily?.id || recipe.subFamilyId;
+        if (!subInFamily && recipe.familyId) {
+            console.warn(`[createOrUpdateSubRecipeArticle] Recipe "${recipe.name}" familyId "${recipe.familyId}" has no sub-families. Using subFamilyId "${recipe.subFamilyId}".`);
+        }
     }
-    const correctSubFamilyId = recipe.subFamilyId;
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(correctSubFamilyId);
+    if (!isUUID) {
+        console.warn(`[createOrUpdateSubRecipeArticle] Recipe "${recipe.name}" has non-UUID subFamilyId: "${correctSubFamilyId}". Migration should have fixed this.`);
+    }
     
     // Créer ou mettre à jour l'article (toujours forcer les unités pour les sous-recettes)
     const article: Article = {
@@ -929,6 +1053,7 @@ async function createOrUpdateSubRecipeArticle(recipe: Recipe): Promise<void> {
         name: recipe.name,
         code: recipe.code || existingArticle?.code || `SR-${recipe.id}`,
         subFamilyId: correctSubFamilyId,
+        familyId: recipe.familyId, // Héritage de la famille (FP) depuis la recette
         unitAchat: unitAchat, // "Kg"
         contenace: contenace, // 1
         unitPivot: unitPivot, // "Kg"
@@ -938,10 +1063,12 @@ async function createOrUpdateSubRecipeArticle(recipe: Recipe): Promise<void> {
         vatRate: 20,
         isSubRecipe: true,
         linkedRecipeId: recipe.id,
+        // Valeurs nutritionnelles héritées de la sous-recette
+        ...(nutritionalInfo && { nutritionalInfo }),
+        // Allergènes calculés à partir des ingrédients de la recette (source de vérité)
+        allergens: computedAllergens,
         // Préserver les autres propriétés de l'article existant si elles existent
         ...(existingArticle && {
-            nutritionalInfo: existingArticle.nutritionalInfo,
-            allergens: existingArticle.allergens,
             storageConditions: existingArticle.storageConditions,
             leadTimeDays: existingArticle.leadTimeDays,
             accountingCode: existingArticle.accountingCode,
@@ -1075,6 +1202,82 @@ export async function getTransactions(): Promise<Transaction[]> {
     return await db.transactions.toArray();
 }
 
+/** Soldes des comptes (Banque, Caisse, Coffre) calculés sur TOUTES les transactions */
+export async function getAccountBalances(): Promise<{ Banque: number; Caisse: number; Coffre: number }> {
+    const all = await db.transactions.toArray();
+    const stats = { Banque: 0, Caisse: 0, Coffre: 0 };
+    all.forEach(t => {
+        const amount = t.type === "Recette" ? t.amount : -t.amount;
+        if (stats[t.account as keyof typeof stats] !== undefined) {
+            stats[t.account as keyof typeof stats] += amount;
+        }
+    });
+    return stats;
+}
+
+/** Transactions paginées avec filtres (comme Factures d'achat) */
+export async function getTransactionsPaginated(
+    page: number = 0,
+    pageSize: number = 50,
+    filters?: {
+        account?: "Banque" | "Caisse" | "Coffre";
+        periodFilter?: "Toutes" | "Quinzaine" | "Mois" | "Période";
+        dateFrom?: string;
+        dateTo?: string;
+        searchQuery?: string;
+    }
+): Promise<{
+    transactions: Transaction[];
+    total: number;
+    totalCredit: number;
+    totalDebit: number;
+    uniqueTiers: string[];
+}> {
+    let all = await db.transactions.orderBy('date').reverse().toArray();
+
+    if (filters) {
+        if (filters.account) {
+            all = all.filter(t => t.account === filters!.account);
+        }
+        if (filters.periodFilter && filters.periodFilter !== "Toutes") {
+            const now = new Date();
+            if (filters.periodFilter === "Mois") {
+                all = all.filter(t => {
+                    const d = new Date(t.date);
+                    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+                });
+            } else if (filters.periodFilter === "Quinzaine") {
+                all = all.filter(t => {
+                    const diffDays = Math.ceil(Math.abs(now.getTime() - new Date(t.date).getTime()) / (1000 * 60 * 60 * 24));
+                    return diffDays <= 15;
+                });
+            } else if (filters.periodFilter === "Période" && (filters.dateFrom || filters.dateTo)) {
+                if (filters.dateFrom) all = all.filter(t => t.date >= filters!.dateFrom!);
+                if (filters.dateTo) all = all.filter(t => t.date <= filters!.dateTo!);
+            }
+        }
+        if (filters.searchQuery) {
+            const q = filters.searchQuery.toLowerCase();
+            all = all.filter(t =>
+                t.label?.toLowerCase().includes(q) ||
+                t.amount?.toString().includes(q) ||
+                t.category?.toLowerCase().includes(q) ||
+                (t.tier && t.tier.toLowerCase().includes(q))
+            );
+        }
+    }
+
+    const total = all.length;
+    const totalCredit = all.filter(t => t.type === "Recette").reduce((acc, t) => acc + t.amount, 0);
+    const totalDebit = all.filter(t => t.type === "Depense").reduce((acc, t) => acc + t.amount, 0);
+    const uniqueTiers = Array.from(new Set(all.map(t => t.tier || "").filter(Boolean))).sort();
+
+    const offset = page * pageSize;
+    const transactions = all.slice(offset, offset + pageSize);
+
+    return { transactions, total, totalCredit, totalDebit, uniqueTiers };
+}
+
 export async function saveTransaction(tx: Transaction): Promise<{ success: true }> {
     await db.transactions.put(tx);
     return { success: true };
@@ -1173,6 +1376,72 @@ export async function deletePartner(id: string): Promise<{ success: true }> {
     return { success: true };
 }
 
+// SORTIES CAISSE (données obsolètes, purgeables)
+const CASH_OUTFLOW_PERSONNEL_KEY = 'cashOutflowPersonnel';
+const DEFAULT_PERSONNEL_LIST = ['Abderrafik', 'Aicha'];
+
+const DEFAULT_SHIFTS = [
+    { id: '1', label: '7h - 13h', personnel: '' },
+    { id: '2', label: '13h - 15:30', personnel: '' },
+    { id: '3', label: '15:30 - 18h', personnel: '' },
+    { id: '4', label: '18h - 20:30', personnel: '' },
+];
+
+export async function getCashOutflowPersonnelList(): Promise<string[]> {
+    const raw = await db.settings.get(CASH_OUTFLOW_PERSONNEL_KEY);
+    if (!raw?.value) return [...DEFAULT_PERSONNEL_LIST];
+    try {
+        const parsed = JSON.parse(raw.value) as string[];
+        return Array.isArray(parsed) && parsed.length > 0 ? parsed : [...DEFAULT_PERSONNEL_LIST];
+    } catch {
+        return [...DEFAULT_PERSONNEL_LIST];
+    }
+}
+
+export async function saveCashOutflowPersonnelList(names: string[]): Promise<{ success: true }> {
+    await db.settings.put({ key: CASH_OUTFLOW_PERSONNEL_KEY, value: JSON.stringify(names) });
+    return { success: true };
+}
+
+export function createEmptyDailyCashOutflow(dateStr: string): DailyCashOutflow {
+    const n = DEFAULT_SHIFTS.length;
+    return {
+        id: dateStr,
+        date: dateStr,
+        shifts: DEFAULT_SHIFTS,
+        especes: Array(n).fill(0),
+        achatsCh: Array(n).fill(0),
+        avances: Array(n).fill(0),
+        cmi: Array(n).fill(null).map(() => ({ nb: 0, mt: 0 })),
+        glovo: Array(n).fill(0),
+    };
+}
+
+export async function getDailyCashOutflowByDate(dateStr: string): Promise<DailyCashOutflow | undefined> {
+    return await db.cashOutflows.get(dateStr);
+}
+
+export async function getDailyCashOutflows(fromDate?: string, toDate?: string): Promise<DailyCashOutflow[]> {
+    if (!fromDate && !toDate) return await db.cashOutflows.toArray();
+    if (fromDate && toDate) {
+        return await db.cashOutflows.where('date').between(fromDate, toDate, true, true).toArray();
+    }
+    if (fromDate) return await db.cashOutflows.where('date').aboveOrEqual(fromDate).toArray();
+    return await db.cashOutflows.where('date').belowOrEqual(toDate!).toArray();
+}
+
+export async function saveDailyCashOutflow(data: DailyCashOutflow): Promise<{ success: true }> {
+    await db.cashOutflows.put(data);
+    return { success: true };
+}
+
+/** Purge les sorties de caisse avant une date donnée (ex. avant 2025-01-01) */
+export async function purgeDailyCashOutflows(beforeDate: string): Promise<{ deleted: number }> {
+    const toDelete = await db.cashOutflows.where('date').below(beforeDate).toArray();
+    await db.cashOutflows.bulkDelete(toDelete.map(d => d.id));
+    return { deleted: toDelete.length };
+}
+
 // DASHBOARD ANALYTICS
 export async function getDashboardStats() {
     const now = new Date();
@@ -1218,15 +1487,34 @@ export async function getDashboardStats() {
         .map(d => ({ day: parseInt(d), ...dailyComparisonMap[parseInt(d)] }))
         .sort((a, b) => a.day - b.day);
 
-    // 2. Pending Invoices - Filtered by status index
-    const pendingInvoices = await db.invoices
-        .where('status')
-        .anyOf(['Draft', 'Validated'])
+    // 2. Dépenses du mois : factures d'achat dont la DATE est dans le mois (pas la date de saisie)
+    const currentMonthStart = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-01`;
+    const nextMonth = new Date(currentYear, currentMonth + 1, 1);
+    const currentMonthEnd = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}-01`;
+
+    const prevMonthStart = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, "0")}-01`;
+    const prevMonthNext = new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth() + 1, 1);
+    const prevMonthEnd = `${prevMonthNext.getFullYear()}-${String(prevMonthNext.getMonth() + 1).padStart(2, "0")}-01`;
+
+    const currentMonthInvoices = await db.invoices
+        .where("date")
+        .between(currentMonthStart, currentMonthEnd, true, false)
         .toArray();
 
-    const totalPendingAmount = pendingInvoices.reduce((sum, inv) => {
-        return sum + (inv.totalTTC || 0); // Using cached totalTTC
-    }, 0);
+    const prevMonthInvoices = await db.invoices
+        .where("date")
+        .between(prevMonthStart, prevMonthEnd, true, false)
+        .toArray();
+
+    const totalCurrentMonthExpenses = currentMonthInvoices.reduce((sum, inv) => sum + (inv.totalTTC || 0), 0);
+    const totalPrevMonthExpenses = prevMonthInvoices.reduce((sum, inv) => sum + (inv.totalTTC || 0), 0);
+
+    // Montant total des factures en attente (Draft/Validated) - conservé pour autres usages si besoin
+    const pendingInvoices = await db.invoices
+        .where("status")
+        .anyOf(["Draft", "Validated"])
+        .toArray();
+    const totalPendingAmount = pendingInvoices.reduce((sum, inv) => sum + (inv.totalTTC || 0), 0);
 
     // 3. Articles & Production
     const articleCount = await db.articles.count();
@@ -1270,6 +1558,10 @@ export async function getDashboardStats() {
     
     const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
     
+    // Monthly sales by family (familles de vente) for evolution curves
+    const familyKeys = ["BOULANGERIE", "CROIS.", "VIEN.", "PAT INDIVID.", "PAT ENTRE.", "FOURS SECS", "BELDI", "PRÉ-EMB.", "SALÉS", "CONFISERIE", "PAIN SG", "GÂTEAUX SG"];
+    const monthlyFamilySales: { month: string; families: Record<string, number> }[] = [];
+
     for (let month = 0; month < 12; month++) {
         const monthStr = String(month + 1).padStart(2, '0');
         const currentYearPrefix = `${currentYear}-${monthStr}`;
@@ -1291,6 +1583,21 @@ export async function getDashboardStats() {
             currentYear: currentYearTotal,
             prevYear: prevYearTotal
         });
+
+        // Aggregate by family for current year (evolution curves)
+        const families: Record<string, number> = {};
+        familyKeys.forEach(k => { families[k] = 0; });
+        currentYearSales.forEach(day => {
+            const sales = day.real?.sales as Record<string, string> | undefined;
+            if (sales) {
+                Object.entries(sales).forEach(([key, val]) => {
+                    if (families[key] !== undefined) {
+                        families[key] += parseFloat(val || "0") || 0;
+                    }
+                });
+            }
+        });
+        monthlyFamilySales.push({ month: monthNames[month], families });
     }
 
     // Calculate account balances
@@ -1398,11 +1705,14 @@ export async function getDashboardStats() {
         dailyComparison,
         pendingCount: pendingInvoices.length,
         pendingAmount: totalPendingAmount,
+        materialCost: totalCurrentMonthExpenses,
+        prevMaterialCost: totalPrevMonthExpenses,
         articleCount,
         recipeCount,
         subRecipeCount,
         recentActivity,
         monthlyComparison: monthlyData,
+        monthlyFamilySales,
         accountBalances,
         lastClosedMonthLaborCost,
         lastClosedMonthRevenue

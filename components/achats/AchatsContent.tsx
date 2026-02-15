@@ -5,8 +5,8 @@ import { InvoiceList } from "./InvoiceList";
 import { InvoiceEditor } from "./InvoiceEditor";
 import { InvoiceSummary } from "@/components/achats/InvoiceSummary";
 import { Invoice, Article, Tier } from "@/lib/types";
-import { useState, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import {
     saveInvoice,
@@ -36,8 +36,11 @@ export function AchatsContent() {
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
     const [isSummaryOpen, setIsSummaryOpen] = useState(false);
     const queryClient = useQueryClient();
+    const router = useRouter();
     const invoiceMutation = useInvoiceMutation();
     const invoiceDeletion = useInvoiceDeletion();
+    const didOpenFromTiersRef = useRef(false);
+    const searchParams = useSearchParams();
 
     // Filter suppliers from tiers
     const suppliers = useMemo(() => {
@@ -98,11 +101,13 @@ export function AchatsContent() {
         return `${prefix}${seqStr}`;
     };
 
-    const handleCreateNew = () => {
+    const handleCreateNew = (presetSupplierId?: string) => {
+        const supplierId = presetSupplierId ?? "";
+        const newNumber = supplierId ? generateInvoiceNumber(supplierId) : "";
         const newInv: Invoice = {
             id: `new_${Date.now()}`,
-            supplierId: "",
-            number: "",
+            supplierId,
+            number: newNumber,
             date: new Date().toISOString().split('T')[0],
             status: "Draft",
             lines: [],
@@ -113,7 +118,6 @@ export function AchatsContent() {
             deposit: 0,
             balanceDue: 0
         };
-        // Invalidate queries to refresh the list, but keep new invoice in local state
         queryClient.setQueryData<Invoice[]>(["invoices"], (old = []) => [newInv, ...old]);
         setSelectedInvoice(newInv);
     };
@@ -151,6 +155,34 @@ export function AchatsContent() {
         queryClient.setQueryData<Invoice[]>(["invoices"], (old = []) => [newInv, ...old]);
         setSelectedInvoice(newInv);
     };
+
+    // Depuis Tiers : action=new&supplierId=... → ouvrir une facture vide pour ce fournisseur
+    useEffect(() => {
+        const action = searchParams.get("action");
+        const supplierId = searchParams.get("supplierId");
+        if (didOpenFromTiersRef.current || action !== "new" || !supplierId || suppliers.length === 0) return;
+        const supplier = suppliers.find(s => s.id === supplierId);
+        if (!supplier) return;
+        didOpenFromTiersRef.current = true;
+        const newNumber = generateInvoiceNumber(supplierId);
+        const newInv: Invoice = {
+            id: `new_${Date.now()}`,
+            supplierId,
+            number: newNumber,
+            date: new Date().toISOString().split("T")[0],
+            status: "Draft",
+            lines: [],
+            payments: [],
+            totalHT: 0,
+            totalTTC: 0,
+            rounding: 0,
+            deposit: 0,
+            balanceDue: 0,
+        };
+        queryClient.setQueryData<Invoice[]>(["invoices"], (old = []) => [newInv, ...old]);
+        setSelectedInvoice(newInv);
+        router.replace("/achats", { scroll: false });
+    }, [searchParams, suppliers, allInvoices, queryClient, router]);
 
     const handleUpdate = async (updatedInvoice: Invoice) => {
         // Save to database immediately to persist changes
@@ -227,7 +259,7 @@ export function AchatsContent() {
             <main className="flex-1 ml-64 min-h-screen flex">
                 <div className="w-[600px] flex flex-col h-full border-r border-slate-200 bg-[#F6F8FC] shrink-0">
                     <div className="h-24 min-h-[96px] shrink-0 flex flex-col items-center justify-center border-b border-slate-200 bg-white shadow-[0_1px_10px_rgba(0,0,0,0.03)] z-10 relative">
-                        <h2 className="text-2xl font-extrabold text-slate-800 font-outfit tracking-tight">Factures achats</h2>
+                        <h2 className="text-2xl font-extrabold text-slate-800 font-outfit tracking-tight">Factures Achat</h2>
                         <div className="flex items-center gap-2 text-slate-400">
                             <span className="text-xs font-medium uppercase tracking-wider">Suivi & Paiements</span>
                         </div>
@@ -235,6 +267,7 @@ export function AchatsContent() {
 
                     <InvoiceList
                         invoices={invoices}
+                        allInvoices={allInvoices}
                         selectedInvoiceId={selectedInvoice?.id || null}
                         onSelectInvoice={setSelectedInvoice}
                         suppliers={suppliers}
@@ -244,12 +277,11 @@ export function AchatsContent() {
                         pageSize={pageSize}
                         onPageChange={(newPage) => {
                             setPage(newPage);
-                            // Scroll to top of list when page changes
                             window.scrollTo({ top: 0, behavior: 'smooth' });
                         }}
                         onPageSizeChange={(newSize) => {
                             setPageSize(newSize);
-                            setPage(0); // Reset to first page
+                            setPage(0);
                         }}
                     />
                 </div>
@@ -281,7 +313,7 @@ export function AchatsContent() {
             <InvoiceSummary
                 isOpen={isSummaryOpen}
                 onClose={() => setIsSummaryOpen(false)}
-                invoices={invoices}
+                invoices={allInvoices}
                 tiers={tiers}
                 onSync={handleSync}
             />

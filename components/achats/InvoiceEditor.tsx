@@ -645,7 +645,7 @@ export function InvoiceEditor({
 
                             {/* Info Block */}
                             <div className="flex flex-col gap-1 relative">
-                                <div className="relative">
+                                <div className="relative group">
                                     <input
                                         ref={supplierInputRef}
                                         type="text"
@@ -692,7 +692,7 @@ export function InvoiceEditor({
                                         placeholder="Choisir un Fournisseur..."
                                         className="text-2xl font-serif font-black text-slate-800 bg-transparent outline-none hover:text-blue-600 transition-colors pr-8 min-w-[250px] w-full"
                                     />
-                                    <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none opacity-20">
+                                    <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover:opacity-20 transition-opacity">
                                         <Plus className="w-4 h-4 rotate-45" />
                                     </div>
 
@@ -967,21 +967,38 @@ export function InvoiceEditor({
                             invoiceSyncTime={invoice?.syncTime}
                             balanceDue={formData.balanceDue || 0}
                             deposit={formData.deposit || 0}
+                            supplierName={suppliers.find(s => s.id === formData.supplierId)?.name || ""}
                         />
                         <InvoiceDocuments
                             comment={formData.comment}
                             onCommentChange={(comment) => setFormData(prev => ({ ...prev, comment }))}
+                            documentImage={formData.documentImage}
+                            onDocumentChange={(documentImage) => {
+                                setFormData(prev => {
+                                    const next = { ...prev, documentImage };
+                                    if (onUpdate && invoice) onUpdate({ ...invoice, ...next } as Invoice);
+                                    return next;
+                                });
+                            }}
+                            photoImage={formData.photoImage}
+                            onPhotoChange={(photoImage) => {
+                                setFormData(prev => {
+                                    const next = { ...prev, photoImage };
+                                    if (onUpdate && invoice) onUpdate({ ...invoice, ...next } as Invoice);
+                                    return next;
+                                });
+                            }}
                         />
                     </div>
                 </div>
             </GlassCard>
             ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-slate-400 bg-white/50">
-                    <div className="w-24 h-24 bg-slate-50 rounded-full mb-6 flex items-center justify-center shadow-sm">
-                        <Files className="w-10 h-10 opacity-20" />
+                <div className="flex-1 flex flex-col items-center justify-center bg-white/50">
+                    <div
+                        className="w-64 h-64 rounded-full overflow-hidden flex items-center justify-center bg-transparent opacity-90 shadow-[0_8px_30px_rgba(0,0,0,0.12)] transition-all duration-300 hover:scale-125 hover:opacity-100 hover:shadow-[0_12px_40px_rgba(0,0,0,0.18)]"
+                    >
+                        <img src="/logo-boujniba.png" alt="Boujniba" className="w-full h-full object-contain" />
                     </div>
-                    <h3 className="text-xl font-bold text-slate-300">Aucune sélection</h3>
-                    <p className="text-sm text-slate-400 mt-2">Sélectionnez une facture dans la liste pour voir les détails</p>
                 </div>
             )}
         </div>

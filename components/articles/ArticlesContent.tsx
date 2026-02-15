@@ -134,10 +134,15 @@ export function ArticlesContent() {
     }, [articles, selectedType, searchQuery, selectedFamilyId, selectedSubFamilyId, subFamilies]);
 
     useEffect(() => {
-        if (!selectedArticle && filteredArticles.length > 0) {
+        if (filteredArticles.length === 0) {
+            setSelectedArticle(null);
+            return;
+        }
+        const currentInList = selectedArticle && filteredArticles.some(a => a.id === selectedArticle.id);
+        if (!currentInList) {
             setSelectedArticle(filteredArticles[0]);
         }
-    }, [filteredArticles, selectedArticle]);
+    }, [filteredArticles]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -231,6 +236,7 @@ export function ArticlesContent() {
                                         key={label}
                                         onClick={() => {
                                             setSelectedType(typeValue);
+                                            setSelectedFamilyId(null);
                                             setSelectedSubFamilyId(null);
                                         }}
                                         className={cn(
@@ -378,7 +384,7 @@ export function ArticlesContent() {
                     >
                         {filteredArticles.map(article => {
                             const sub = subFamilies.find(s => s.id === article.subFamilyId);
-                            const family = sub ? families.find(f => f.id === sub.familyId) : null;
+                            const family = families.find(f => f.id === (article.familyId ?? sub?.familyId)) ?? (sub ? families.find(f => f.id === sub.familyId) : null);
                             const typePrefix = family ? family.code.substring(0, 2) : "XX";
                             const isSelected = selectedArticle?.id === article.id;
                             return (
@@ -459,6 +465,7 @@ export function ArticlesContent() {
                                 invoices={invoices}
                                 onSave={handleSave}
                                 onDelete={handleDelete}
+                                selectedType={selectedType}
                             />
                         </div>
                     ) : (

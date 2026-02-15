@@ -3,6 +3,8 @@ import {
     getArticles, saveArticle, deleteArticle,
     getInvoices, saveInvoice, deleteInvoice,
     getInvoicesPaginated, getArticlesPaginated,
+    getTransactions, getTransactionsPaginated, getAccountBalances,
+    saveTransaction, deleteTransaction,
     getEmployees, saveEmployee, deleteEmployee,
     getFamilies, saveFamily, deleteFamily,
     getSubFamilies, saveSubFamily, deleteSubFamily,
@@ -11,7 +13,8 @@ import {
     getSettings, saveSetting,
     getPartners, savePartner, deletePartner,
     getRecipes, saveRecipe, deleteRecipe,
-    invalidateRecipeCache
+    invalidateRecipeCache,
+    getClients, getClientInvoices, saveClientInvoice, deleteClientInvoice
 } from "@/lib/data-service";
 import { InvoiceStatus } from "@/lib/types";
 import { keepPreviousData } from "@tanstack/react-query";
@@ -329,6 +332,101 @@ export function useInvoiceDeletion() {
             queryClient.invalidateQueries({ queryKey: ["invoices"] });
             // Also invalidate articles because invoice prices affect recipe costs
             queryClient.invalidateQueries({ queryKey: ["articles"] });
+        },
+    });
+}
+
+// --- TRANSACTIONS (Finance / Banque) ---
+export function useTransactions() {
+    return useQuery({
+        queryKey: ["transactions"],
+        queryFn: getTransactions,
+    });
+}
+
+export interface UseTransactionsPaginatedParams {
+    page: number;
+    pageSize?: number;
+    filters?: {
+        account?: "Banque" | "Caisse" | "Coffre";
+        periodFilter?: "Toutes" | "Quinzaine" | "Mois" | "Période";
+        dateFrom?: string;
+        dateTo?: string;
+        searchQuery?: string;
+    };
+}
+
+export function useTransactionsPaginated(params: UseTransactionsPaginatedParams) {
+    const { page, pageSize = 50, filters } = params;
+    return useQuery({
+        queryKey: ["transactions", "paginated", page, pageSize, filters],
+        queryFn: () => getTransactionsPaginated(page, pageSize, filters),
+        placeholderData: (previousData) => previousData,
+        staleTime: 30 * 1000,
+    });
+}
+
+export function useAccountBalances() {
+    return useQuery({
+        queryKey: ["accountBalances"],
+        queryFn: getAccountBalances,
+        staleTime: 30 * 1000,
+    });
+}
+
+export function useTransactionMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: saveTransaction,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["transactions"] });
+            queryClient.invalidateQueries({ queryKey: ["accountBalances"] });
+        },
+    });
+}
+
+export function useTransactionDeletion() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: deleteTransaction,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["transactions"] });
+            queryClient.invalidateQueries({ queryKey: ["accountBalances"] });
+        },
+    });
+}
+
+// --- CLIENT INVOICES (Facturation) ---
+export function useClients() {
+    return useQuery({
+        queryKey: ["clients"],
+        queryFn: getClients,
+    });
+}
+
+export function useClientInvoices() {
+    return useQuery({
+        queryKey: ["clientInvoices"],
+        queryFn: getClientInvoices,
+    });
+}
+
+export function useClientInvoiceMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: saveClientInvoice,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["clientInvoices"] });
+        },
+    });
+}
+
+export function useClientInvoiceDeletion() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: deleteClientInvoice,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["clientInvoices"] });
         },
     });
 }

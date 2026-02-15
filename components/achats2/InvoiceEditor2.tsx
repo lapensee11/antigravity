@@ -970,10 +970,27 @@ export function InvoiceEditor2({
                             invoiceSyncTime={invoice?.syncTime}
                             balanceDue={formData.balanceDue || 0}
                             deposit={formData.deposit || 0}
+                            supplierName={suppliers.find(s => s.id === formData.supplierId)?.name || ""}
                         />
                         <InvoiceDocuments
                             comment={formData.comment}
                             onCommentChange={(comment) => setFormData(prev => ({ ...prev, comment }))}
+                            documentImage={formData.documentImage}
+                            onDocumentChange={(documentImage) => {
+                                setFormData(prev => {
+                                    const next = { ...prev, documentImage };
+                                    if (onUpdate && invoice) onUpdate({ ...invoice, ...next } as Invoice);
+                                    return next;
+                                });
+                            }}
+                            photoImage={formData.photoImage}
+                            onPhotoChange={(photoImage) => {
+                                setFormData(prev => {
+                                    const next = { ...prev, photoImage };
+                                    if (onUpdate && invoice) onUpdate({ ...invoice, ...next } as Invoice);
+                                    return next;
+                                });
+                            }}
                         />
                     </div>
                 </div>
