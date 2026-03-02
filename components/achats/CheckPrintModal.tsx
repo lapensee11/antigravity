@@ -31,6 +31,29 @@ function savePositions(pos: CheckPositions) {
   } catch (_) {}
 }
 
+/** Composant défini hors du modal pour éviter recréation à chaque rendu (perte de focus). */
+function PosInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-base font-medium text-slate-600 w-24">{label}</span>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+        className="w-16 text-base border border-slate-200 rounded px-2 py-1"
+      />
+    </div>
+  );
+}
+
 interface CheckPrintModalProps {
   amount: number;
   ordre: string;
@@ -53,11 +76,11 @@ export function CheckPrintModal({ amount, ordre, onClose, onPrint }: CheckPrintM
 
   useEffect(() => {
     const p = loadPositions();
-    if (p?.amountNumbers) setAmountNumbers(p.amountNumbers);
-    if (p?.amountLetters) setAmountLetters(p.amountLetters);
-    if (p?.ordre) setOrdrePos(p.ordre);
-    if (p?.lieu) setLieu(p.lieu);
-    if (p?.date) setDate(p.date);
+    if (p?.amountNumbers) setAmountNumbers({ ...p.amountNumbers, fontSize: p.amountNumbers.fontSize ?? 8 });
+    if (p?.amountLetters) setAmountLetters({ ...p.amountLetters, fontSize: p.amountLetters.fontSize ?? 8 });
+    if (p?.ordre) setOrdrePos({ ...p.ordre, fontSize: p.ordre.fontSize ?? 8 });
+    if (p?.lieu) setLieu({ ...p.lieu, fontSize: p.lieu.fontSize ?? 8 });
+    if (p?.date) setDate({ ...p.date, fontSize: p.date.fontSize ?? 8 });
   }, []);
 
   const currentPositions: CheckPositions = {
@@ -98,28 +121,6 @@ export function CheckPrintModal({ amount, ordre, onClose, onPrint }: CheckPrintM
     s((prev) => ({ ...prev, [field]: value }));
   };
 
-  const PosInput = ({
-    label,
-    keyName,
-    field,
-    value,
-  }: {
-    label: string;
-    keyName: keyof typeof currentPositions;
-    field: keyof CheckPosition;
-    value: number;
-  }) => (
-    <div className="flex items-center gap-2">
-      <span className="text-xs font-medium text-slate-600 w-24">{label}</span>
-      <input
-        type="number"
-        value={value}
-        onChange={(e) => updatePos(keyName, field, parseFloat(e.target.value) || 0)}
-        className="w-16 text-xs border border-slate-200 rounded px-2 py-1"
-      />
-    </div>
-  );
-
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
       <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col">
@@ -132,63 +133,63 @@ export function CheckPrintModal({ amount, ordre, onClose, onPrint }: CheckPrintM
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-            <p className="text-sm font-bold text-slate-700">Montant : {amount.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DH</p>
-            <p className="text-xs text-slate-600">{numberToFrenchWords(amount)}</p>
+            <p className="text-base font-bold text-slate-700">Montant : {amount.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DH</p>
+            <p className="text-base text-slate-600">{numberToFrenchWords(amount)}</p>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-2">Ordre (bénéficiaire)</label>
+            <label className="block text-base font-medium text-slate-600 mb-2">Ordre (bénéficiaire)</label>
             <input
               type="text"
               value={ordreValue}
               onChange={(e) => setOrdreValue(e.target.value)}
               placeholder="Nom du fournisseur"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-base"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-600 mb-2">Lieu</label>
+            <label className="block text-base font-medium text-slate-600 mb-2">Lieu</label>
             <input
               type="text"
               value={lieuValue}
               onChange={(e) => setLieuValue(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-base"
             />
           </div>
 
           <div className="border-t border-slate-200 pt-4">
-            <p className="text-xs font-bold text-slate-700 mb-3">Emplacements (mm depuis le coin haut-gauche)</p>
-            <div className="grid grid-cols-2 gap-3 text-xs">
+            <p className="text-base font-bold text-slate-700 mb-3">Emplacements (mm depuis le coin haut-gauche)</p>
+            <div className="grid grid-cols-2 gap-3 text-base">
               <div className="space-y-2 p-3 bg-blue-50 rounded-lg">
                 <p className="font-bold text-blue-800">Montant (chiffres)</p>
-                <PosInput label="Gauche" keyName="amountNumbers" field="left" value={amountNumbers.left} />
-                <PosInput label="Haut" keyName="amountNumbers" field="top" value={amountNumbers.top} />
-                <PosInput label="Taille" keyName="amountNumbers" field="fontSize" value={amountNumbers.fontSize || 12} />
+                <PosInput label="Gauche" value={amountNumbers.left} onChange={(v) => updatePos("amountNumbers", "left", v)} />
+                <PosInput label="Haut" value={amountNumbers.top} onChange={(v) => updatePos("amountNumbers", "top", v)} />
+                <PosInput label="Taille" value={amountNumbers.fontSize || 12} onChange={(v) => updatePos("amountNumbers", "fontSize", v)} />
               </div>
               <div className="space-y-2 p-3 bg-emerald-50 rounded-lg">
                 <p className="font-bold text-emerald-800">Montant (lettres)</p>
-                <PosInput label="Gauche" keyName="amountLetters" field="left" value={amountLetters.left} />
-                <PosInput label="Haut" keyName="amountLetters" field="top" value={amountLetters.top} />
-                <PosInput label="Taille" keyName="amountLetters" field="fontSize" value={amountLetters.fontSize || 8} />
+                <PosInput label="Gauche" value={amountLetters.left} onChange={(v) => updatePos("amountLetters", "left", v)} />
+                <PosInput label="Haut" value={amountLetters.top} onChange={(v) => updatePos("amountLetters", "top", v)} />
+                <PosInput label="Taille" value={amountLetters.fontSize || 8} onChange={(v) => updatePos("amountLetters", "fontSize", v)} />
               </div>
               <div className="space-y-2 p-3 bg-violet-50 rounded-lg">
                 <p className="font-bold text-violet-800">Ordre</p>
-                <PosInput label="Gauche" keyName="ordre" field="left" value={ordrePos.left} />
-                <PosInput label="Haut" keyName="ordre" field="top" value={ordrePos.top} />
-                <PosInput label="Taille" keyName="ordre" field="fontSize" value={ordrePos.fontSize || 8} />
+                <PosInput label="Gauche" value={ordrePos.left} onChange={(v) => updatePos("ordre", "left", v)} />
+                <PosInput label="Haut" value={ordrePos.top} onChange={(v) => updatePos("ordre", "top", v)} />
+                <PosInput label="Taille" value={ordrePos.fontSize || 8} onChange={(v) => updatePos("ordre", "fontSize", v)} />
               </div>
               <div className="space-y-2 p-3 bg-amber-50 rounded-lg">
                 <p className="font-bold text-amber-800">Lieu</p>
-                <PosInput label="Gauche" keyName="lieu" field="left" value={lieu.left} />
-                <PosInput label="Haut" keyName="lieu" field="top" value={lieu.top} />
-                <PosInput label="Taille" keyName="lieu" field="fontSize" value={lieu.fontSize || 10} />
+                <PosInput label="Gauche" value={lieu.left} onChange={(v) => updatePos("lieu", "left", v)} />
+                <PosInput label="Haut" value={lieu.top} onChange={(v) => updatePos("lieu", "top", v)} />
+                <PosInput label="Taille" value={lieu.fontSize || 10} onChange={(v) => updatePos("lieu", "fontSize", v)} />
               </div>
               <div className="space-y-2 p-3 bg-purple-50 rounded-lg">
                 <p className="font-bold text-purple-800">Date</p>
-                <PosInput label="Gauche" keyName="date" field="left" value={date.left} />
-                <PosInput label="Haut" keyName="date" field="top" value={date.top} />
-                <PosInput label="Taille" keyName="date" field="fontSize" value={date.fontSize || 10} />
+                <PosInput label="Gauche" value={date.left} onChange={(v) => updatePos("date", "left", v)} />
+                <PosInput label="Haut" value={date.top} onChange={(v) => updatePos("date", "top", v)} />
+                <PosInput label="Taille" value={date.fontSize || 10} onChange={(v) => updatePos("date", "fontSize", v)} />
               </div>
             </div>
           </div>
@@ -197,7 +198,7 @@ export function CheckPrintModal({ amount, ordre, onClose, onPrint }: CheckPrintM
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200">
           <button
             onClick={() => handleSavePositions()}
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+            className="px-4 py-2 text-base font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
           >
             Enregistrer positions
           </button>

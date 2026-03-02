@@ -1,5 +1,5 @@
 import { db } from './db';
-import { Article, StaffMember, Invoice, Tier, Family, SubFamily, Recipe, StructureType, Transaction, AccountingAccount, AppSetting, Partner, CMIEntry, InvoiceStatus, Nutrition, ClientInvoice, ClientInvoiceLine, DailyCashOutflow } from './types';
+import { Article, StaffMember, Invoice, InvoiceLine, Tier, Family, SubFamily, Recipe, Ingredient, StructureType, Transaction, AccountingAccount, AppSetting, Partner, CMIEntry, InvoiceStatus, Nutrition, ClientInvoice, ClientInvoiceLine, DailyCashOutflow } from './types';
 import { initialFamilies, initialSubFamilies } from './data';
 
 // ============================================================================
@@ -395,7 +395,31 @@ export function calculateRecipeAllergens(
 
 // INVOICES
 export async function getInvoices(): Promise<Invoice[]> {
-    return await db.invoices.toArray();
+    let allInvoices = await db.invoices.toArray();
+    
+    // Helper: reste à payer = totalTTC - somme des paiements
+    const restToPay = (inv: Invoice) => {
+        const paid = (inv.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
+        return (inv.totalTTC || 0) - paid;
+    };
+    
+    // Sort: 1) Reste à payer > 0 (non soldées), 2) Pas synchronisées, 3) Autres par date décroissante
+    allInvoices = [...allInvoices].sort((a, b) => {
+        const aUnpaid = restToPay(a) > 0;
+        const bUnpaid = restToPay(b) > 0;
+        if (aUnpaid !== bUnpaid) return aUnpaid ? -1 : 1; // Non soldées en premier
+
+        const aSynced = !!a.syncTime;
+        const bSynced = !!b.syncTime;
+        if (aSynced !== bSynced) return aSynced ? 1 : -1; // Non synchronisées ensuite
+
+        // Puis par date décroissante (plus récent en premier)
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateB - dateA; // Décroissant : plus récent en premier
+    });
+    
+    return allInvoices;
 }
 
 /**
@@ -413,7 +437,7 @@ export async function getInvoicesPaginated(
     }
 ): Promise<{ invoices: Invoice[]; total: number }> {
     // Get all invoices first (needed for complex filters)
-    let allInvoices = await db.invoices.orderBy('date').reverse().toArray();
+    let allInvoices = await db.invoices.toArray();
     
     // Apply filters if provided
     if (filters) {
@@ -437,6 +461,29 @@ export async function getInvoicesPaginated(
             );
         }
     }
+    
+    // Helper: reste à payer = totalTTC - somme des paiements
+    const restToPay = (inv: Invoice) => {
+        const paid = (inv.payments || []).reduce((s, p) => s + (p.amount || 0), 0);
+        return (inv.totalTTC || 0) - paid;
+    };
+    
+    // Sort: 1) Reste à payer > 0 (non soldées), 2) Pas synchronisées, 3) Autres par date décroissante
+    // Note: Les nouvelles factures non sauvegardées sont gérées côté client dans InvoiceList
+    allInvoices = [...allInvoices].sort((a, b) => {
+        const aUnpaid = restToPay(a) > 0;
+        const bUnpaid = restToPay(b) > 0;
+        if (aUnpaid !== bUnpaid) return aUnpaid ? -1 : 1; // Non soldées en premier
+
+        const aSynced = !!a.syncTime;
+        const bSynced = !!b.syncTime;
+        if (aSynced !== bSynced) return aSynced ? 1 : -1; // Non synchronisées ensuite
+
+        // Puis par date décroissante (plus récent en premier)
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateB - dateA; // Décroissant : plus récent en premier
+    });
     
     // Get total count
     const total = allInvoices.length;
@@ -709,8 +756,42 @@ export function invalidateRecipeArticlesCache(): void {
 // Export for use in hooks
 export { invalidateRecipeArticlesCache as invalidateRecipeCache };
 
+/** When an article's name is changed, update denormalized name in invoice lines and recipe ingredients. */
+async function propagateArticleNameChange(articleId: string, newName: string): Promise<void> {
+    await db.transaction('rw', [db.invoices, db.recipes], async () => {
+        const invoices = await db.invoices.toArray();
+        for (const inv of invoices) {
+            const lines: InvoiceLine[] = inv.lines || [];
+            const hasLine = lines.some((l) => l.articleId === articleId);
+            if (!hasLine) continue;
+            const newLines: InvoiceLine[] = lines.map((l) =>
+                l.articleId === articleId ? { ...l, articleName: newName } : l
+            );
+            await db.invoices.update(inv.id, { lines: newLines });
+        }
+        const recipes = await db.recipes.toArray();
+        for (const recipe of recipes) {
+            const ings: Ingredient[] = recipe.ingredients || [];
+            const hasIng = ings.some((ing) => ing.articleId === articleId);
+            if (!hasIng) continue;
+            const newIngredients: Ingredient[] = ings.map((ing) =>
+                ing.articleId === articleId ? { ...ing, name: newName } : ing
+            );
+            await db.recipes.update(recipe.id, { ingredients: newIngredients });
+        }
+    });
+}
+
 export async function saveArticle(article: Article): Promise<{ success: true }> {
+    const existing = await db.articles.get(article.id);
+    const nameChanged = existing != null && existing.name !== article.name;
+
     await db.articles.put(article);
+
+    if (nameChanged) {
+        await propagateArticleNameChange(article.id, article.name);
+    }
+
     // If this is a sub-recipe article, invalidate cache
     if (article.isSubRecipe) {
         invalidateRecipeArticlesCache();
@@ -816,7 +897,7 @@ async function updateAggregatedCheck(ref: string, allInvoices: Invoice[]) {
         await db.transactions.put({
             id: `check_vignette_${ref}`,
             date: date || new Date().toISOString().split('T')[0],
-            label: `Reglement Chèque: ${ref}`,
+            label: "Achat Chèque",
             amount: total,
             type: "Depense",
             category: "Achat",
@@ -1159,12 +1240,12 @@ export async function deleteSubFamily(id: string): Promise<{ success: true; mess
 import { syncStructure } from './structure-sync';
 
 export async function reconcileStructureWithMaster(): Promise<{ success: true }> {
-    // Only sync families, not sub-families (to prevent unwanted additions)
-    // Sub-families should be added manually by the user
+    // Ne plus ajouter de familles/sous-familles/articles : création uniquement manuelle (Structure / Article).
+    // Seule la déduplication est exécutée (fusion des doublons, réaffectation des articles/recettes).
     const result = await syncStructure({
-        syncFamilies: true,
-        syncSubFamilies: false, // Disabled - user must add sub-families manually
-        syncArticles: false, // Disabled - user must add articles manually
+        syncFamilies: false,
+        syncSubFamilies: false,
+        syncArticles: false,
         deduplicate: true,
         migrateIds: false
     });
@@ -1558,25 +1639,63 @@ export async function getDashboardStats() {
     
     const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
     
-    // Monthly sales by family (familles de vente) for evolution curves
+    // Jour du jour pour comparatif "du 1er au J du mois" (ex. 1er au 20 Fév.)
+    const todayDate = new Date();
+    const compareUpToDay = todayDate.getDate();
+    const compareMonthIndex = todayDate.getMonth();
+
+    type SalesDayRecord = { id: string; real?: { calculated?: { ttc?: string | number }; ttc?: string | number; sales?: Record<string, string> }; declared?: unknown };
+    /** Filtre les ventes pour ne garder que les jours 1..maxDay (uniquement pour l'année courante / mois courant) */
+    const filterSalesUpToDayCurrentYear = (sales: SalesDayRecord[], monthIndex: number, maxDay: number): SalesDayRecord[] => {
+        if (monthIndex !== compareMonthIndex) return sales;
+        return sales.filter(day => {
+            const parts = day.id.split('-');
+            if (parts.length >= 3) {
+                const dayNum = parseInt(parts[2], 10);
+                return !isNaN(dayNum) && dayNum <= maxDay;
+            }
+            return true;
+        });
+    };
+
+    // Monthly sales by family (familles de vente) – comparatif 2026 vs 2025 jusqu'au jour du jour
     const familyKeys = ["BOULANGERIE", "CROIS.", "VIEN.", "PAT INDIVID.", "PAT ENTRE.", "FOURS SECS", "BELDI", "PRÉ-EMB.", "SALÉS", "CONFISERIE", "PAIN SG", "GÂTEAUX SG"];
-    const monthlyFamilySales: { month: string; families: Record<string, number> }[] = [];
+    const monthlyFamilySales: { month: string; families: Record<string, number>; familiesPrev?: Record<string, number> }[] = [];
+
+    // Récupérer toutes les ventes puis filtrer par année/mois en mémoire pour garantir
+    // que tous les formats d'id sont pris en compte (ex. "2026-03-15" et "2026-3-15")
+    const allSales = await db.salesData.toArray();
+    const salesForYear = (year: number) =>
+        allSales.filter(s => {
+            const parts = s.id.split('-');
+            if (parts.length < 2) return false;
+            const y = parseInt(parts[0], 10);
+            return !isNaN(y) && y === year;
+        });
+    const allCurrentYearSales = salesForYear(currentYear);
+    const allPrevYearSales = salesForYear(prevYear);
+
+    const salesForMonth = (sales: SalesDayRecord[], year: number, monthIndex: number): SalesDayRecord[] => {
+        return sales.filter(s => {
+            const parts = s.id.split('-');
+            if (parts.length < 2) return false;
+            const monthNum = parseInt(parts[1], 10);
+            return !isNaN(monthNum) && monthNum === monthIndex + 1 && parts[0] === String(year);
+        });
+    };
 
     for (let month = 0; month < 12; month++) {
-        const monthStr = String(month + 1).padStart(2, '0');
-        const currentYearPrefix = `${currentYear}-${monthStr}`;
-        const prevYearPrefix = `${prevYear}-${monthStr}`;
+        let currentYearSales = salesForMonth(allCurrentYearSales as SalesDayRecord[], currentYear, month);
+        let prevYearSales = salesForMonth(allPrevYearSales as SalesDayRecord[], prevYear, month);
+        currentYearSales = filterSalesUpToDayCurrentYear(currentYearSales, month, compareUpToDay);
+        // Année précédente : toujours mois complet pour que les mois entièrement saisis (ex. Mars 2025) apparaissent
         
-        const currentYearSales = await db.salesData.where('id').startsWith(currentYearPrefix).toArray();
-        const prevYearSales = await db.salesData.where('id').startsWith(prevYearPrefix).toArray();
-        
-        const currentYearTotal = currentYearSales.reduce((sum, day) => {
-            return sum + (parseFloat(day.real?.calculated?.ttc) || 0);
-        }, 0);
-        
-        const prevYearTotal = prevYearSales.reduce((sum, day) => {
-            return sum + (parseFloat(day.real?.calculated?.ttc) || 0);
-        }, 0);
+        const dayTtc = (day: SalesDayRecord) => {
+            const v = day.real?.calculated?.ttc ?? day.real?.ttc;
+            return parseFloat(String(v ?? 0)) || 0;
+        };
+        const currentYearTotal = currentYearSales.reduce((sum, day) => sum + dayTtc(day), 0);
+        const prevYearTotal = prevYearSales.reduce((sum, day) => sum + dayTtc(day), 0);
         
         monthlyData.push({
             month: monthNames[month],
@@ -1584,7 +1703,7 @@ export async function getDashboardStats() {
             prevYear: prevYearTotal
         });
 
-        // Aggregate by family for current year (evolution curves)
+        // Agrégat par famille – année courante (2026)
         const families: Record<string, number> = {};
         familyKeys.forEach(k => { families[k] = 0; });
         currentYearSales.forEach(day => {
@@ -1597,7 +1716,20 @@ export async function getDashboardStats() {
                 });
             }
         });
-        monthlyFamilySales.push({ month: monthNames[month], families });
+        // Agrégat par famille – année précédente (2025), même période (1er au J du mois)
+        const familiesPrev: Record<string, number> = {};
+        familyKeys.forEach(k => { familiesPrev[k] = 0; });
+        prevYearSales.forEach(day => {
+            const sales = day.real?.sales as Record<string, string> | undefined;
+            if (sales) {
+                Object.entries(sales).forEach(([key, val]) => {
+                    if (familiesPrev[key] !== undefined) {
+                        familiesPrev[key] += parseFloat(val || "0") || 0;
+                    }
+                });
+            }
+        });
+        monthlyFamilySales.push({ month: monthNames[month], families, familiesPrev });
     }
 
     // Calculate account balances
@@ -1948,6 +2080,51 @@ export async function migrateTransactionLabels(): Promise<{ updated: number }> {
 // GLOBAL UNIT MANAGEMENT
 export type UnitType = 'achat' | 'pivot' | 'production';
 
+const INITIAL_UNITS: Record<UnitType, string[]> = {
+    achat: ["Sac", "Quintal", "Carton", "Palette", "Boite", "Plateau"],
+    pivot: ["Kg", "Litre", "Unité"],
+    production: ["g", "cl", "unité"]
+};
+
+const UNITS_SETTINGS_KEY = (type: UnitType) => `bakery_units_${type}`;
+
+/** Get units from IndexedDB (permanent storage). Migrates from localStorage if needed. */
+export async function getUnits(type: UnitType): Promise<string[]> {
+    const key = UNITS_SETTINGS_KEY(type);
+    const raw = await db.settings.get(key);
+    if (raw?.value) {
+        try {
+            const parsed = JSON.parse(raw.value) as string[];
+            return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_UNITS[type];
+        } catch {
+            return INITIAL_UNITS[type];
+        }
+    }
+    // Migration: if localStorage has data, migrate to IndexedDB
+    if (typeof window !== "undefined") {
+        const stored = localStorage.getItem(key);
+        if (stored) {
+            try {
+                const units: string[] = JSON.parse(stored);
+                if (Array.isArray(units) && units.length > 0) {
+                    await saveUnits(type, units);
+                    return units;
+                }
+            } catch (e) {
+                console.error(`Migration: failed to parse ${key} from localStorage`, e);
+            }
+        }
+    }
+    return INITIAL_UNITS[type];
+}
+
+/** Save units to IndexedDB (permanent storage). */
+export async function saveUnits(type: UnitType, units: string[]): Promise<{ success: true }> {
+    const key = UNITS_SETTINGS_KEY(type);
+    await db.settings.put({ key, value: JSON.stringify(units) });
+    return { success: true };
+}
+
 export async function renameUnitGlobal(oldName: string, newName: string, type: UnitType): Promise<{ success: true }> {
     await db.transaction('rw', [db.articles, db.invoices, db.recipes], async () => {
         // 1. Update Articles
@@ -2004,125 +2181,25 @@ export async function renameUnitGlobal(oldName: string, newName: string, type: U
         }
     });
 
-    // 4. Update localStorage
-    if (typeof window !== "undefined") {
-        const key = `bakery_units_${type}`;
-        const stored = localStorage.getItem(key);
-        if (stored) {
-            try {
-                const units: string[] = JSON.parse(stored);
-                const newUnits = units.map(u => u === oldName ? newName : u);
-                localStorage.setItem(key, JSON.stringify(newUnits));
-            } catch (e) {
-                console.error(`Failed to update ${key} in localStorage`, e);
-            }
-        }
-    }
+    // 4. Update units list in IndexedDB
+    const units = await getUnits(type);
+    const newUnits = units.map(u => u === oldName ? newName : u);
+    await saveUnits(type, newUnits);
 
     return { success: true };
 }
 
 export async function deleteUnitGlobal(name: string, type: UnitType): Promise<{ success: true }> {
-    if (typeof window !== "undefined") {
-        const key = `bakery_units_${type}`;
-        const stored = localStorage.getItem(key);
-        if (stored) {
-            try {
-                const units: string[] = JSON.parse(stored);
-                const newUnits = units.filter(u => u !== name);
-                localStorage.setItem(key, JSON.stringify(newUnits));
-            } catch (e) {
-                console.error(`Failed to delete unit from ${key} in localStorage`, e);
-            }
-        }
-    }
+    const units = await getUnits(type);
+    const newUnits = units.filter(u => u !== name);
+    await saveUnits(type, newUnits);
     return { success: true };
 }
 
 export async function ensureArticlesExist(): Promise<{ success: true }> {
-    // 0 & 1. Ensure Structural Seeding (Once Only)
-    const STRUCT_SEED_KEY = 'bakery_maintenance_structure_seeded_v2'; // Bumped for Energy fix
-    if (typeof window !== "undefined" && !localStorage.getItem(STRUCT_SEED_KEY)) {
-        // Ensure Families exist
-        const maintenanceFamilies: Family[] = [
-            { id: "FA09", name: "Energie et Fluides", code: "FA09", typeId: "1" },
-            { id: "FA10", name: "Entretien et Hygiène", code: "FA10", typeId: "1" },
-            { id: "FA11", name: "Matériel", code: "FA11", typeId: "1" },
-        ];
-
-        for (const fam of maintenanceFamilies) {
-            await db.families.put(fam);
-        }
-
-        // Ensure Sub-Families exist
-        const maintenanceSubs: SubFamily[] = [
-            // Energy (FA09) - New from Image
-            { id: "FA091", name: "Carburants & Gaz", code: "FA091", familyId: "FA09" },
-            { id: "FA092", name: "Eau & Électricité", code: "FA092", familyId: "FA09" },
-            { id: "FA093", name: "Télécommunications", code: "FA093", familyId: "FA09" },
-
-            // Hygiene (FA10)
-            { id: "FA101", name: "Produits de Ménage", code: "FA101", familyId: "FA10" },
-            { id: "FA102", name: "Service Hygiène", code: "FA102", familyId: "FA10" },
-            { id: "FA103", name: "Tenues de Personnel", code: "FA103", familyId: "FA10" },
-        ];
-
-        for (const sub of maintenanceSubs) {
-            await db.subFamilies.put(sub);
-        }
-        localStorage.setItem(STRUCT_SEED_KEY, 'true');
-    }
-
-    // 2. Ensure Articles exist (Only if not already seeded to allow permanent deletion)
-    const SEED_KEY = 'bakery_maintenance_articles_seeded_v4'; // Bumped for Energy fix
-    if (typeof window !== "undefined" && !localStorage.getItem(SEED_KEY)) {
-        const initialMaintenanceArticles: any[] = [
-            // ENERGIE (FA091, FA092, FA093) - From Image
-            { id: "PA091-01", name: "Gasoil (Fours)", code: "PA091-01", subFamilyId: "FA091", unitAchat: "Tonne", unitPivot: "Litres", unitProduction: "Litres", contenace: 1000, coeffProd: 1, vatRate: 10, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA091-02", name: "Gaz", code: "PA091-02", subFamilyId: "FA091", unitAchat: "Bouteille", unitPivot: "Kg", unitProduction: "Kg", contenace: 12, coeffProd: 1, vatRate: 10, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA091-03", name: "Diesel (Voitures)", code: "PA091-03", subFamilyId: "FA091", unitAchat: "Litre", unitPivot: "Litres", unitProduction: "Litres", contenace: 1, coeffProd: 1, vatRate: 10, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-
-            { id: "PA092-01", name: "Eléctricité Pat", code: "PA092-01", subFamilyId: "FA092", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 10, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
-            { id: "PA092-02", name: "Eléctricité Général", code: "PA092-02", subFamilyId: "FA092", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 10, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
-            { id: "PA092-03", name: "Eau", code: "PA092-03", subFamilyId: "FA092", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 10, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
-
-            { id: "PA093-01", name: "Lignes Ittisalat", code: "PA093-01", subFamilyId: "FA093", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
-            { id: "PA093-02", name: "Lignes Orange", code: "PA093-02", subFamilyId: "FA093", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
-            { id: "PA093-03", name: "Internet", code: "PA093-03", subFamilyId: "FA093", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
-
-            // HYGIENE & ENTRETIEN (FA101, FA102, FA103)
-            // ... (rest of hygiene articles stay the same)
-            { id: "PA101-01", name: "Lessive Mains", code: "PA101-01", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA101-02", name: "Javel", code: "PA101-02", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA101-03", name: "Nettoyant Sol", code: "PA101-03", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA101-04", name: "ONI", code: "PA101-04", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA101-05", name: "Nettoyage Vitres", code: "PA101-05", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA101-11", name: "Balai", code: "PA101-11", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA101-12", name: "Raclette", code: "PA101-12", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA101-13", name: "Manche à balai", code: "PA101-13", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA101-14", name: "Serpillère", code: "PA101-14", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA101-15", name: "Torchons", code: "PA101-15", subFamilyId: "FA101", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-
-            // SubFamily FA102
-            { id: "PA102-01", name: "Entretien Egoûts", code: "PA102-01", subFamilyId: "FA102", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
-            { id: "PA102-02", name: "Laveur Vitres", code: "PA102-02", subFamilyId: "FA102", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Achats Non Stockés de matières et fournitures", accountingCode: "6125" },
-
-            // SubFamily FA103
-            { id: "PA103-01", name: "Chemises vendeuses", code: "PA103-01", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA103-02", name: "Devant Vendeuses", code: "PA103-02", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA103-03", name: "Coiffe Vendeuses", code: "PA103-03", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA103-04", name: "Pantalon Vendeuses", code: "PA103-04", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA103-11", name: "Tenue labo", code: "PA103-11", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA103-12", name: "Tablier labo", code: "PA103-12", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA103-13", name: "Tocque Labo", code: "PA103-13", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-            { id: "PA103-14", name: "Tenue Ménage", code: "PA103-14", subFamilyId: "FA103", unitAchat: "Unité", unitPivot: "Unité", unitProduction: "Unité", contenace: 1, coeffProd: 1, vatRate: 20, accountingNature: "Fournitures consommables", accountingCode: "6122" },
-        ];
-
-        for (const art of initialMaintenanceArticles) {
-            await db.articles.put(art);
-        }
-        localStorage.setItem(SEED_KEY, 'true');
-    }
+    // Désactivé : plus de création automatique de familles, sous-familles ou articles.
+    // La création se fait uniquement manuellement dans Structure ou Article.
     return { success: true };
 }
+
 

@@ -70,6 +70,8 @@ export interface Article {
     linkedRecipeId?: string; // ID de la recette liée (si c'est une sous-recette)
     // Fonction du produit (pour articles de production)
     productFunction?: string;
+    /** Icône choisie par l'utilisateur (ex. "Wheat", "Package"). Si absent, dérivée du type/famille. */
+    iconId?: string;
 }
 
 // Invoices

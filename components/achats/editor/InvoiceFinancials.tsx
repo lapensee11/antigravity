@@ -60,35 +60,35 @@ export const InvoiceFinancials: React.FC<InvoiceFinancialsProps> = ({ formData, 
         <div className="flex justify-end mt-4">
             <div className="bg-[#1E293B] text-white rounded-xl py-3 px-6 flex items-center gap-8 shadow-lg shadow-gray-400/20">
                 <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total HT</span>
-                    <span className="text-sm font-black">{(formData.totalHT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-60">Dh</span></span>
+                    <span className="text-[12px] font-bold text-slate-400 uppercase tracking-widest">Total HT</span>
+                    <span className="text-base font-black">{(formData.totalHT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[12px] opacity-60">Dh</span></span>
                 </div>
                 <div className="w-px h-8 bg-white/10" />
                 <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">TVA</span>
-                    <span className="text-sm font-black">{(formData.totalVAT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-60">Dh</span></span>
+                    <span className="text-[12px] font-bold text-slate-400 uppercase tracking-widest">TVA</span>
+                    <span className="text-base font-black">{(formData.totalVAT || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[12px] opacity-60">Dh</span></span>
                 </div>
                 <div className="w-px h-8 bg-white/10" />
                 <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Remise</span>
-                    <span className="text-sm font-black text-white">{(formData.totalRemise || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-60 font-medium">Dh</span></span>
+                    <span className="text-[12px] font-bold text-slate-400 uppercase tracking-widest">Remise</span>
+                    <span className="text-base font-black text-white">{(formData.totalRemise || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[12px] opacity-60 font-medium">Dh</span></span>
                 </div>
                 <div className="w-px h-8 bg-white/10" />
                 <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Arrondi</span>
+                    <span className="text-[12px] font-bold text-slate-400 uppercase tracking-widest">Arrondi</span>
                     <div className="flex items-baseline gap-1">
                         <DecimalInput
                             value={formData.rounding || 0}
                             onChange={handleRoundingChange}
-                            className="text-sm font-black text-orange-400 bg-transparent outline-none w-16 text-right border-b border-orange-400/20 focus:border-orange-400 transition-colors"
+                            className="text-base font-black text-orange-400 bg-transparent outline-none w-16 text-right border-b border-orange-400/20 focus:border-orange-400 transition-colors"
                         />
-                        <span className="text-[10px] opacity-60 font-medium text-orange-400">Dh</span>
+                        <span className="text-[12px] opacity-60 font-medium text-orange-400">Dh</span>
                     </div>
                 </div>
                 <div className="w-px h-10 bg-white/20 mx-2" />
                 <div className="flex flex-col">
-                    <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Total TTC</span>
-                    <span className="text-xl font-black text-blue-400">{(formData.totalTTC || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs opacity-80">Dh</span></span>
+                    <span className="text-[12px] font-bold text-blue-400 uppercase tracking-widest">Total TTC</span>
+                    <span className="text-[22px] font-black text-blue-400">{(formData.totalTTC || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm opacity-80">Dh</span></span>
                 </div>
             </div>
         </div>

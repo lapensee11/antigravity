@@ -20,6 +20,10 @@ export function ArticleFilters({ onSearch, articles, onSelectArticle, selectedAr
                     placeholder="Search by name, code..."
                     icon={<Search className="w-4 h-4" />}
                     onChange={(e) => onSearch(e.target.value)}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
                 />
 
                 <div className="space-y-2">

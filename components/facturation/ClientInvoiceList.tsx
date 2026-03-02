@@ -2,7 +2,7 @@
 
 import { ClientInvoice, Tier } from "@/lib/types";
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Search, X, ChevronUp, ChevronDown } from "lucide-react";
+import { Search, X, ChevronUp, ChevronDown, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ClientInvoiceListProps {
@@ -154,23 +154,37 @@ export function ClientInvoiceList({
                     })}
                 </div>
                 <div className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                    <div className="relative flex-1 rounded-xl border-2 border-[#1e3a5f] bg-white/90 shadow-sm overflow-hidden">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#1e3a5f]/70" />
                         <input
-                            placeholder="Nom du client..."
+                            placeholder="Nom client"
                             value={clientSearch}
                             onChange={(e) => setClientSearch(e.target.value)}
-                            className="w-full bg-white/80 backdrop-blur-sm border border-slate-200/50 rounded-xl pl-9 pr-8 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:border-blue-400 focus:bg-white transition-all shadow-sm placeholder:text-slate-400"
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            className="w-full bg-transparent rounded-xl pl-9 pr-8 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-0 placeholder:text-slate-400"
                         />
                         {clientSearch && (
                             <button
+                                type="button"
                                 onClick={() => setClientSearch("")}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
                             >
                                 <X className="w-3.5 h-3.5" />
                             </button>
                         )}
                     </div>
+                    <button
+                        type="button"
+                        onClick={onCreateNew}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#1e3a5f] text-white font-medium text-sm hover:bg-[#152a47] transition-colors shadow-sm shrink-0"
+                        title="Ajouter une autre facture client"
+                    >
+                        <Plus className="w-4 h-4" />
+                        Nouvelle facture
+                    </button>
                 </div>
 
                 <div className="flex flex-col gap-2">

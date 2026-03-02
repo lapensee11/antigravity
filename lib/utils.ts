@@ -5,11 +5,40 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Fonction de confirmation qui fonctionne dans Tauri et le navigateur
+ */
+export async function confirmDialog(message: string): Promise<boolean> {
+  // Vérifier si on est dans Tauri
+  if (typeof window !== 'undefined') {
+    try {
+      // Essayer d'utiliser l'API dialog de Tauri
+      const dialog = await import('@tauri-apps/plugin-dialog');
+      if (dialog && dialog.confirm) {
+        return await dialog.confirm(message, {
+          title: 'Confirmation',
+          kind: 'warning',
+          okLabel: 'Oui',
+          cancelLabel: 'Non'
+        });
+      }
+    } catch (error) {
+      // Tauri dialog n'est pas disponible, utiliser window.confirm
+    }
+  }
+  
+  // Fallback pour le navigateur ou build statique
+  if (typeof window !== 'undefined' && window.confirm) {
+    return window.confirm(message);
+  }
+  
+  // Dernier recours : retourner false par défaut
+  console.warn('No confirmation dialog available');
+  return false;
+}
+
 export async function confirmDelete(message: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const result = window.confirm(message);
-    resolve(result);
-  });
+  return confirmDialog(message);
 }
 
 /**
@@ -51,6 +80,22 @@ export function compressImage(file: File, maxSize = 400): Promise<string> {
         };
         img.src = url;
     });
+}
+
+/** Format nombre avec séparateur de milliers (fr-FR : espace + virgule décimale) */
+export function formatFr(val: number | string | undefined | null, decimals = 2): string {
+    if (val === undefined || val === null || val === "") return "";
+    const n = typeof val === "string" ? parseFloat(val.replace(/\s/g, "").replace(",", ".")) : val;
+    if (isNaN(n)) return "";
+    return n.toLocaleString("fr-FR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+/** Parse une chaîne saisie (format fr : espaces, virgule) en chaîne numérique pour état (point décimal) */
+export function parseFrInput(s: string): string {
+    const cleaned = String(s).replace(/\s/g, "").replace(",", ".");
+    if (cleaned === "" || cleaned === ".") return "";
+    if (isNaN(parseFloat(cleaned))) return "";
+    return cleaned;
 }
 
 /** Format date JJ/MM/AAAA (entrée: YYYY-MM-DD) */

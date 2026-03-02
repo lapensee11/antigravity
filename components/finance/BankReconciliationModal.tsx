@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { X, Calendar, Download, RefreshCcw, Building2, Receipt, CheckCircle2, Plus, Trash2, ChevronLeft, ChevronRight, FileUp, FileSpreadsheet, Layers, Check } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { X, Calendar, Download, RefreshCcw, Building2, Receipt, CheckCircle2, Plus, Trash2, ChevronLeft, ChevronRight, FileUp, FileSpreadsheet, Layers, Check, Pencil, Save, Search } from "lucide-react";
 import { getCMIEntries, saveCMIEntries, getTransactions, saveTransaction } from "@/lib/data-service";
 import { CMIEntry as CMIDbEntry, Transaction } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -23,7 +23,7 @@ interface CMIEntry {
 }
 
 export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated }: ReconModalProps) {
-    const [activeTab, setActiveTab] = useState<"CMI" | "Relevé" | "Rapprochement">("CMI");
+    const [activeTab, setActiveTab] = useState<"CMI" | "Relevé" | "CFG" | "Rapprochement">("CMI");
 
     // Month/Year Navigation State
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -34,7 +34,7 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
     const [isLoaded, setIsLoaded] = useState(false);
     const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
-    // Bank Statement state
+    // Bank Statement state (Relevé Bancaire)
     const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
     const [sheets, setSheets] = useState<string[]>([]);
     const [selectedSheet, setSelectedSheet] = useState<string>("");
@@ -43,11 +43,28 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
     const [isValidated, setIsValidated] = useState(false);
     const [isCompressed, setIsCompressed] = useState(false);
 
+    // CFG Relevé state (identique à Relevé, pour relevés CFG)
+    const [workbookCfg, setWorkbookCfg] = useState<XLSX.WorkBook | null>(null);
+    const [sheetsCfg, setSheetsCfg] = useState<string[]>([]);
+    const [selectedSheetCfg, setSelectedSheetCfg] = useState<string>("");
+    const [statementDataCfg, setStatementDataCfg] = useState<any[]>([]);
+    const [isImportingCfg, setIsImportingCfg] = useState(false);
+    const [isValidatedCfg, setIsValidatedCfg] = useState(false);
+    const [isCompressedCfg, setIsCompressedCfg] = useState(false);
+    const [editingCfgId, setEditingCfgId] = useState<string | null>(null);
+    const [editedCfgRow, setEditedCfgRow] = useState<Record<string, any> | null>(null);
+    const [showReplaceCfg, setShowReplaceCfg] = useState(false);
+    const [replaceCfgSearch, setReplaceCfgSearch] = useState("");
+    const [replaceCfgReplace, setReplaceCfgReplace] = useState("");
+
     // Bank transactions state
     const [bankTransactions, setBankTransactions] = useState<Transaction[]>([]);
     
     // Track reconciled dates (where CMI Net has replaced bank amount)
     const [reconciledDates, setReconciledDates] = useState<Set<string>>(new Set());
+
+    // Evite qu’un chargement CMI tardif écrase les données déjà saisies ou initialisées
+    const loadIdRef = useRef(0);
 
     const currentMonthKey = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
     const cmiEntries = (allCmiData[currentMonthKey] || []).sort((a, b) => a.date.localeCompare(b.date));
@@ -112,25 +129,31 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
         });
     }, [allCmiData, bankTransactions, currentMonthKey, selectedYear, selectedMonth, reconciledDates]);
 
-    // 1. Load data from DB on open
+    // 1. Load data from DB on open (ne pas écraser si l’utilisateur a déjà saisi ou si le mois a été initialisé)
     useEffect(() => {
         if (isOpen && !isLoaded) {
-            getCMIEntries().then(entries => {
-                const indexed: Record<string, CMIEntry[]> = {};
-                entries.forEach(e => {
-                    const monthKey = e.date.substring(0, 7); // YYYY-MM
-                    if (!indexed[monthKey]) indexed[monthKey] = [];
-                    indexed[monthKey].push({
-                        ...e,
-                        brut: e.brut.toString(),
-                        commission: e.commission.toString(),
-                        tva: e.tva.toString(),
-                        net: e.net.toString()
+            const thisLoadId = ++loadIdRef.current;
+            getCMIEntries()
+                .then(entries => {
+                    if (thisLoadId !== loadIdRef.current) return;
+                    const indexed: Record<string, CMIEntry[]> = {};
+                    entries.forEach(e => {
+                        const monthKey = e.date.substring(0, 7); // YYYY-MM
+                        if (!indexed[monthKey]) indexed[monthKey] = [];
+                        indexed[monthKey].push({
+                            ...e,
+                            brut: e.brut.toString(),
+                            commission: e.commission.toString(),
+                            tva: e.tva.toString(),
+                            net: e.net.toString()
+                        });
                     });
+                    setAllCmiData(indexed);
+                    setIsLoaded(true);
+                })
+                .catch(() => {
+                    if (thisLoadId === loadIdRef.current) setIsLoaded(true);
                 });
-                setAllCmiData(indexed);
-                setIsLoaded(true);
-            });
         }
     }, [isOpen, isLoaded]);
 
@@ -233,6 +256,7 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
                 ...allCmiData,
                 [currentMonthKey]: entries
             };
+            loadIdRef.current = 0;
             setAllCmiData(updated);
             persistToDb(updated);
         }
@@ -251,6 +275,7 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
             ...allCmiData,
             [currentMonthKey]: [...(allCmiData[currentMonthKey] || []), newRow]
         };
+        loadIdRef.current = 0;
         setAllCmiData(updated);
         persistToDb(updated);
     };
@@ -260,6 +285,7 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
             ...allCmiData,
             [currentMonthKey]: (allCmiData[currentMonthKey] || []).filter(entry => entry.id !== id)
         };
+        loadIdRef.current = 0;
         setAllCmiData(updated);
         persistToDb(updated);
     };
@@ -303,6 +329,7 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
             ...allCmiData,
             [currentMonthKey]: updatedMonthEntries
         };
+        loadIdRef.current = 0;
         setAllCmiData(updated);
         persistToDb(updated);
     };
@@ -342,7 +369,39 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
         setStatementData(jsonData);
     };
 
-    const formatCellValue = (val: any) => {
+    const isDateColumn = (columnKey: string) => {
+        const k = (columnKey || "").toLowerCase();
+        return k.includes("date") && (k.includes("opération") || k.includes("operation") || k === "date");
+    };
+
+    const toDateJJMMAAAA = (val: any): string => {
+        if (val == null || val === "") return "";
+        if (val instanceof Date) {
+            if (isNaN(val.getTime())) return String(val);
+            return val.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        }
+        if (typeof val === 'number') {
+            if (val > 25569) {
+                const d = new Date((val - 25569) * 86400 * 1000);
+                if (!isNaN(d.getTime())) return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            }
+            return String(val);
+        }
+        const s = String(val).trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+            const [y, m, d] = s.split(/[-T\s]/);
+            if (y && m && d) return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`;
+        }
+        if (/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/.test(s)) {
+            const m = /^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/.exec(s);
+            if (m) return `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3]}`;
+        }
+        const parsed = new Date(s);
+        return !isNaN(parsed.getTime()) ? parsed.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : String(val);
+    };
+
+    const formatCellValue = (val: any, columnKey?: string) => {
+        if (columnKey && isDateColumn(columnKey)) return toDateJJMMAAAA(val);
         if (val instanceof Date) {
             return val.toLocaleDateString('fr-FR', {
                 day: '2-digit',
@@ -350,19 +409,7 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
                 year: 'numeric'
             });
         }
-        // Handle potential Excel serial numbers that didn't get converted
-        if (typeof val === 'number' && val > 40000 && val < 60000) {
-            try {
-                const date = new Date((val - 25569) * 86400 * 1000);
-                if (!isNaN(date.getTime())) {
-                    return date.toLocaleDateString('fr-FR', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric'
-                    });
-                }
-            } catch (e) { /* fallback to string */ }
-        }
+        // Ne pas interpréter les nombres 40000-60000 comme dates Excel : ce sont souvent des montants (ex. 45250,00 Dh).
         if (typeof val === 'number') {
             if (val === 0) return "";
             return val.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -370,8 +417,81 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
         return String(val);
     };
 
-    const getProcessedData = () => {
-        if (!isCompressed) return statementData;
+    const hasDateFilled = (row: any): boolean => {
+        const dateKey = Object.keys(row || {}).find((k) => isDateColumn(k));
+        if (!dateKey) return true;
+        const v = row[dateKey];
+        if (v == null || v === "") return false;
+        if (typeof v === "string" && v.trim() === "") return false;
+        return true;
+    };
+
+    /** Normalise une année sur 2 chiffres si elle est trop dans le passé (ex. 20 → 2026 en 2026), pour un tri cohérent. */
+    const normalizeYearForSort = (twoDigitYear: number): number => {
+        if (twoDigitYear >= 100) return twoDigitYear;
+        const fullYear = 2000 + twoDigitYear;
+        const currentYear = new Date().getFullYear();
+        if (currentYear - fullYear > 2) return currentYear;
+        return fullYear;
+    };
+
+    const parseOneDateToTimestamp = (d: any): number => {
+        if (d instanceof Date) return isNaN(d.getTime()) ? 0 : d.getTime();
+        if (d == null || d === "") return 0;
+        const str = String(d).trim();
+        if (!str) return 0;
+        if (str.includes("/")) {
+            const parts = str.split("/").map((p) => parseInt(p.trim(), 10));
+            if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
+                let year = parts[2];
+                if (year < 100) year = normalizeYearForSort(year);
+                const dateObj = new Date(year, parts[1] - 1, parts[0]);
+                if (!isNaN(dateObj.getTime())) return dateObj.getTime();
+            }
+        }
+        if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+            const dateObj = new Date(str);
+            if (!isNaN(dateObj.getTime())) return dateObj.getTime();
+        }
+        const parsed = new Date(str);
+        return isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+    };
+
+    const getRowTimestamp = (row: any): number => {
+        const keys = Object.keys(row || {}).filter((k) => k.toLowerCase().includes("date"));
+        let maxTs = 0;
+        for (const dateKey of keys) {
+            const ts = parseOneDateToTimestamp(row[dateKey]);
+            if (ts > maxTs) maxTs = ts;
+        }
+        return maxTs;
+    };
+
+    const sortByDateDesc = (rows: any[]): any[] =>
+        [...rows].sort((a, b) => getRowTimestamp(b) - getRowTimestamp(a));
+
+    /** Pour les lignes TPE : si la date a une année sur 2 chiffres (ex. 20) et que ça donne une année trop ancienne, utiliser l'année courante (ex. 2026). */
+    const normalizeTpeDateStr = (dateStr: string): string => {
+        const str = String(dateStr ?? "").trim();
+        if (!str || !str.includes("/")) return str;
+        const parts = str.split("/").map((p) => parseInt(p.trim(), 10));
+        if (parts.length !== 3 || parts.some((n) => isNaN(n))) return str;
+        let year = parts[2];
+        if (year >= 100) return str;
+        const fullYear = 2000 + year;
+        const currentYear = new Date().getFullYear();
+        if (currentYear - fullYear > 2) {
+            year = currentYear;
+            return `${String(parts[0]).padStart(2, "0")}/${String(parts[1]).padStart(2, "0")}/${year}`;
+        }
+        return str;
+    };
+
+    const getProcessedData = (data?: any[], compressed?: boolean) => {
+        const raw = data ?? statementData;
+        const d = raw.filter(hasDateFilled);
+        const c = compressed ?? isCompressed;
+        if (!c) return sortByDateDesc(d);
 
         const parseNum = (val: any) => {
             if (typeof val === 'number') return val;
@@ -379,39 +499,42 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
             return parseFloat(String(val).replace(',', '.').replace(/[^-0-9.]/g, '')) || 0;
         };
 
+        const keys = d[0] ? Object.keys(d[0]) : [];
+        const operationDateKey =
+            keys.find((k) => {
+                const lower = k.toLowerCase();
+                return lower.includes("date") && (lower.includes("opération") || lower.includes("operation"));
+            }) ?? keys.find((k) => k.toLowerCase().includes("date"));
+
         const grouped: Record<string, any> = {};
         const others: any[] = [];
 
-        statementData.forEach(row => {
+        d.forEach(row => {
             const fullText = Object.values(row).join(" ").toUpperCase();
-            const bankDateStr = formatCellValue(row.Date || row.date || "");
+            const dateKey = operationDateKey ?? Object.keys(row).find((k) => k.toLowerCase().includes("date"));
+            let bankDateStr = dateKey ? formatCellValue(row[dateKey], "Date") : formatCellValue(row.Date ?? row.date ?? "", "Date");
 
             if (fullText.includes("TPE")) {
-                // Extract internal transaction date (DD/MM/YY) and terminal ID
+                bankDateStr = normalizeTpeDateStr(bankDateStr);
                 const dateMatch = fullText.match(/(\d{2}\/\d{2}\/\d{2})/);
                 const terminalMatch = fullText.match(/(\d{8,12})/);
-
                 const internalDate = dateMatch ? dateMatch[1] : "";
                 const terminalId = terminalMatch ? terminalMatch[1] : "TPE";
-
-                // Grouping key: Bank Date + Internal Date + Terminal ID
                 const key = `${bankDateStr}_${internalDate}_${terminalId}`;
 
                 if (!grouped[key]) {
                     grouped[key] = { ...row };
+                    if (dateKey) grouped[key][dateKey] = bankDateStr;
                     Object.keys(row).forEach(keyName => {
                         const lowerKeyName = keyName.toLowerCase();
                         const valStr = String(row[keyName]).toUpperCase();
-
-                        // Identify amount columns to sum
                         if (["débit", "debit", "crédit", "credit", "montant", "euro"].some(kw => lowerKeyName.includes(kw))) {
                             grouped[key][keyName] = parseNum(row[keyName]);
-                        }
-                        // Update descriptions to the new summary format
-                        else if (valStr.includes("TPE") || lowerKeyName.includes("détail") || lowerKeyName.includes("libellé") || lowerKeyName.includes("detail")) {
+                        } else if (valStr.includes("TPE") || lowerKeyName.includes("détail") || lowerKeyName.includes("libellé") || lowerKeyName.includes("detail")) {
+                            const suffix = terminalId && terminalId !== "TPE" ? ` ${terminalId}` : "";
                             grouped[key][keyName] = internalDate
-                                ? `${internalDate} Cumul TPE ${terminalId}`
-                                : `Cumul TPE ${terminalId}`;
+                                ? `${internalDate} Cumul TPE${suffix}`
+                                : `Cumul TPE${suffix}`;
                         }
                     });
                 } else {
@@ -427,49 +550,30 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
             }
         });
 
-        return [...others, ...Object.values(grouped)].sort((a, b) => {
-            const getTimestamp = (row: any) => {
-                // Look for the FIRST column that contains "date" in its header
-                const dateKey = Object.keys(row).find(k => k.toLowerCase().includes("date"));
-                const d = dateKey ? row[dateKey] : "";
-
-                if (d instanceof Date) return d.getTime();
-                if (typeof d === 'number' && d > 40000) return (d - 25569) * 86400 * 1000;
-
-                // Parse DD/MM/YYYY or DD/MM/YY strings explicitly if needed
-                if (typeof d === 'string' && d.includes('/')) {
-                    const parts = d.split('/');
-                    if (parts.length === 3) {
-                        const day = parseInt(parts[0]);
-                        const month = parseInt(parts[1]) - 1;
-                        let year = parseInt(parts[2]);
-                        if (year < 100) year += 2000;
-                        const dateObj = new Date(year, month, day);
-                        if (!isNaN(dateObj.getTime())) return dateObj.getTime();
-                    }
-                }
-
-                const parsed = new Date(d);
-                return isNaN(parsed.getTime()) ? 0 : parsed.getTime();
-            };
-            // Set to ASCENDING (Croissante) as requested
-            return getTimestamp(a) - getTimestamp(b);
-        });
+        return sortByDateDesc([...others, ...Object.values(grouped)]);
     };
 
-    const handleExportExcel = () => {
+    const handleExportExcel = async () => {
         let dataToExport: any[] = [];
         let filename = "Export_Bako.xlsx";
 
         const formatDate = (d: any) => {
             if (!d) return "";
+            const str = String(d).trim();
+            if (!str) return "";
+            if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) return str;
+            if (/^\d{1,2}\.\d{1,2}\.\d{4}$/.test(str)) return str.replace(/\./g, "/");
+            if (/^\d{1,2}\.\d{1,2}\.\d{2}$/.test(str)) {
+                const [j, m, a2] = str.split(".");
+                const a = parseInt(a2, 10) >= 100 ? a2 : (parseInt(a2, 10) < 50 ? 2000 + parseInt(a2, 10) : 1900 + parseInt(a2, 10));
+                return `${j.padStart(2, "0")}/${m.padStart(2, "0")}/${a}`;
+            }
             const dateObj = new Date(d);
-            if (isNaN(dateObj.getTime())) return String(d);
-            return dateObj.toLocaleDateString('fr-FR', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric'
-            });
+            if (isNaN(dateObj.getTime())) return str;
+            const j = dateObj.getDate();
+            const m = dateObj.getMonth() + 1;
+            const a = dateObj.getFullYear();
+            return `${String(j).padStart(2, "0")}/${String(m).padStart(2, "0")}/${a}`;
         };
 
         const numOrEmpty = (val: any) => {
@@ -561,6 +665,57 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
 
             if (hasTotals) dataToExport.push(totalsRow);
             filename = `Bako_Releve_${selectedSheet || "Import"}.xlsx`;
+        } else if (activeTab === "CFG") {
+            const displayData = getProcessedData(statementDataCfg, isCompressedCfg);
+            if (displayData.length === 0) return;
+
+            const headers = getCfgTableHeaders().filter((h) => h !== "Action");
+
+            dataToExport = displayData.map((row) => {
+                const cleanRow: any = {};
+                headers.forEach((h) => {
+                    const lowerH = h.toLowerCase();
+                    if (lowerH.includes("date")) {
+                        const v = row[h];
+                        cleanRow[h] = typeof v === "string" && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(String(v).trim()) ? v : formatDate(v);
+                    } else if (["montant", "débit", "debit", "crédit", "credit", "euro"].some((kw) => lowerH.includes(kw))) {
+                        cleanRow[h] = numOrEmpty(row[h]);
+                    } else {
+                        cleanRow[h] = row[h];
+                    }
+                    if (lowerH.includes("crédit") || lowerH.includes("credit")) {
+                        cleanRow["Pointage"] = "";
+                    }
+                });
+                if (!cleanRow["Pointage"]) cleanRow["Pointage"] = "";
+                return cleanRow;
+            });
+
+            const totalsRow: any = {};
+            let hasTotals = false;
+            headers.forEach((header, idx) => {
+                if (idx === 0) {
+                    totalsRow[header] = "TOTAUX";
+                } else {
+                    const lowerHeader = header.toLowerCase();
+                    if (["montant", "débit", "debit", "crédit", "credit", "euro"].some((kw) => lowerHeader.includes(kw))) {
+                        const total = displayData.reduce((acc, row) => {
+                            const val = row[header];
+                            const num = typeof val === "number" ? val : parseFloat(String(val).replace(",", ".").replace(/[^-0-9.]/g, "")) || 0;
+                            return acc + num;
+                        }, 0);
+                        totalsRow[header] = numOrEmpty(total);
+                        hasTotals = true;
+                    } else {
+                        totalsRow[header] = "";
+                    }
+                    if (lowerHeader.includes("crédit") || lowerHeader.includes("credit")) {
+                        totalsRow["Pointage"] = "";
+                    }
+                }
+            });
+            if (hasTotals) dataToExport.push(totalsRow);
+            filename = `Bako_CFG_Releve_${selectedSheetCfg || "Import"}.xlsx`;
         }
 
         const worksheet = XLSX.utils.json_to_sheet(dataToExport);
@@ -643,7 +798,9 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
 
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Données");
-        XLSX.writeFile(workbook, filename);
+        const wbout = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+        const { saveExportFile } = await import("@/lib/export-download");
+        await saveExportFile(filename, wbout);
     };
 
     const clearStatement = () => {
@@ -655,6 +812,173 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
         setIsCompressed(false);
     };
 
+    const processCfgSheetData = (rawRows: any[]): any[] => {
+        if (rawRows.length === 0) return [];
+        const firstRow = rawRows[0];
+        const keys = Object.keys(firstRow);
+        if (keys.length === 0) return [];
+        const restKeys = keys.slice(1);
+        const withoutFirstCol = rawRows.map((row: any) => {
+            const rest: any = {};
+            restKeys.forEach((k) => (rest[k] = row[k]));
+            return rest;
+        });
+        const renamed = withoutFirstCol.map((row: any) => {
+            const out: any = {};
+            Object.keys(row).forEach((k) => {
+                const newKey = k.trim().toLowerCase() === "détail" ? "Libellé" : k;
+                out[newKey] = row[k];
+            });
+            return out;
+        });
+        const dateKeys = Object.keys(renamed[0] || {}).filter((k) => k.toLowerCase().includes("date"));
+        const toJjMmAaaa = (val: any): string => {
+            if (val == null || val === "") return "";
+            if (val instanceof Date) {
+                return val.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+            }
+            // Ne pas interpréter les nombres 40000-60000 comme dates Excel (souvent des montants type 45250 Dh)
+            if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}/.test(val)) {
+                const [y, m, d] = val.split("-");
+                if (y && m && d) return `${d.padStart(2, "0")}/${m.padStart(2, "0")}/${y}`;
+            }
+            return String(val);
+        };
+        const withDateOnly = renamed.filter((row: any) => {
+            if (dateKeys.length === 0) return true;
+            const v = row[dateKeys[0]];
+            if (v == null || v === "") return false;
+            if (typeof v === "string" && v.trim() === "") return false;
+            return true;
+        });
+        return withDateOnly.map((row: any, idx: number) => {
+            const r = { ...row, __id: `cfg-${idx}-${Math.random().toString(36).slice(2, 11)}` };
+            dateKeys.forEach((key) => {
+                r[key] = toJjMmAaaa(r[key]);
+            });
+            // Remplacer libellés dans les colonnes libellé/détail
+            Object.keys(r).forEach((k) => {
+                const lower = k.toLowerCase();
+                if (lower.includes("libellé") || lower.includes("libelle") || lower.includes("détail") || lower.includes("detail")) {
+                    let val = String(r[k] ?? "");
+                    val = val.replace(/Forfait TPE/g, "Frais CFG");
+                    val = val.replace(/Encaissement TPE BOULANGERIE PATISSERIE LA PENSEE LA PENSEE/g, "Remise TPE");
+                    r[k] = val;
+                }
+            });
+            return r;
+        });
+    };
+
+    const handleFileChangeCfg = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setIsImportingCfg(true);
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const data = new Uint8Array(event.target?.result as ArrayBuffer);
+            const wb = XLSX.read(data, { type: "array", cellDates: true, dateNF: "yyyy-mm-dd" });
+            setWorkbookCfg(wb);
+            setSheetsCfg(wb.SheetNames);
+            if (wb.SheetNames.length === 1) {
+                const sheetName = wb.SheetNames[0];
+                setSelectedSheetCfg(sheetName);
+                const raw = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: "", range: 3 });
+                setStatementDataCfg(processCfgSheetData(Array.isArray(raw) ? raw : []));
+            } else {
+                setSelectedSheetCfg("");
+                setStatementDataCfg([]);
+            }
+            setIsImportingCfg(false);
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    const handleSheetSelectCfg = (sheetName: string) => {
+        if (!workbookCfg) return;
+        setSelectedSheetCfg(sheetName);
+        const raw = XLSX.utils.sheet_to_json(workbookCfg.Sheets[sheetName], { defval: "", range: 3 });
+        setStatementDataCfg(processCfgSheetData(Array.isArray(raw) ? raw : []));
+    };
+
+    const clearStatementCfg = () => {
+        setWorkbookCfg(null);
+        setSheetsCfg([]);
+        setSelectedSheetCfg("");
+        setStatementDataCfg([]);
+        setIsValidatedCfg(false);
+        setIsCompressedCfg(false);
+        setEditingCfgId(null);
+        setEditedCfgRow(null);
+    };
+
+    const getCfgTableHeaders = (): string[] => {
+        const data = getProcessedData(statementDataCfg, isCompressedCfg);
+        if (!data.length) return [];
+        const keys = Object.keys(data[0]).filter(
+            (k) =>
+                k !== "__id" &&
+                !["détail", "detail", "valeur"].some((ex) => k.toLowerCase().includes(ex)) &&
+                k.toLowerCase() !== "solde"
+        );
+        return [...keys, "Action"];
+    };
+
+    const handleCfgModifier = (row: Record<string, any>) => {
+        setEditingCfgId(row.__id ?? null);
+        setEditedCfgRow(row.__id ? { ...row } : null);
+    };
+
+    const handleCfgEnregistrer = () => {
+        if (!editingCfgId || !editedCfgRow) return;
+        setStatementDataCfg((prev) =>
+            prev.map((r) => (r.__id === editingCfgId ? { ...editedCfgRow, __id: editingCfgId } : r))
+        );
+        setEditingCfgId(null);
+        setEditedCfgRow(null);
+    };
+
+    const handleCfgSupprimer = (row: Record<string, any>) => {
+        const id = row.__id;
+        if (!id) return;
+        setStatementDataCfg((prev) => prev.filter((r) => r.__id !== id));
+        if (editingCfgId === id) {
+            setEditingCfgId(null);
+            setEditedCfgRow(null);
+        }
+    };
+
+    const getCfgLibelleKey = (): string | null => {
+        const data = getProcessedData(statementDataCfg, isCompressedCfg);
+        if (!data.length) return null;
+        const key = Object.keys(data[0]).find(
+            (k) =>
+                k !== "__id" &&
+                (k.toLowerCase().includes("libellé") ||
+                    k.toLowerCase().includes("libelle") ||
+                    k.toLowerCase().includes("détail") ||
+                    k.toLowerCase().includes("detail"))
+        );
+        return key ?? null;
+    };
+
+    const handleCfgReplaceInLibelle = () => {
+        const libelleKey = getCfgLibelleKey();
+        if (!libelleKey || !replaceCfgSearch.trim()) return;
+        const search = replaceCfgSearch.trim();
+        const replace = replaceCfgReplace;
+        setStatementDataCfg((prev) =>
+            prev.map((row) => {
+                const val = String(row[libelleKey] ?? "");
+                if (!val.includes(search)) return row;
+                return { ...row, [libelleKey]: val.split(search).join(replace) };
+            })
+        );
+        setReplaceCfgSearch("");
+        setReplaceCfgReplace("");
+        setShowReplaceCfg(false);
+    };
+
     const monthNames = [
         "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
         "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
@@ -664,7 +988,8 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
 
     const tabs = [
         { id: "CMI", label: "CMI", icon: Building2 },
-        { id: "Relevé", label: "Relevé Bancaire", icon: Receipt },
+        { id: "Relevé", label: "BMCI", icon: Receipt },
+        { id: "CFG", label: "CFG", icon: FileSpreadsheet },
         { id: "Rapprochement", label: "Rapprochement", icon: CheckCircle2 },
     ];
 
@@ -1030,7 +1355,7 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
                                                                             })
                                                                             .map((key, j) => (
                                                                                 <td key={j} className="px-4 py-1 text-slate-600 font-medium whitespace-nowrap">
-                                                                                    {formatCellValue(row[key])}
+                                                                                    {formatCellValue(row[key], key)}
                                                                                 </td>
                                                                             ))}
                                                                     </tr>
@@ -1105,6 +1430,313 @@ export function BankReconciliationModal({ isOpen, onClose, onTransactionsUpdated
                                                         >
                                                             Continuer vers Rapprochement
                                                             <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === "CFG" && (
+                            <div className="flex flex-col flex-1 min-h-0">
+                                {!workbookCfg ? (
+                                    <div className="flex flex-col items-center justify-center flex-1 text-center py-20 space-y-6">
+                                        <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center text-emerald-500 shadow-sm border border-emerald-100">
+                                            <FileUp className="w-10 h-10" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-bold text-slate-800 font-outfit">Relevé CFG</h3>
+                                            <p className="text-slate-500 max-w-sm mx-auto mt-2 text-sm">
+                                                Téléchargez votre relevé bancaire CFG (Format CSV ou Excel) pour le traiter et l’exporter.
+                                            </p>
+                                        </div>
+                                        <label className="cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white px-10 py-4 rounded-2xl font-bold transition-all shadow-lg shadow-emerald-100/50 flex items-center gap-3 active:scale-95 group">
+                                            <FileSpreadsheet className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                                            {isImportingCfg ? "Chargement..." : "Charger le Relevé CFG"}
+                                            <input
+                                                type="file"
+                                                className="hidden"
+                                                accept=".xlsx,.xls,.csv"
+                                                onChange={handleFileChangeCfg}
+                                                disabled={isImportingCfg}
+                                            />
+                                        </label>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col flex-1 space-y-6 min-h-0 print:space-y-0 print:block">
+                                        {!isValidatedCfg && (
+                                            <div className="flex justify-between items-center bg-slate-50 p-6 rounded-2xl border border-slate-200/60 shadow-sm">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-12 h-12 bg-white rounded-xl shadow-sm border border-slate-200 flex items-center justify-center text-emerald-600">
+                                                        <FileSpreadsheet className="w-6 h-6" />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="font-bold text-slate-900 leading-tight">Fichier CFG Chargé</h4>
+                                                        <p className="text-xs text-slate-500 mt-1">
+                                                            {sheetsCfg.length} feuille(s) trouvée(s)
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={clearStatementCfg}
+                                                    className="text-xs font-bold text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg transition-colors border border-red-100"
+                                                >
+                                                    Changer de fichier
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {sheetsCfg.length > 1 && !selectedSheetCfg && (
+                                            <div className="space-y-4">
+                                                <div className="flex items-center gap-2 text-slate-800">
+                                                    <Layers className="w-5 h-5 text-blue-500" />
+                                                    <h3 className="text-lg font-bold font-outfit">Choisir une feuille</h3>
+                                                </div>
+                                                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                                                    {sheetsCfg.map((sheetName) => (
+                                                        <button
+                                                            key={sheetName}
+                                                            onClick={() => handleSheetSelectCfg(sheetName)}
+                                                            className="flex items-center justify-between p-4 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-xl transition-all group text-left shadow-sm"
+                                                        >
+                                                            <span className="font-bold text-slate-700 group-hover:text-blue-700 truncate mr-2">
+                                                                {sheetName}
+                                                            </span>
+                                                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-400 group-hover:translate-x-1 transition-all flex-shrink-0" />
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {selectedSheetCfg && (
+                                            <div className="space-y-4 flex flex-col flex-1 min-h-0 print:space-y-0 print:block">
+                                                <div className="flex items-center justify-between print:hidden">
+                                                    <div className="flex items-center gap-2 text-slate-800">
+                                                        <ChevronRight className="w-5 h-5 text-emerald-500" />
+                                                        <h3 className="text-lg font-bold font-outfit">
+                                                            {isValidatedCfg ? "Relevé CFG Validé" : "Aperçu"} : <span className="text-emerald-600">{selectedSheetCfg}</span>
+                                                        </h3>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-3 flex-wrap">
+                                                        {isValidatedCfg && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => setIsCompressedCfg(!isCompressedCfg)}
+                                                                    className={cn(
+                                                                        "flex items-center gap-2 px-4 py-2 rounded-xl border font-bold text-xs transition-all",
+                                                                        isCompressedCfg
+                                                                            ? "bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-100"
+                                                                            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                                                                    )}
+                                                                >
+                                                                    <RefreshCcw className={cn("w-4 h-4", isCompressedCfg && "animate-spin-slow")} />
+                                                                    {isCompressedCfg ? "TPE Comprimés" : "Comprimer TPE"}
+                                                                </button>
+                                                                <div className="relative">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setShowReplaceCfg((v) => !v)}
+                                                                        className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 font-bold text-xs transition-all"
+                                                                    >
+                                                                        <Search className="w-4 h-4" />
+                                                                        Rechercher et remplacer
+                                                                    </button>
+                                                                    {showReplaceCfg && (
+                                                                        <div className="absolute right-0 top-full mt-2 z-30 w-80 p-4 bg-white border border-slate-200 rounded-xl shadow-lg">
+                                                                            <p className="text-xs font-bold text-slate-600 mb-3">Colonne Libellé</p>
+                                                                            <input
+                                                                                type="text"
+                                                                                value={replaceCfgSearch}
+                                                                                onChange={(e) => setReplaceCfgSearch(e.target.value)}
+                                                                                placeholder="Rechercher..."
+                                                                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg mb-2 focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                                                                            />
+                                                                            <input
+                                                                                type="text"
+                                                                                value={replaceCfgReplace}
+                                                                                onChange={(e) => setReplaceCfgReplace(e.target.value)}
+                                                                                placeholder="Remplacer par..."
+                                                                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg mb-3 focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                                                                            />
+                                                                            <div className="flex justify-end gap-2">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => setShowReplaceCfg(false)}
+                                                                                    className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+                                                                                >
+                                                                                    Annuler
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={handleCfgReplaceInLibelle}
+                                                                                    disabled={!replaceCfgSearch.trim()}
+                                                                                    className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none"
+                                                                                >
+                                                                                    Remplacer tout
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <button
+                                                                    onClick={handleExportExcel}
+                                                                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 font-bold text-xs hover:bg-emerald-100 transition-all active:scale-95"
+                                                                >
+                                                                    <FileSpreadsheet className="w-4 h-4" />
+                                                                    Exporter Excel
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => setIsValidatedCfg(false)}
+                                                                    className="text-xs font-bold text-blue-600 hover:underline px-2"
+                                                                >
+                                                                    Modifier
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        {!isValidatedCfg && sheetsCfg.length > 1 && (
+                                                            <button
+                                                                onClick={() => setSelectedSheetCfg("")}
+                                                                className="text-xs font-bold text-blue-600 hover:underline"
+                                                            >
+                                                                Changer de feuille
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="border border-slate-200/60 rounded-2xl overflow-hidden shadow-sm overflow-y-auto custom-scrollbar relative flex-1 bg-white print:overflow-visible print:max-h-none print:border-none print:rounded-none print:block">
+                                                    {getProcessedData(statementDataCfg, isCompressedCfg).length > 0 ? (
+                                                        <table className="w-full text-xs border-collapse">
+                                                            <thead className="sticky top-0 z-20 bg-[#EDD1B6] border-b border-[#C8A890]/50 text-[10px] font-black text-[#5D4037] uppercase tracking-widest shadow-md text-left print:static print:shadow-none">
+                                                                <tr>
+                                                                    {getCfgTableHeaders().map((header) => (
+                                                                        <th key={header} className="px-4 py-1.5 bg-[#EDD1B6] print:bg-white">
+                                                                            {header}
+                                                                        </th>
+                                                                    ))}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-slate-100">
+                                                                {(isValidatedCfg ? getProcessedData(statementDataCfg, isCompressedCfg) : getProcessedData(statementDataCfg, isCompressedCfg).slice(0, 50)).map((row, i) => {
+                                                                    const headers = getCfgTableHeaders();
+                                                                    const isEditing = editingCfgId === row.__id;
+                                                                    const displayRow = isEditing && editedCfgRow ? editedCfgRow : row;
+                                                                    return (
+                                                                        <tr key={row.__id ?? i} className="group transition-colors hover:bg-slate-50/50">
+                                                                            {headers.map((key) => {
+                                                                                if (key === "Action") {
+                                                                                    return (
+                                                                                        <td key={key} className="px-4 py-1.5 whitespace-nowrap">
+                                                                                            <div className="flex items-center gap-1">
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => handleCfgModifier(row)}
+                                                                                                    className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-600 transition-colors"
+                                                                                                    title="Modifier"
+                                                                                                >
+                                                                                                    <Pencil className="w-3.5 h-3.5" />
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => handleCfgEnregistrer()}
+                                                                                                    disabled={!isEditing}
+                                                                                                    className="p-1.5 rounded-lg bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-600 transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                                                                                                    title="Enregistrer"
+                                                                                                >
+                                                                                                    <Save className="w-3.5 h-3.5" />
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={() => handleCfgSupprimer(row)}
+                                                                                                    className="p-1.5 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-600 hover:text-red-600 transition-colors"
+                                                                                                    title="Supprimer"
+                                                                                                >
+                                                                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        </td>
+                                                                                    );
+                                                                                }
+                                                                                if (isEditing && editedCfgRow && key in editedCfgRow) {
+                                                                                    return (
+                                                                                        <td key={key} className="px-4 py-1">
+                                                                                            <input
+                                                                                                type="text"
+                                                                                                value={editedCfgRow[key] ?? ""}
+                                                                                                onChange={(e) => setEditedCfgRow((prev) => (prev ? { ...prev, [key]: e.target.value } : null))}
+                                                                                                className="w-full min-w-[60px] px-2 py-0.5 text-xs border border-slate-200 rounded focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                                                                                            />
+                                                                                        </td>
+                                                                                    );
+                                                                                }
+                                                                                return (
+                                                                                    <td key={key} className="px-4 py-1 text-slate-600 font-medium whitespace-nowrap">
+                                                                                        {formatCellValue(displayRow[key], key)}
+                                                                                    </td>
+                                                                                );
+                                                                            })}
+                                                                        </tr>
+                                                                    );
+                                                                })}
+                                                            </tbody>
+                                                            <tfoot className="sticky bottom-0 z-20 bg-[#EDD1B6] border-t-2 border-[#C8A890]/50 shadow-[0_-4px_12px_rgba(0,0,0,0.1)] print:static print:shadow-none">
+                                                                {(() => {
+                                                                    const displayData = isValidatedCfg ? getProcessedData(statementDataCfg, isCompressedCfg) : getProcessedData(statementDataCfg, isCompressedCfg).slice(0, 50);
+                                                                    const headers = getCfgTableHeaders();
+                                                                    const dataKeys = headers.filter((h) => h !== "Action");
+                                                                    const totals: Record<string, number> = {};
+                                                                    dataKeys.forEach((header) => {
+                                                                        const lowerHeader = header.toLowerCase();
+                                                                        if (["montant", "débit", "debit", "crédit", "credit", "euro"].some((kw) => lowerHeader.includes(kw))) {
+                                                                            totals[header] = displayData.reduce((acc, row) => {
+                                                                                const val = row[header];
+                                                                                const num = typeof val === "number" ? val : parseFloat(String(val).replace(",", ".").replace(/[^-0-9.]/g, "")) || 0;
+                                                                                return acc + num;
+                                                                            }, 0);
+                                                                        }
+                                                                    });
+                                                                    if (headers.length === 0) return null;
+                                                                    return (
+                                                                        <tr className="text-[#5D4037]">
+                                                                            {headers.map((header, idx) => (
+                                                                                <td key={header} className="px-4 py-2">
+                                                                                    {header === "Action" ? null : idx === 0 ? (
+                                                                                        <span className="font-black text-[10px] uppercase tracking-widest">Totaux</span>
+                                                                                    ) : totals[header] !== undefined ? (
+                                                                                        <span className="font-black text-sm">
+                                                                                            {totals[header].toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                                        </span>
+                                                                                    ) : null}
+                                                                                </td>
+                                                                            ))}
+                                                                        </tr>
+                                                                    );
+                                                                })()}
+                                                            </tfoot>
+                                                        </table>
+                                                    ) : (
+                                                        <div className="flex items-center justify-center p-20 text-slate-400 font-bold italic">
+                                                            Aucune donnée à afficher
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex items-center justify-between mt-4 print:hidden">
+                                                    <p className="text-[10px] text-slate-400 italic">
+                                                        {isValidatedCfg ? `Affichage de toutes les lignes` : `Affichage des 50 premières lignes`}. {getProcessedData(statementDataCfg, isCompressedCfg).length} lignes au total.
+                                                    </p>
+                                                    {!isValidatedCfg && (
+                                                        <button
+                                                            onClick={() => setIsValidatedCfg(true)}
+                                                            className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-3 rounded-2xl font-bold transition-all shadow-lg flex items-center gap-2 group active:scale-95"
+                                                        >
+                                                            <CheckCircle2 className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                                                            Valider cet Import
                                                         </button>
                                                     )}
                                                 </div>

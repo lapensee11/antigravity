@@ -207,13 +207,13 @@ export function FinanceJournal({
                         accountType === "Coffre" ? "border-[#98B2C2]/30" : "border-slate-200"
             )}>
                 {/* Header fixe */}
-                <div className="shrink-0 overflow-hidden">
-                    <table className="w-full text-sm border-collapse table-fixed">
+                <div className="shrink-0 flex-none overflow-hidden">
+                    <table className="w-full text-[15px] border-collapse table-fixed">
                         <colgroup>
                             <col className="w-[40px]" /><col className="w-[128px]" /><col className="w-[192px]" /><col className="w-[256px]" /><col className="w-[160px]" /><col className="w-[160px]" /><col className="w-[112px]" /><col className="w-[112px]" /><col className="w-[144px]" />
                         </colgroup>
                         <thead className={cn(
-                            "text-xs uppercase font-semibold transition-colors duration-500",
+                            "text-[14px] uppercase font-semibold transition-colors duration-500",
                             accountType === "Banque" ? "bg-[#F2DAC3]/30 text-[#5D4037]" :
                                 accountType === "Caisse" ? "bg-[#C4E4CF]/30 text-[#2D5A3D]" :
                                     accountType === "Coffre" ? "bg-[#D6E4EB]/30 text-[#3D5A6A]" : "bg-slate-50 text-slate-500"
@@ -235,7 +235,7 @@ export function FinanceJournal({
 
                 {/* Corps scrollable (seul le tbody scroll) */}
                 <div className="flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar border-t-0">
-                    <table className="w-full text-sm border-collapse table-fixed">
+                    <table className="w-full text-[15px] border-collapse table-fixed">
                         <colgroup>
                             <col className="w-[40px]" /><col className="w-[128px]" /><col className="w-[192px]" /><col className="w-[256px]" /><col className="w-[160px]" /><col className="w-[160px]" /><col className="w-[112px]" /><col className="w-[112px]" /><col className="w-[144px]" />
                         </colgroup>
@@ -251,7 +251,7 @@ export function FinanceJournal({
                                         type="date"
                                         value={newTx.date}
                                         onChange={(e) => setNewTx({ ...newTx, date: e.target.value })}
-                                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     />
                                 </td>
                                 <td className="px-1 py-1 border-r border-slate-100">
@@ -261,7 +261,7 @@ export function FinanceJournal({
                                         placeholder="Tiers"
                                         value={newTx.tier}
                                         onChange={(e) => setNewTx({ ...newTx, tier: e.target.value })}
-                                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                         autoFocus
                                     />
                                 </td>
@@ -271,7 +271,7 @@ export function FinanceJournal({
                                         placeholder="Libellé"
                                         value={newTx.label}
                                         onChange={(e) => setNewTx({ ...newTx, label: e.target.value })}
-                                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                                     />
                                 </td>
                                 <td className="px-1 py-1 border-r border-slate-100">
@@ -280,10 +280,10 @@ export function FinanceJournal({
                                         placeholder="N°"
                                         value={newTx.pieceNumber}
                                         onChange={(e) => setNewTx({ ...newTx, pieceNumber: e.target.value })}
-                                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono"
+                                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono"
                                     />
                                 </td>
-                                <td className="px-1 py-1 border-r border-slate-100 italic text-[10px] text-slate-400 flex items-center justify-center h-full">
+                                <td className="px-1 py-1 border-r border-slate-100 italic text-[12px] text-slate-400 flex items-center justify-center h-full">
                                     -
                                 </td>
                                 <td className="px-1 py-1 border-r border-slate-100">
@@ -295,7 +295,7 @@ export function FinanceJournal({
                                             setDebitInput(e.target.value);
                                             if (e.target.value) setCreditInput("");
                                         }}
-                                        className="w-full bg-white border border-red-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-red-500 focus:outline-none text-right font-mono"
+                                        className="w-full bg-white border border-red-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-red-500 focus:outline-none text-right font-mono"
                                     />
                                 </td>
                                 <td className="px-1 py-1 border-r border-slate-100">
@@ -307,7 +307,7 @@ export function FinanceJournal({
                                             setCreditInput(e.target.value);
                                             if (e.target.value) setDebitInput("");
                                         }}
-                                        className="w-full bg-white border border-green-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-green-500 focus:outline-none text-right font-mono"
+                                        className="w-full bg-white border border-green-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-green-500 focus:outline-none text-right font-mono"
                                     />
                                 </td>
                                 <td className="px-2 py-1 text-right">
@@ -357,7 +357,7 @@ export function FinanceJournal({
                                                 type="date"
                                                 value={editForm.date}
                                                 onChange={(e) => setEditForm({ ...editForm, date: e.target.value })}
-                                                className="w-full bg-white border border-amber-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                                                className="w-full bg-white border border-amber-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-amber-500 focus:outline-none"
                                             />
                                         </td>
                                         <td className="px-1 py-1 border-r border-amber-200/50">
@@ -366,7 +366,7 @@ export function FinanceJournal({
                                                 type="text"
                                                 value={editForm.tier || ""}
                                                 onChange={(e) => setEditForm({ ...editForm, tier: e.target.value })}
-                                                className="w-full bg-white border border-amber-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                                                className="w-full bg-white border border-amber-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-amber-500 focus:outline-none"
                                             />
                                         </td>
                                         <td className="px-1 py-1 border-r border-amber-200/50">
@@ -374,7 +374,7 @@ export function FinanceJournal({
                                                 type="text"
                                                 value={editForm.label}
                                                 onChange={(e) => setEditForm({ ...editForm, label: e.target.value })}
-                                                className="w-full bg-white border border-amber-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                                                className="w-full bg-white border border-amber-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-amber-500 focus:outline-none"
                                             />
                                         </td>
                                         <td className="px-1 py-1 border-r border-amber-200/50">
@@ -382,10 +382,10 @@ export function FinanceJournal({
                                                 type="text"
                                                 value={editForm.pieceNumber || ""}
                                                 onChange={(e) => setEditForm({ ...editForm, pieceNumber: e.target.value })}
-                                                className="w-full bg-white border border-amber-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none font-mono"
+                                                className="w-full bg-white border border-amber-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-amber-500 focus:outline-none font-mono"
                                             />
                                         </td>
-                                        <td className="px-1 py-1 border-r border-amber-200/50 italic text-[10px] text-amber-600/50 text-center">
+                                        <td className="px-1 py-1 border-r border-amber-200/50 italic text-[12px] text-amber-600/50 text-center">
                                             -
                                         </td>
                                         <td className="px-1 py-1 border-r border-amber-200/50">
@@ -396,7 +396,7 @@ export function FinanceJournal({
                                                     setDebitInput(e.target.value);
                                                     if (e.target.value) setCreditInput("");
                                                 }}
-                                                className="w-full bg-white border border-red-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-red-500 focus:outline-none text-right font-mono"
+                                                className="w-full bg-white border border-red-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-red-500 focus:outline-none text-right font-mono"
                                             />
                                         </td>
                                         <td className="px-1 py-1 border-r border-amber-200/50">
@@ -407,7 +407,7 @@ export function FinanceJournal({
                                                     setCreditInput(e.target.value);
                                                     if (e.target.value) setDebitInput("");
                                                 }}
-                                                className="w-full bg-white border border-green-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-green-500 focus:outline-none text-right font-mono"
+                                                className="w-full bg-white border border-green-200 rounded px-2 py-1 text-[14px] focus:ring-2 focus:ring-green-500 focus:outline-none text-right font-mono"
                                             />
                                         </td>
                                         <td className="px-2 py-1 text-right">
@@ -462,34 +462,34 @@ export function FinanceJournal({
                                     </td>
 
                                     {/* Date */}
-                                    <td className="px-2 py-1.5 font-mono text-[13px] text-slate-600 border-r border-slate-100">
+                                    <td className="px-2 py-1.5 font-mono text-[14px] text-slate-600 border-r border-slate-100">
                                         {formatDate(tx.date)}
                                     </td>
 
                                     {/* Tiers */}
-                                    <td className="px-2 py-1.5 text-slate-700 font-medium whitespace-nowrap overflow-hidden text-ellipsis max-w-[160px] text-[13px] border-r border-slate-100">
+                                    <td className="px-2 py-1.5 text-slate-700 font-medium whitespace-nowrap overflow-hidden text-ellipsis max-w-[160px] text-[14px] border-r border-slate-100">
                                         {tx.tier || "-"}
                                     </td>
 
                                     {/* Libellé */}
-                                    <td className="px-2 py-1.5 text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis w-64 text-[13px] border-r border-slate-100">
+                                    <td className="px-2 py-1.5 text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis w-64 text-[14px] border-r border-slate-100">
                                         {tx.label}
                                     </td>
 
                                     {/* N° Pièce */}
-                                    <td className="px-2 py-1.5 font-mono text-[11px] text-slate-400 border-r border-slate-100">
+                                    <td className="px-2 py-1.5 font-mono text-[12px] text-slate-400 border-r border-slate-100">
                                         {tx.pieceNumber || "-"}
                                     </td>
 
                                     {/* N° Facture(s) */}
-                                    <td className="px-2 py-1.5 font-mono text-[11px] text-blue-600/70 border-r border-slate-100">
+                                    <td className="px-2 py-1.5 font-mono text-[12px] text-blue-600/70 border-r border-slate-100">
                                         {(() => {
                                             if (tx.invoiceId) {
                                                 const inv = (invoices as Invoice[]).find(i => i.id === tx.invoiceId);
                                                 return inv?.number || "-";
                                             }
-                                            // Aggregated checks
-                                            if (tx.pieceNumber && tx.label.includes("Reglement Chèque")) {
+                                            // Aggregated checks (Achat Chèque ou ancien libellé Reglement Chèque)
+                                            if (tx.pieceNumber && (tx.label === "Achat Chèque" || tx.label.includes("Reglement Chèque"))) {
                                                 const concernedInvoices = (invoices as Invoice[]).filter(inv =>
                                                     inv.payments.some(p => p.reference === tx.pieceNumber)
                                                 );
@@ -502,12 +502,12 @@ export function FinanceJournal({
                                     </td>
 
                                     {/* Débit */}
-                                    <td className="px-2 py-1.5 text-right font-bold text-red-600/90 font-mono text-[13px] border-r border-slate-100">
+                                    <td className="px-2 py-1.5 text-right font-bold text-red-600/90 font-mono text-[14px] border-r border-slate-100">
                                         {!isCredit ? tx.amount.toFixed(2) : "-"}
                                     </td>
 
                                     {/* Crédit */}
-                                    <td className="px-2 py-1.5 text-right font-bold text-green-600/90 font-mono text-[13px] border-r border-slate-100">
+                                    <td className="px-2 py-1.5 text-right font-bold text-green-600/90 font-mono text-[14px] border-r border-slate-100">
                                         {isCredit ? tx.amount.toFixed(2) : "-"}
                                     </td>
 
@@ -546,12 +546,12 @@ export function FinanceJournal({
 
                 {/* Footer du tableau intégré */}
                 <div className={cn(
-                    "shrink-0 text-xs font-bold border-t-2 transition-colors duration-500 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]",
+                    "shrink-0 flex-none text-[14px] font-bold border-t-2 transition-colors duration-500 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]",
                     accountType === "Banque" ? "bg-[#F2DAC3]/30 border-[#C8A890]/40 text-[#5D4037]" :
                         accountType === "Caisse" ? "bg-[#C4E4CF]/30 border-[#93BFA2]/40 text-[#2D5A3D]" :
                             accountType === "Coffre" ? "bg-[#D6E4EB]/30 border-[#98B2C2]/40 text-[#3D5A6A]" : "bg-slate-50 border-slate-200 text-slate-700"
                 )}>
-                    <table className="w-full text-sm border-collapse table-fixed">
+                    <table className="w-full text-[15px] border-collapse table-fixed">
                         <colgroup>
                             <col className="w-[40px]" /><col className="w-[128px]" /><col className="w-[192px]" /><col className="w-[256px]" /><col className="w-[160px]" /><col className="w-[160px]" /><col className="w-[112px]" /><col className="w-[112px]" /><col className="w-[144px]" />
                         </colgroup>
@@ -565,22 +565,23 @@ export function FinanceJournal({
                         </tbody>
                     </table>
                 </div>
-            </div>
 
-            {showPagination ? (
-                <div className="shrink-0 py-3 px-6 bg-[#F6F9FD] border-t border-slate-200/50">
-                    <div className="max-w-4xl mx-auto">
-                        <Pagination
-                            page={page}
-                            pageSize={pageSize}
-                            total={total}
-                            totalPages={Math.ceil(total / pageSize)}
-                            onPageChange={onPageChange}
-                            onPageSizeChange={onPageSizeChange}
-                        />
+                {/* Pagination à l'intérieur de la carte */}
+                {showPagination ? (
+                    <div className="shrink-0 flex-none py-3 px-6 bg-[#F6F9FD] border-t border-slate-200/50">
+                        <div className="max-w-4xl mx-auto">
+                            <Pagination
+                                page={page}
+                                pageSize={pageSize}
+                                total={total}
+                                totalPages={Math.ceil(total / pageSize)}
+                                onPageChange={onPageChange}
+                                onPageSizeChange={onPageSizeChange}
+                            />
+                        </div>
                     </div>
-                </div>
-            ) : null}
+                ) : null}
+            </div>
         </div>
     );
 }

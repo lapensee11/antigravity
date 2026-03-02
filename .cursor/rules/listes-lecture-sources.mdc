@@ -1,0 +1,22 @@
+---
+description: Listes de lecture — sources de données autorisées (uniquement données de l'application)
+alwaysApply: true
+---
+
+# Listes de lecture — Sources de données
+
+Les listes de lecture (ou toute fonctionnalité équivalente d’affichage / lecture d’éléments) **doivent** prendre leurs sources **uniquement** dans les données de l’application.
+
+## Autorisé
+- Données stockées ou gérées par l’application (base locale, API métier, état de l’app).
+- Entités métier du projet : factures, ventes, tiers, articles, paye, etc.
+
+## Interdit
+- **Contacts personnels** (carnet d’adresses, contacts système, APIs contacts).
+- **Fichiers ou dossiers de l’ordinateur** (système de fichiers, chemins utilisateur, `fs`, `readdir`, accès disque hors du contexte de l’app).
+- Toute source externe non contrôlée par l’application (sauf si explicitement prévu et documenté comme source métier).
+
+## En pratique
+- Ne pas lire le système de fichiers pour peupler des listes de lecture.
+- Ne pas utiliser les contacts (OS ou service tiers) comme source pour ces listes.
+- Utiliser uniquement les modèles, hooks et services existants (ex. `useInvoices`, `useClients`, données IndexedDB / SQLite de l’app).

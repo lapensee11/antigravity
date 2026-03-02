@@ -4,12 +4,14 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { FinanceJournal } from "@/components/finance/FinanceJournal";
 import { Transaction } from "@/lib/types";
 import { useState, useEffect } from "react";
-import { Wallet, Landmark, Archive, Search, Calendar, Plus, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Wallet, Landmark, Archive, Search, Calendar, Plus, X, FileSpreadsheet } from "lucide-react";
+import { cn, confirmDialog } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { useInvoices, useTransactionsPaginated, useAccountBalances, useTransactionMutation, useTransactionDeletion } from "@/lib/hooks/use-data";
 import { BankReconciliationModal } from "./BankReconciliationModal";
 import { Scale } from "lucide-react";
+import * as XLSX from 'xlsx-js-style';
+import { saveExportFile } from "@/lib/export-download";
 
 export function FinanceContent() {
     const { data: invoices = [] } = useInvoices();
@@ -80,7 +82,7 @@ export function FinanceContent() {
     };
 
     const handleDelete = async (id: string) => {
-        if (confirm("Voulez-vous vraiment supprimer cette opération ?")) {
+        if (await confirmDialog("Voulez-vous vraiment supprimer cette opération ?")) {
             await transactionDeletion.mutateAsync(id);
         }
     };
@@ -106,16 +108,107 @@ export function FinanceContent() {
         await transactionMutation.mutateAsync(updatedTx);
     };
 
+    const exportSelectionToExcel = async () => {
+        const dataToExport = transactions.map(tx => {
+            const isCredit = tx.type === "Recette";
+            const invoiceNumber = (() => {
+                if (tx.invoiceId) {
+                    const inv = invoices.find(i => i.id === tx.invoiceId);
+                    return inv?.number || "-";
+                }
+                if (tx.pieceNumber && (tx.label === "Achat Chèque" || tx.label.includes("Reglement Chèque"))) {
+                    const concernedInvoices = invoices.filter(inv =>
+                        inv.payments.some(p => p.reference === tx.pieceNumber)
+                    );
+                    if (concernedInvoices.length > 0) {
+                        return concernedInvoices.map(inv => inv.number).join(", ");
+                    }
+                }
+                return "-";
+            })();
+
+            return {
+                "Date": new Date(tx.date).toLocaleDateString('fr-FR'),
+                "Tiers": tx.tier || "-",
+                "Libellé": tx.label,
+                "N° Pièce": tx.pieceNumber || "-",
+                "N° facture": invoiceNumber,
+                "Débit": !isCredit ? tx.amount : 0,
+                "Crédit": isCredit ? tx.amount : 0
+            };
+        });
+
+        // Add totals row
+        const totalsRow: any = {
+            "Date": "TOTAL",
+            "Tiers": "",
+            "Libellé": "",
+            "N° Pièce": "",
+            "N° facture": "",
+            "Débit": totalDebit,
+            "Crédit": totalCredit
+        };
+        const finalData = [...dataToExport, totalsRow];
+
+        // Create worksheet
+        const ws = XLSX.utils.json_to_sheet(finalData);
+
+        // Style header row
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const headerCell = ws[XLSX.utils.encode_col(C) + 1];
+            if (headerCell) {
+                headerCell.s = {
+                    font: { bold: true, color: { rgb: "FFFFFF" } },
+                    fill: { fgColor: { rgb: "1E293B" } },
+                    alignment: { horizontal: "center", vertical: "center" }
+                };
+            }
+        }
+
+        // Style totals row
+        const lastRow = range.e.r + 1;
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const totalCell = ws[XLSX.utils.encode_col(C) + lastRow];
+            if (totalCell) {
+                totalCell.s = {
+                    font: { bold: true },
+                    fill: { fgColor: { rgb: "F1F5F9" } }
+                };
+            }
+        }
+
+        // Set column widths
+        const colWidths = [
+            { wch: 12 }, // Date
+            { wch: 25 }, // Tiers
+            { wch: 40 }, // Libellé
+            { wch: 15 }, // N° Pièce
+            { wch: 20 }, // N° facture
+            { wch: 15 }, // Débit
+            { wch: 15 }  // Crédit
+        ];
+        ws['!cols'] = colWidths;
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Journal");
+        const dateStr = new Date().toISOString().split('T')[0];
+        const accountName = activeAccount === "Banque" ? "Banque" : activeAccount === "Caisse" ? "Caisse" : "Coffre";
+        const filename = `Journal_${accountName}_${dateStr}.xlsx`;
+        const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+        await saveExportFile(filename, wbout);
+    };
+
     return (
-        <div className="flex bg-[#F6F9FD] min-h-screen">
+        <div className="flex bg-[#F6F9FD] h-screen overflow-hidden">
             <Sidebar />
-            <main className="flex-1 ml-64 min-h-screen flex flex-col">
-                <div className="px-6 pt-6 pb-4 flex justify-between items-center">
+            <main className="flex-1 ml-64 h-screen overflow-hidden flex flex-col">
+                <div className="px-6 pt-6 pb-4 flex justify-between items-center shrink-0">
                     <h2 className="text-3xl font-black text-slate-800 font-outfit tracking-tight">Finance</h2>
                 </div>
 
-                <div className="px-6 pb-8 flex-1 flex flex-col gap-6 overflow-hidden">
-                    <div className="grid grid-cols-3 gap-6">
+                <div className="px-6 pb-8 flex-1 flex flex-col gap-6 overflow-hidden min-h-0">
+                    <div className="grid grid-cols-3 gap-6 shrink-0">
                         {/* Banque */}
                         <button
                             onClick={() => setActiveAccount("Banque")}
@@ -198,7 +291,7 @@ export function FinanceContent() {
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-1 xl:grid-cols-3 xl:grid-rows-[auto_1fr] gap-x-6 gap-y-1 overflow-hidden flex-1 min-h-0">
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-x-6 shrink-0">
                         <div className="flex flex-col gap-3 w-full">
                             <div className="flex bg-white p-1 rounded-2xl shadow-sm border border-slate-200 w-full h-[54px] items-center">
                                 {["Toutes", "Quinzaine", "Mois", "Période"].map((p) => (
@@ -268,6 +361,10 @@ export function FinanceContent() {
                                     placeholder="Rechercher une opération..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    autoCapitalize="off"
+                                    spellCheck={false}
                                     className="w-full h-full pl-12 pr-12 bg-transparent border-none rounded-2xl text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:ring-0 relative z-20"
                                 />
                                 {searchQuery && (
@@ -279,6 +376,18 @@ export function FinanceContent() {
                                     </button>
                                 )}
                             </div>
+                            <button
+                                onClick={exportSelectionToExcel}
+                                className={cn(
+                                    "h-[54px] w-[54px] rounded-2xl flex items-center justify-center text-white shadow-lg transition-all hover:scale-105 active:scale-95 shrink-0",
+                                    activeAccount === "Banque" ? "bg-gradient-to-br from-[#34C759] to-[#28A745]" :
+                                        activeAccount === "Caisse" ? "bg-gradient-to-br from-[#34C759] to-[#28A745]" :
+                                            "bg-gradient-to-br from-[#34C759] to-[#28A745]"
+                                )}
+                                title="Exporter en Excel"
+                            >
+                                <FileSpreadsheet className="w-6 h-6 stroke-[2.5]" />
+                            </button>
                             <button
                                 onClick={() => setIsAddingNew(true)}
                                 className={cn(
@@ -317,7 +426,7 @@ export function FinanceContent() {
                         </div>
                     </div>
 
-                    <div className="flex flex-col gap-0 xl:col-span-3 pt-0 min-h-0 overflow-hidden">
+                    <div className="flex flex-col gap-0 xl:col-span-3 flex-1 min-h-0 pt-2 overflow-hidden">
                         <FinanceJournal
                             transactions={transactions}
                             invoices={invoices}

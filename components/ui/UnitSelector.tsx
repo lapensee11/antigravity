@@ -1,16 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect, forwardRef, useId } from "react";
+import { useState, forwardRef, useId } from "react";
 import { Trash2, Pencil, Plus, Settings2, Check, X } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { usePersistedState } from "@/lib/hooks/use-persisted-state";
+import { useQueryClient } from "@tanstack/react-query";
+import { cn, confirmDialog } from "@/lib/utils";
+import { useUnits, useUnitsMutation } from "@/lib/hooks/use-data";
 import { renameUnitGlobal, deleteUnitGlobal, UnitType } from "@/lib/data-service";
-
-const INITIAL_UNITS: Record<UnitType, string[]> = {
-    achat: ["Sac", "Quintal", "Carton", "Palette", "Boite", "Plateau"],
-    pivot: ["Kg", "Litre", "Unité"],
-    production: ["g", "cl", "unité"]
-};
 
 interface UnitSelectorProps {
     value: string;
@@ -27,7 +22,9 @@ interface UnitSelectorProps {
 
 export const UnitSelector = forwardRef<HTMLSelectElement, UnitSelectorProps>(({ value, onChange, type, variant = 'article', label, className, textClassName, isBlue, disabled, onKeyDown }, ref) => {
     const uniqueId = useId();
-    const [units, setUnits] = usePersistedState<string[]>(`bakery_units_${type}`, INITIAL_UNITS[type]);
+    const queryClient = useQueryClient();
+    const { data: units = [] } = useUnits(type);
+    const unitsMutation = useUnitsMutation();
 
     // Management Modal State
     const [isManaging, setIsManaging] = useState(false);
@@ -53,27 +50,42 @@ export const UnitSelector = forwardRef<HTMLSelectElement, UnitSelectorProps>(({ 
 
         const success = await renameUnitGlobal(oldName, newName, type);
         if (success) {
-            setUnits(prev => prev.map(u => u === oldName ? newName : u));
+            queryClient.invalidateQueries({ queryKey: ["units", type] });
             if (value === oldName) onChange(newName);
             setEditingUnit(null);
         }
     };
 
     const handleDelete = async (name: string) => {
-        if (window.confirm(`Supprimer l'unité "${name}" ?`)) {
+        if (await confirmDialog(`Supprimer l'unité "${name}" ?`)) {
             await deleteUnitGlobal(name, type);
-            setUnits(prev => prev.filter(u => u !== name));
+            queryClient.invalidateQueries({ queryKey: ["units", type] });
             if (value === name) onChange("");
         }
     };
 
+    const [newUnitInput, setNewUnitInput] = useState("");
+    const [isAddingUnit, setIsAddingUnit] = useState(false);
+
     const handleAdd = () => {
-        const newUnit = prompt("Nouvelle unité :");
-        if (newUnit && !units.includes(newUnit)) {
-            setUnits(prev => [...prev, newUnit]);
-            onChange(newUnit);
-            // Stay in managing mode to allow further edits? No, prompt is blocking.
+        setIsAddingUnit(true);
+        setNewUnitInput("");
+    };
+
+    const handleConfirmAdd = async () => {
+        const trimmedUnit = newUnitInput.trim();
+        if (trimmedUnit && !units.includes(trimmedUnit)) {
+            const newUnits = [...units, trimmedUnit];
+            await unitsMutation.mutateAsync({ type, units: newUnits });
+            onChange(trimmedUnit);
+            setIsAddingUnit(false);
+            setNewUnitInput("");
         }
+    };
+
+    const handleCancelAdd = () => {
+        setIsAddingUnit(false);
+        setNewUnitInput("");
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -170,14 +182,46 @@ export const UnitSelector = forwardRef<HTMLSelectElement, UnitSelectorProps>(({ 
                                     )}
                                 </div>
                             ))}
+                            
+                            {/* Input pour ajouter une nouvelle unité */}
+                            {isAddingUnit && (
+                                <div className="flex items-center gap-2 bg-blue-50 p-2 rounded-xl border-2 border-blue-200">
+                                    <input
+                                        autoFocus
+                                        value={newUnitInput}
+                                        onChange={(e) => setNewUnitInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") handleConfirmAdd();
+                                            if (e.key === "Escape") handleCancelAdd();
+                                        }}
+                                        placeholder="Nom de l'unité..."
+                                        className="flex-1 bg-white border border-blue-400 rounded-lg px-2 py-1 text-sm font-bold outline-none shadow-sm ring-2 ring-blue-100"
+                                    />
+                                    <button 
+                                        onClick={handleConfirmAdd}
+                                        disabled={!newUnitInput.trim() || units.includes(newUnitInput.trim())}
+                                        className="p-1.5 bg-emerald-500 text-white rounded-lg shadow-sm hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                                    >
+                                        <Check className="w-4 h-4" />
+                                    </button>
+                                    <button 
+                                        onClick={handleCancelAdd}
+                                        className="p-1.5 bg-slate-400 text-white rounded-lg shadow-sm hover:bg-slate-500"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
-                        <button
-                            onClick={handleAdd}
-                            className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-slate-900/10 hover:bg-slate-800 transition-all active:scale-95"
-                        >
-                            <Plus className="w-5 h-5" /> Ajouter une unité
-                        </button>
+                        {!isAddingUnit && (
+                            <button
+                                onClick={handleAdd}
+                                className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-slate-900/10 hover:bg-slate-800 transition-all active:scale-95"
+                            >
+                                <Plus className="w-5 h-5" /> Ajouter une unité
+                            </button>
+                        )}
                     </div>
                 </div>
             )}

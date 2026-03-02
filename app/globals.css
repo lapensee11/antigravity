@@ -36,6 +36,11 @@ body {
   min-height: 100vh;
 }
 
+/* Police Outfit pour les modules (ex. Ventes, Paye) - héritée par les enfants */
+.font-outfit {
+  font-family: var(--font-outfit), system-ui, sans-serif;
+}
+
 /* Buddy Card Style */
 .glass-card {
   background-color: #FFFFFF;

@@ -1,8 +1,9 @@
 import { Article, Invoice, Family, SubFamily, Tier } from "@/lib/types";
 import { Save, Trash2, Pencil, Check, X, Plus, Tag, Layers, Hash, Shield } from "lucide-react";
+import { ArticleIcon } from "./ArticleIcon";
 import { useState, useEffect, useMemo } from "react";
 import { usePersistedState } from "@/lib/hooks/use-persisted-state";
-import { cn } from "@/lib/utils";
+import { cn, confirmDialog } from "@/lib/utils";
 import { useRef } from "react";
 import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
 import { UnitSelector } from "@/components/ui/UnitSelector";
@@ -24,9 +25,8 @@ interface ArticleEditorProps {
 
 export function ArticleEditor({ article, existingArticles = [], invoices = [], onSave, onDelete, selectedType = "TOUS" }: ArticleEditorProps) {
     const [formData, setFormData] = useState<Partial<Article>>({});
-    // We keep isEditing as true for most cases now, or simply rely on it being always active
-    const [isEditing, setIsEditing] = useState(true);
-    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    // Consultation par défaut pour un article existant, édition pour un nouvel article
+    const [isEditing, setIsEditing] = useState(false);
     const prevArticleIdRef = useRef<string | null>(null);
 
     // Data Hooks (Replaces local state & useEffect)
@@ -117,11 +117,9 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
 
     useEffect(() => {
         if (article) {
-            // Only overwrite formData if the article ID has changed
-            // This prevents losing focus or resetting state while typing (auto-saving)
             if (article.id !== prevArticleIdRef.current) {
                 setFormData(prev => {
-                    const isNew = article.id.startsWith("temp_");
+                    const isNew = article.id.startsWith("temp_") || article.id.startsWith("new_");
                     if (isNew && (!article.code || article.code === "" || article.code.startsWith("ART-"))) {
                         const nextCode = generateNextCode(article.subFamilyId || "");
                         return { ...article, code: nextCode };
@@ -129,7 +127,6 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                     return article;
                 });
 
-                // Sync family selector (article.familyId prioritaire pour les sous-recettes)
                 if (article.familyId) {
                     setSelectedFamilyId(article.familyId);
                 } else if (article.subFamilyId) {
@@ -139,11 +136,14 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                     setSelectedFamilyId("");
                 }
 
+                const isNewArticle = article.id.startsWith("temp_") || article.id.startsWith("new_");
+                setIsEditing(!!isNewArticle);
                 prevArticleIdRef.current = article.id;
             }
         } else {
             setFormData({});
             prevArticleIdRef.current = null;
+            setIsEditing(false);
         }
     }, [article, subFamilies]);
     
@@ -177,11 +177,9 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
             if (exactCodeMatch) {
                 const newCode = exactCodeMatch.code + "00";
                 setFormData(prev => ({ ...prev, accountingCode: newCode }));
-                triggerAutoSave({ ...formData, accountingCode: newCode });
                 return;
             }
 
-            // 2. Try fuzzy label match
             const fuzzyMatch = accountingAccounts.find(acc => {
                 const label = acc.label.toLowerCase();
                 return label.includes(nature) || nature.includes(label) ||
@@ -192,39 +190,23 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
             if (fuzzyMatch) {
                 const newCode = fuzzyMatch.code + "00";
                 setFormData(prev => ({ ...prev, accountingCode: newCode }));
-                triggerAutoSave({ ...formData, accountingCode: newCode });
             }
         }
     }, [formData.accountingNature, formData.accountingCode, accountingAccounts]);
 
-    const triggerAutoSave = (data: Partial<Article>) => {
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-
-        saveTimeoutRef.current = setTimeout(() => {
-            if (data.name && data.subFamilyId) {
-                onSave(data as Article);
-            }
-        }, 500);
-    };
-
     const handleNutritionalChange = (nutriField: string, value: number) => {
-        setFormData(prev => {
-            const newData = {
-                ...prev,
-                nutritionalInfo: {
-                    ...(prev.nutritionalInfo || {}),
-                    [nutriField]: value
-                }
-            };
-            triggerAutoSave(newData);
-            return newData;
-        });
+        setFormData(prev => ({
+            ...prev,
+            nutritionalInfo: {
+                ...(prev.nutritionalInfo || {}),
+                [nutriField]: value
+            }
+        }));
     };
 
     const handleChange = (field: keyof Article, value: any) => {
         setFormData(prev => {
             const newData = { ...prev, [field]: value };
-
             if (field === "subFamilyId") {
                 if (prev.id?.startsWith("temp_") || prev.id === undefined) {
                     newData.code = generateNextCode(value as string);
@@ -234,23 +216,21 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                     newData.accountingCode = sub.accountingCode;
                 }
             }
-
-            triggerAutoSave(newData);
             return newData;
         });
     };
 
-    const handleDelete = () => {
+    const handleDelete = async () => {
         if (!article?.id) return;
-        if (window.confirm(`Êtes-vous sûr de vouloir supprimer l'article "${article.name}" ? Cette action est irréversible.`)) {
+        if (await confirmDialog(`Êtes-vous sûr de vouloir supprimer l'article "${article.name}" ? Cette action est irréversible.`)) {
             onDelete(article.id);
         }
     };
 
-    // Manual save is gone, but we keep this for validation if needed internally
     const handleSave = () => {
         if (formData.name && formData.subFamilyId) {
             onSave(formData as Article);
+            setIsEditing(false);
         }
     };
 
@@ -442,11 +422,15 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                             )}
                         </div>
 
-                        {/* Icon & Title Row */}
+                        {/* Icon & Title Row — icône dérivée de la sous-famille / famille */}
                         <div className="flex gap-5 items-start">
-                            {/* Icon (Reduced Size) */}
-                            <div className="w-16 h-16 bg-[#F8FAFC] rounded-[1.2rem] flex items-center justify-center shrink-0 shadow-sm border border-slate-200 mt-1 relative overflow-hidden group/icon">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#D69E2E" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 22 16 8" /><path d="M3.47 12.53 5 11l1.53 1.53a3.5 3.5 0 0 1 0 4.94L5 19l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M7.47 8.53 9 7l1.53 1.53a3.5 3.5 0 0 1 0 4.94L9 15l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M11.47 4.53 13 3l1.53 1.53a3.5 3.5 0 0 1 0 4.94L13 11l-1.53-1.53a3.5 3.5 0 0 1 0-4.94Z" /><path d="M20 2h2v2a4 4 0 0 1-4 4h-2V6a4 4 0 0 1 4-4Z" /><path d="M11.47 17.47 13 19l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L5 19l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M15.47 13.47 17 15l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L9 15l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /><path d="M19.47 9.47 21 11l-1.53 1.53a3.5 3.5 0 0 1-4.94 0L13 11l1.53-1.53a3.5 3.5 0 0 1 4.94 0Z" /></svg>
+                            <div className="w-16 h-16 bg-[#F8FAFC] rounded-[1.2rem] flex items-center justify-center shrink-0 shadow-sm border border-slate-200 mt-1 overflow-hidden">
+                                <ArticleIcon
+                                    typeId={family?.typeId}
+                                    familyCode={family?.code}
+                                    icon={formData.iconId ?? subFamily?.icon ?? family?.icon}
+                                    size={32}
+                                />
                             </div>
 
                             {/* Main Info */}
@@ -523,10 +507,28 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
 
                         {/* Buttons Control */}
                         <div className="flex gap-2 w-full mt-2">
-                            <div className="flex-1 bg-blue-50/50 border border-blue-100 rounded-xl px-4 py-2 flex items-center justify-center gap-2 shadow-sm">
-                                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest">Enregistrement auto.</span>
-                            </div>
+                            {isEditing ? (
+                                <button
+                                    type="button"
+                                    onClick={handleSave}
+                                    ref={saveRef}
+                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl shadow-sm transition-colors"
+                                    title="Enregistrer les modifications"
+                                >
+                                    <Save className="w-4 h-4" />
+                                    Enregistrer
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => setIsEditing(true)}
+                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl border border-slate-200 shadow-sm transition-colors"
+                                    title="Modifier cet article"
+                                >
+                                    <Pencil className="w-4 h-4" />
+                                    Modifier
+                                </button>
+                            )}
 
                             <button
                                 onClick={handleDelete}
@@ -561,6 +563,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                 onChange={(val) => handleChange("unitAchat", val)}
                                 onKeyDown={(e) => handleKeyDown(e, "unitAchat")}
                                 className="flex-1 min-w-[140px]"
+                                disabled={!isEditing}
                             />
 
                             {/* Separator */}
@@ -575,7 +578,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                     value={formData.contenace || ""}
                                     onChange={(e) => handleChange("contenace", parseFloat(e.target.value))}
                                     onKeyDown={(e) => handleKeyDown(e, "contenance")}
-                                    className="w-full text-sm font-bold text-slate-800 text-center outline-none bg-transparent border-none focus:ring-0 transition-all p-1"
+                                    className="w-full text-sm font-bold text-slate-800 text-center outline-none bg-transparent border-none focus:ring-0 transition-all p-1 disabled:opacity-70 disabled:cursor-default"
+                                    disabled={!isEditing}
                                 />
                             </div>
 
@@ -593,6 +597,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                 onKeyDown={(e) => handleKeyDown(e, "unitPivot")}
                                 className="flex-1 min-w-[120px]"
                                 isBlue
+                                disabled={!isEditing}
                             />
 
                             {/* Separator */}
@@ -607,7 +612,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                     value={formData.coeffProd || ""}
                                     onChange={(e) => handleChange("coeffProd", parseFloat(e.target.value))}
                                     onKeyDown={(e) => handleKeyDown(e, "coeffProd")}
-                                    className="w-full text-sm font-bold text-green-600 text-center outline-none bg-transparent border-none focus:ring-0 transition-all p-1"
+                                    className="w-full text-sm font-bold text-green-600 text-center outline-none bg-transparent border-none focus:ring-0 transition-all p-1 disabled:opacity-70 disabled:cursor-default"
+                                    disabled={!isEditing}
                                 />
                             </div>
 
@@ -624,6 +630,7 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                 onChange={(val) => handleChange("unitProduction", val)}
                                 onKeyDown={(e) => handleKeyDown(e, "unitProduction")}
                                 className="flex-1 min-w-[120px]"
+                                disabled={!isEditing}
                             />
 
                         </div>
@@ -646,11 +653,13 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                     {availableVatRates.map((rate, idx) => (
                                         <div key={rate} className="relative group/vat flex-1 min-w-[70px]">
                                             <button
+                                                type="button"
                                                 ref={el => { vatRefs.current[idx] = el; }}
-                                                onClick={() => handleChange("vatRate", rate)}
+                                                onClick={() => isEditing && handleChange("vatRate", rate)}
                                                 onKeyDown={(e) => handleKeyDown(e, "vat")}
+                                                disabled={!isEditing}
                                                 className={cn(
-                                                    "w-full px-2 py-2.5 rounded-lg text-xs font-bold transition-all border shadow-sm",
+                                                    "w-full px-2 py-2.5 rounded-lg text-xs font-bold transition-all border shadow-sm disabled:opacity-70 disabled:cursor-default",
                                                     (formData.vatRate || 0) === rate
                                                         ? "bg-blue-600 text-white border-blue-600 shadow-blue-200"
                                                         : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
@@ -719,14 +728,14 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                         value={selectedGeneralAccount}
                                         onChange={(e) => {
                                             const code = e.target.value;
-                                            // Auto-fill 6-digit code: "6121" -> "612100"
                                             if (code) {
                                                 handleChange("accountingCode", code + "00");
                                             } else {
                                                 handleChange("accountingCode", "");
                                             }
                                         }}
-                                        className="w-full bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-sm"
+                                        disabled={!isEditing}
+                                        className="w-full bg-white border border-slate-200 text-sm font-bold text-slate-800 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer shadow-sm disabled:opacity-70 disabled:cursor-default"
                                     >
                                         <option value="">Sélectionner...</option>
                                         {accountingAccounts.map(acc => (
@@ -784,7 +793,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             ref={accountRef}
                                             onKeyDown={(e) => handleKeyDown(e, "account")}
                                             placeholder="ex: 612100"
-                                            className="w-full bg-white border border-slate-200 text-xs font-mono font-black text-blue-600 rounded-xl px-3 py-2 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all shadow-sm tracking-tighter"
+                                            disabled={!isEditing}
+                                            className="w-full bg-white border border-slate-200 text-xs font-mono font-black text-blue-600 rounded-xl px-3 py-2 focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all shadow-sm tracking-tighter disabled:opacity-70 disabled:cursor-default"
                                         />
                                     </div>
                                 </div>
@@ -808,7 +818,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.calories || ""}
                                                 onChange={(e) => handleNutritionalChange("calories", parseFloat(e.target.value))}
-                                                className="w-20 text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                disabled={!isEditing}
+                                                className="w-20 text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none disabled:opacity-70 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>
                                         <div className="w-px h-6 bg-slate-100" />
@@ -818,7 +829,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.water || ""}
                                                 onChange={(e) => handleNutritionalChange("water", parseFloat(e.target.value))}
-                                                className="w-20 text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                disabled={!isEditing}
+                                                className="w-20 text-right bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none disabled:opacity-70 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>
                                     </div>
@@ -836,7 +848,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                     type="number"
                                                     value={(formData.nutritionalInfo as any)?.[field.key] || ""}
                                                     onChange={(e) => handleNutritionalChange(field.key, parseFloat(e.target.value))}
-                                                    className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                    disabled={!isEditing}
+                                                    className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none disabled:opacity-70 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                 />
                                             </div>
                                         ))}
@@ -854,7 +867,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                     type="number"
                                                     value={(formData.nutritionalInfo as any)?.carbs || ""}
                                                     onChange={(e) => handleNutritionalChange("carbs", parseFloat(e.target.value))}
-                                                    className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                    disabled={!isEditing}
+                                                    className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-1 text-xs font-bold text-slate-800 focus:border-blue-500 outline-none disabled:opacity-70 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                 />
                                             </div>
                                         </div>
@@ -874,7 +888,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                         type="number"
                                                         value={(formData.nutritionalInfo as any)?.[field.key] || ""}
                                                         onChange={(e) => handleNutritionalChange(field.key, parseFloat(e.target.value))}
-                                                        className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[10px] font-bold text-slate-800 outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                        disabled={!isEditing}
+                                                        className="w-full text-center bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[10px] font-bold text-slate-800 outline-none focus:border-blue-500 disabled:opacity-70 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                     />
                                                 </div>
                                             ))}
@@ -889,7 +904,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.ig || ""}
                                                 onChange={(e) => handleNutritionalChange("ig", parseFloat(e.target.value))}
-                                                className="w-16 text-center bg-slate-50 border border-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-bold focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                disabled={!isEditing}
+                                                className="w-16 text-center bg-slate-50 border border-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-bold focus:border-blue-500 outline-none disabled:opacity-70 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>
                                         <div className="flex-1 flex items-center justify-between bg-orange-50/50 border border-orange-200 rounded px-3 py-2 shadow-sm">
@@ -898,7 +914,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                                 type="number"
                                                 value={(formData.nutritionalInfo as any)?.cg || ""}
                                                 onChange={(e) => handleNutritionalChange("cg", parseFloat(e.target.value))}
-                                                className="w-16 text-center bg-slate-50 border border-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-bold focus:border-blue-500 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                disabled={!isEditing}
+                                                className="w-16 text-center bg-slate-50 border border-slate-200 text-slate-800 rounded px-1 py-0.5 text-xs font-bold focus:border-blue-500 outline-none disabled:opacity-70 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </div>
                                     </div>
@@ -926,7 +943,8 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
                                             handleChange("allergens", arr);
                                         }}
                                         placeholder="Gluten, Lait, Œufs, … (séparés par des virgules)"
-                                        className="w-full bg-white border border-amber-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                        disabled={!isEditing}
+                                        className="w-full bg-white border border-amber-200 rounded px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-70 disabled:cursor-default"
                                     />
                                 </div>
                             )}
@@ -944,52 +962,54 @@ export function ArticleEditor({ article, existingArticles = [], invoices = [], o
 
                     <div className="bg-[#F8FAFC] rounded-2xl p-8 border border-blue-500/20 shadow-2xl shadow-blue-500/5 transition-all duration-300">
                         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                            <table className="w-full text-sm">
-                                <thead className="bg-[#F8FAFC]/50 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200">
-                                    <tr>
-                                        <th className="px-6 py-2 text-center">Date</th>
-                                        <th className="px-4 py-2 text-center">Fournisseur</th>
-                                        <th className="px-4 py-2 text-center">Quantité</th>
-                                        <th className="px-4 py-2 text-center">PU HT</th>
-                                        <th className="px-4 py-2 text-center">Prix Pivot</th>
-                                        <th className="px-6 py-2 text-center">Total TTC</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-50">
-                                    {(historyList.length === 0) ? (
+                            <div className="max-h-[22.5rem] overflow-y-auto custom-scrollbar">
+                                <table className="w-full text-sm">
+                                    <thead className="sticky top-0 z-10 bg-[#F8FAFC] text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 shadow-sm">
                                         <tr>
-                                            <td colSpan={5} className="px-10 py-16 text-center text-slate-400 italic font-medium">
-                                                Aucun mouvement de prix enregistré
-                                            </td>
+                                            <th className="px-6 py-2 text-center">Date</th>
+                                            <th className="px-4 py-2 text-center">Fournisseur</th>
+                                            <th className="px-4 py-2 text-center">Quantité</th>
+                                            <th className="px-4 py-2 text-center">PU HT</th>
+                                            <th className="px-4 py-2 text-center">Prix Pivot</th>
+                                            <th className="px-6 py-2 text-center">Total TTC</th>
                                         </tr>
-                                    ) : (
-                                        historyList.map((item, idx) => (
-                                            <tr key={idx} className={cn("group transition-colors hover:bg-blue-50/30", item.status === "Draft" && "opacity-60 grayscale")}>
-                                                <td className="px-6 py-2 text-slate-500 font-bold text-center">
-                                                    {new Date(item.date).toLocaleDateString('fr-FR')}
-                                                    {item.status === "Draft" && <span className="ml-2 text-[9px] bg-slate-100 px-1 rounded">Brouillon</span>}
-                                                </td>
-                                                <td className="px-4 py-2 font-bold text-slate-800 text-center">
-                                                    {item.supplier}
-                                                </td>
-                                                <td className="px-4 py-2 text-center">
-                                                    <span className="font-black text-slate-700">{item.quantity}</span>
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">{item.unit}</span>
-                                                </td>
-                                                <td className="px-4 py-2 font-black text-slate-600 text-center">
-                                                    {item.price.toFixed(2).replace('.', ',')} Dh
-                                                </td>
-                                                <td className="px-4 py-2 font-black text-blue-600 text-center">
-                                                    {item.prixPivot.toFixed(2).replace('.', ',')} <span className="text-[10px]">/{article?.unitPivot || ""}</span>
-                                                </td>
-                                                <td className="px-6 py-2 font-black text-[#D69E2E] text-center">
-                                                    {(item.total || (item.price * item.quantity)).toFixed(2).replace('.', ',')} Dh
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {(historyList.length === 0) ? (
+                                            <tr>
+                                                <td colSpan={6} className="px-10 py-16 text-center text-slate-400 italic font-medium">
+                                                    Aucun mouvement de prix enregistré
                                                 </td>
                                             </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
+                                        ) : (
+                                            historyList.map((item, idx) => (
+                                                <tr key={idx} className={cn("group transition-colors hover:bg-blue-50/30", item.status === "Draft" && "opacity-60 grayscale")}>
+                                                    <td className="px-6 py-2 text-slate-500 font-bold text-center">
+                                                        {new Date(item.date).toLocaleDateString('fr-FR')}
+                                                        {item.status === "Draft" && <span className="ml-2 text-[9px] bg-slate-100 px-1 rounded">Brouillon</span>}
+                                                    </td>
+                                                    <td className="px-4 py-2 font-bold text-slate-800 text-center">
+                                                        {item.supplier}
+                                                    </td>
+                                                    <td className="px-4 py-2 text-center">
+                                                        <span className="font-black text-slate-700">{item.quantity}</span>
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">{item.unit}</span>
+                                                    </td>
+                                                    <td className="px-4 py-2 font-black text-slate-600 text-center">
+                                                        {item.price.toFixed(2).replace('.', ',')} Dh
+                                                    </td>
+                                                    <td className="px-4 py-2 font-black text-blue-600 text-center">
+                                                        {item.prixPivot.toFixed(2).replace('.', ',')} <span className="text-[10px]">/{article?.unitPivot || ""}</span>
+                                                    </td>
+                                                    <td className="px-6 py-2 font-black text-[#D69E2E] text-center">
+                                                        {(item.total || (item.price * item.quantity)).toFixed(2).replace('.', ',')} Dh
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </section>

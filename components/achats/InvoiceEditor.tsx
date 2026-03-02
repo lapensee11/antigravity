@@ -9,7 +9,7 @@ import { InvoicePayments } from "../achats/editor/InvoicePayments";
 import { DateInput } from "@/components/ui/DateInput";
 import { Trash2, Plus, Check, File, Copy, Files, RefreshCw, CloudUpload, X } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
-import { cn } from "@/lib/utils";
+import { cn, confirmDialog } from "@/lib/utils";
 import { UnitSelector } from "@/components/ui/UnitSelector";
 import { useAccountingAccounts, useArticles, usePartners, useTiers } from "@/lib/hooks/use-data";
 
@@ -75,9 +75,10 @@ export function InvoiceEditor({
     onSync,
     onDesync,
     onSummaryOpen
-}: InvoiceEditor2Props) {
+}: InvoiceEditorProps) {
     const [formData, setFormData] = useState<Partial<Invoice>>({});
     const [activeAction, setActiveAction] = useState<'new' | 'empty' | 'full' | null>(null);
+    const [statusButtonRotation, setStatusButtonRotation] = useState(0);
 
     // Data Hooks
     const { data: accountingAccounts = [] } = useAccountingAccounts();
@@ -96,40 +97,18 @@ export function InvoiceEditor({
             .sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
     }, [finalSuppliers]);
 
-    // Generate invoice number: BL-'Code Frs'-'JJ/MM'-'##'
-    const generateInvoiceNumber = (supplierId: string): string => {
+    // Generate invoice number: BL-(5 premières lettres du nom)-JJ (11 caractères dont 2 '-')
+    const generateInvoiceNumber = (supplierId: string, dateStr?: string): string => {
         if (!supplierId) return "";
         const supplier = suppliers.find(s => s.id === supplierId);
-        if (!supplier || !supplier.code) return "";
-        
-        const now = new Date();
-        const day = String(now.getDate()).padStart(2, '0');
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const dateStr = `${day}/${month}`;
-        
-        // Find all invoices for this supplier with the same date prefix
-        const prefix = `BL-${supplier.code}-${dateStr}-`;
-        const matchingInvoices = invoices.filter(inv => {
-            if (!inv.number || !inv.supplierId || inv.supplierId !== supplierId) return false;
-            return inv.number.startsWith(prefix);
-        });
-        
-        // Extract sequence numbers and find the highest
-        let maxSeq = 0;
-        matchingInvoices.forEach(inv => {
-            const suffix = inv.number.replace(prefix, '');
-            const seqMatch = suffix.match(/^(\d+)$/);
-            if (seqMatch) {
-                const seq = parseInt(seqMatch[1], 10);
-                if (seq > maxSeq) maxSeq = seq;
-            }
-        });
-        
-        // Next sequence number
-        const nextSeq = maxSeq + 1;
-        const seqStr = String(nextSeq).padStart(2, '0');
-        
-        return `${prefix}${seqStr}`;
+        if (!supplier) return "";
+
+        const name = (supplier.name || supplier.code || "X").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z]/g, "").toUpperCase();
+        const fiveLetters = name.slice(0, 5).padEnd(5, name[0] || "X");
+        const d = dateStr ? new Date(dateStr) : new Date();
+        const day = String(d.getDate()).padStart(2, "0");
+
+        return `BL-${fiveLetters}-${day}`;
     };
 
     // Autocomplete State for Supplier
@@ -157,6 +136,8 @@ export function InvoiceEditor({
     const supplierListRef = useRef<HTMLDivElement>(null);
     const articleListRef = useRef<HTMLDivElement>(null);
     const isTypingRef = useRef(false);
+    /** Lorsqu'on sélectionne un article dans la liste, le blur du champ Désignation se déclenche avant la mise à jour d'état. Ce ref permet d'ignorer le traitement blur (ne pas effacer la ligne) quand la perte de focus vient d'un clic sur la liste. */
+    const skipDesignationBlurForLineRef = useRef<number | null>(null);
 
     useEffect(() => {
         if (formData.lines && formData.lines.length > prevLinesLength.current) {
@@ -186,7 +167,7 @@ export function InvoiceEditor({
                     id: `pay_${Date.now()}`,
                     date: new Date().toISOString().split('T')[0],
                     amount: 0,
-                    mode: "Chèques" as const,
+                    mode: "Espèces" as const,
                     account: "Caisse" as const
                 }];
             }
@@ -208,7 +189,7 @@ export function InvoiceEditor({
             
             // Generate invoice number if empty and supplier exists
             if ((!invoice.number || invoice.number === "" || invoice.number === "---") && invoice.supplierId) {
-                const generatedNumber = generateInvoiceNumber(invoice.supplierId);
+                const generatedNumber = generateInvoiceNumber(invoice.supplierId, invoice.date);
                 if (generatedNumber) {
                     setFormData(prev => ({ ...prev, number: generatedNumber }));
                     if (onUpdate && invoice) {
@@ -221,7 +202,7 @@ export function InvoiceEditor({
                 id: `pay_${Date.now()}`,
                 date: new Date().toISOString().split('T')[0],
                 amount: 0,
-                mode: "Chèques" as const,
+                mode: "Espèces" as const,
                 account: "Caisse" as const
             };
             setFormData({
@@ -257,7 +238,7 @@ export function InvoiceEditor({
         // Generate invoice number only if it's empty or just a placeholder
         const currentNumber = formData.number || "";
         const shouldGenerateNumber = !currentNumber || currentNumber === "" || currentNumber === "---";
-        const newNumber = shouldGenerateNumber ? generateInvoiceNumber(id) : currentNumber;
+        const newNumber = shouldGenerateNumber ? generateInvoiceNumber(id, formData.date) : currentNumber;
         
         const newData = { ...formData, supplierId: id, number: newNumber };
         setFormData(newData);
@@ -315,6 +296,8 @@ export function InvoiceEditor({
         if (onUpdate && invoice) onUpdate({ ...invoice, ...newData } as Invoice);
     };
 
+    const articleIdsInStructure = useMemo(() => new Set(finalArticles.map(a => a.id)), [finalArticles]);
+
     const handleToggleStatus = () => {
         const isCurrentlyValidated = formData.status === 'Validated';
         if (isCurrentlyValidated) {
@@ -331,6 +314,16 @@ export function InvoiceEditor({
             setFormData(updatedData);
             if (onUpdate && invoice) onUpdate({ ...invoice, ...updatedData } as Invoice);
         } else {
+            const lines = formData.lines || [];
+            const invalidLine = lines.find(
+                (l, i) => (l.quantity > 0 || l.priceHT > 0 || (l.articleName && l.articleName.trim() !== ""))
+                    && (!l.articleId || !articleIdsInStructure.has(l.articleId))
+            );
+            if (invalidLine) {
+                const idx = lines.indexOf(invalidLine) + 1;
+                alert(`Impossible de valider : la ligne ${idx} (Désignation) doit être un article de la structure. Choisissez un article dans la liste.`);
+                return;
+            }
             const updatedData = { ...formData, status: 'Validated' as any };
             setFormData(updatedData);
             if (onUpdate && invoice) onUpdate({ ...invoice, ...updatedData } as Invoice);
@@ -338,6 +331,7 @@ export function InvoiceEditor({
     };
 
     const isValidated = formData.status === "Validated";
+    const isSynced = !!formData.syncTime;
 
     const updateLines = (newLines: InvoiceLine[]) => {
         const totalHT = newLines.reduce((sum, l) => sum + (l.quantity * l.priceHT * (1 - (l.discount || 0) / 100)), 0);
@@ -417,6 +411,66 @@ export function InvoiceEditor({
         }, 50);
     };
 
+    const handleDesignationBlur = (index: number) => {
+        setTimeout(() => {
+            if (skipDesignationBlurForLineRef.current === index) {
+                skipDesignationBlurForLineRef.current = null;
+                setActiveRow(null);
+                return;
+            }
+            const lines = [...(formData.lines || [])];
+            const line = lines[index];
+            if (!line) {
+                setActiveRow(null);
+                return;
+            }
+            if (line.articleId && articleIdsInStructure.has(line.articleId)) {
+                setActiveRow(null);
+                return;
+            }
+            if (line.articleId && !articleIdsInStructure.has(line.articleId)) {
+                const cleared = { ...line, articleId: "", articleName: "" };
+                lines[index] = cleared;
+                const totalHTLine = cleared.quantity * cleared.priceHT * (1 - (cleared.discount || 0) / 100);
+                cleared.totalTTC = totalHTLine * (1 + (cleared.vatRate ?? 0) / 100);
+                updateLines(lines);
+                setActiveRow(null);
+                return;
+            }
+            const name = (line.articleName || "").trim();
+            if (!name) {
+                setActiveRow(null);
+                return;
+            }
+            const matches = finalArticles.filter(
+                a => a.name.trim().toLowerCase() === name.toLowerCase()
+            );
+            if (matches.length === 1) {
+                const article = matches[0];
+                const vat = article.vatRate !== undefined ? Number(article.vatRate) : 20;
+                const newLine = {
+                    ...line,
+                    articleId: article.id,
+                    articleName: article.name,
+                    unit: article.unitAchat || "Unité",
+                    vatRate: vat,
+                    accountingCode: article.accountingCode || "",
+                };
+                const totalHTLine = newLine.quantity * newLine.priceHT * (1 - (newLine.discount || 0) / 100);
+                newLine.totalTTC = totalHTLine * (1 + vat / 100);
+                lines[index] = newLine;
+                updateLines(lines);
+            } else {
+                const cleared = { ...line, articleId: "", articleName: "" };
+                lines[index] = cleared;
+                const totalHTLine = cleared.quantity * cleared.priceHT * (1 - (cleared.discount || 0) / 100);
+                cleared.totalTTC = totalHTLine * (1 + (cleared.vatRate ?? 0) / 100);
+                updateLines(lines);
+            }
+            setActiveRow(null);
+        }, 200);
+    };
+
     const updatePayments = (newPayments: any[]) => {
         const totalPaid = newPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
         const balanceDue = (formData.totalTTC || 0) - totalPaid;
@@ -452,6 +506,7 @@ export function InvoiceEditor({
         } else if (e.key === "Enter" || e.key === "Tab") {
             if (filteredArticles.length > 0 && articleFocusIndex >= 0 && filteredArticles[articleFocusIndex]) {
                 e.preventDefault();
+                skipDesignationBlurForLineRef.current = index;
                 handleSelectArticle(index, filteredArticles[articleFocusIndex]);
             } else if (e.key === "Enter") {
                 e.preventDefault();
@@ -505,7 +560,7 @@ export function InvoiceEditor({
     return (
         <div className="flex flex-col h-full overflow-hidden bg-white">
             {/* Header Section - Same as Factures Achat - Always Visible */}
-            <div className="h-24 border-b border-slate-200 bg-gradient-to-r from-slate-100 via-blue-50 to-slate-100 shrink-0 shadow-sm z-20 px-4 flex items-center justify-between gap-4">
+            <div className="h-24 border-b border-slate-700 bg-slate-900 shrink-0 shadow-sm z-20 px-4 flex items-center justify-between gap-4">
                 <div className="flex w-[40%] h-16 bg-white/80 backdrop-blur-sm border border-slate-200/50 rounded-2xl overflow-hidden shadow-sm">
                     <button
                         onClick={() => { onCreateNew(); setActiveAction('new'); setTimeout(() => setActiveAction(null), 2000); }}
@@ -517,7 +572,7 @@ export function InvoiceEditor({
                         )}>
                             <Plus className="w-5 h-5 text-white" />
                         </div>
-                        <span className={cn("text-xs font-black uppercase tracking-widest transition-colors duration-300", activeAction === 'new' ? "text-orange-500" : "text-slate-700")}>Nouvelle</span>
+                        <span className={cn("text-sm font-black uppercase tracking-widest transition-colors duration-300", activeAction === 'new' ? "text-orange-500" : "text-slate-700")}>Nouvelle</span>
                     </button>
                     <button
                         onClick={() => { if (formData) { onDuplicate(true); setActiveAction('empty'); setTimeout(() => setActiveAction(null), 2000); } }}
@@ -530,7 +585,7 @@ export function InvoiceEditor({
                         )}>
                             <File className="w-3.5 h-3.5 text-white" />
                         </div>
-                        <span className={cn("text-xs font-black uppercase tracking-widest transition-colors duration-300", activeAction === 'empty' ? "text-orange-500" : "text-slate-700")}>Vide</span>
+                        <span className={cn("text-sm font-black uppercase tracking-widest transition-colors duration-300", activeAction === 'empty' ? "text-orange-500" : "text-slate-700")}>Vide</span>
                     </button>
                     <button
                         onClick={() => { if (formData) { onDuplicate(false); setActiveAction('full'); setTimeout(() => setActiveAction(null), 2000); } }}
@@ -543,12 +598,12 @@ export function InvoiceEditor({
                         )}>
                             <Copy className="w-3.5 h-3.5 text-white" />
                         </div>
-                        <span className={cn("text-xs font-black uppercase tracking-widest transition-colors duration-300", activeAction === 'full' ? "text-orange-500" : "text-slate-700")}>Pleine</span>
+                        <span className={cn("text-sm font-black uppercase tracking-widest transition-colors duration-300", activeAction === 'full' ? "text-orange-500" : "text-slate-700")}>Pleine</span>
                     </button>
                 </div>
 
                 <div className="flex w-[12%] h-16 bg-white/80 backdrop-blur-sm border border-slate-200/50 rounded-2xl overflow-hidden shadow-sm">
-                    <button onClick={onSummaryOpen} className="flex-1 flex items-center justify-center gap-2 text-slate-700 hover:bg-blue-50/80 transition-colors text-xs font-black uppercase tracking-widest active:bg-blue-100/80">
+                    <button onClick={onSummaryOpen} className="flex-1 flex items-center justify-center gap-2 text-slate-700 hover:bg-blue-50/80 transition-colors text-sm font-black uppercase tracking-widest active:bg-blue-100/80">
                         <Files className="w-5 h-5 text-blue-500" />
                         <span className="hidden xl:inline">Résumé</span>
                     </button>
@@ -557,7 +612,7 @@ export function InvoiceEditor({
                 {formData && (
                     <button
                         onClick={() => onDelete(formData.id!)}
-                        className="h-16 w-16 shrink-0 rounded-2xl flex items-center justify-center bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20 active:scale-95 transition-all shadow-md group"
+                        className="h-16 w-16 shrink-0 rounded-2xl flex items-center justify-center bg-rose-100/80 border border-rose-200/60 text-rose-500 hover:bg-rose-200/60 active:scale-95 transition-all shadow-sm group"
                         title="Supprimer la facture"
                     >
                         <Trash2 className="w-7 h-7 stroke-[2.5px] group-hover:rotate-12 transition-transform" />
@@ -595,7 +650,7 @@ export function InvoiceEditor({
                                 onClick={() => onSync(formData.id!)}
                                 className={cn(
                                     "h-16 w-16 rounded-2xl flex flex-col items-center justify-center border shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer",
-                                    formData.syncTime ? "bg-green-500/10 border-green-500/20 text-green-400" : "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20"
+                                    formData.syncTime ? "bg-emerald-100/80 border-emerald-200/60 text-emerald-600 hover:bg-emerald-200/60" : "bg-amber-100/80 border-amber-200/60 text-amber-600 hover:bg-amber-200/60"
                                 )}
                                 title="Synchroniser la facture"
                             >
@@ -604,12 +659,12 @@ export function InvoiceEditor({
                         )}
                         {onDesync && formData.syncTime && (
                             <button
-                                onClick={() => {
-                                    if (confirm("Êtes-vous sûr de vouloir désynchroniser cette facture ?")) {
+                                onClick={async () => {
+                                    if (await confirmDialog("Êtes-vous sûr de vouloir désynchroniser cette facture ?")) {
                                         onDesync(formData.id!);
                                     }
                                 }}
-                                className="h-16 w-16 rounded-2xl flex flex-col items-center justify-center border shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20"
+                                className="h-16 w-16 rounded-2xl flex flex-col items-center justify-center border shadow-sm transition-all hover:scale-105 active:scale-95 cursor-pointer bg-rose-100/80 border-rose-200/60 text-rose-500 hover:bg-rose-200/60"
                                 title="Désynchroniser la facture"
                             >
                                 <X className="w-7 h-7 stroke-[2.5px]" />
@@ -626,21 +681,24 @@ export function InvoiceEditor({
                         {/* Header Section - Restored Light Style */}
                         <div className="shrink-0 pt-6 pb-8 pl-8 pr-6 flex items-end justify-between gap-4 bg-white">
                         <div className="flex items-center gap-4">
-                            {/* Status Toggle Button */}
+                            {/* Status : carré vert (déclarée) ou carré rouge vide (brouillon), 1/4 tour puis 1/4 tour retour au clic */}
                             <button
-                                onClick={handleToggleStatus}
+                                type="button"
+                                onClick={() => {
+                                    setStatusButtonRotation(90);
+                                    handleToggleStatus();
+                                }}
+                                onTransitionEnd={() => setStatusButtonRotation(0)}
+                                style={{ transform: `rotate(${statusButtonRotation}deg)` }}
                                 className={cn(
-                                    "w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-500 shadow-sm border shrink-0",
+                                    "w-11 h-11 shrink-0 flex items-center justify-center shadow-sm transition-transform duration-300 ease-out",
                                     isValidated
-                                        ? "bg-[#4CAF50] border-[#43A047] shadow-green-200"
-                                        : "bg-white border-slate-200 text-slate-300 hover:border-slate-300 hover:bg-slate-50 shadow-sm"
+                                        ? "bg-[#4CAF50] border-2 border-[#43A047] rounded-xl shadow-green-200"
+                                        : "rounded-xl border-2 border-red-500 bg-transparent hover:bg-red-50"
                                 )}
-                                title={isValidated ? "Facture Déclarée" : "Cliquer pour valider"}
+                                title={isValidated ? "Facture Déclarée" : "Brouillon — Cliquer pour valider"}
                             >
-                                <Check className={cn(
-                                    "w-6 h-6 stroke-[4px] text-white transition-all duration-500 ease-spring",
-                                    isValidated ? "opacity-100 scale-100 rotate-[360deg]" : "opacity-0 scale-0 -rotate-90"
-                                )} />
+                                {isValidated && <Check className="w-6 h-6 stroke-[4px] text-white" />}
                             </button>
 
                             {/* Info Block */}
@@ -650,6 +708,10 @@ export function InvoiceEditor({
                                         ref={supplierInputRef}
                                         type="text"
                                         value={supplierSearch}
+                                        autoComplete="off"
+                                        autoCorrect="off"
+                                        autoCapitalize="off"
+                                        spellCheck={false}
                                         onChange={(e) => {
                                             const value = e.target.value;
                                             isTypingRef.current = true;
@@ -690,7 +752,7 @@ export function InvoiceEditor({
                                             }
                                         }}
                                         placeholder="Choisir un Fournisseur..."
-                                        className="text-2xl font-serif font-black text-slate-800 bg-transparent outline-none hover:text-blue-600 transition-colors pr-8 min-w-[250px] w-full"
+                                        className="text-[26px] font-serif font-black text-slate-800 bg-transparent outline-none hover:text-blue-600 transition-colors pr-8 min-w-[250px] w-full"
                                     />
                                     <div className="absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none opacity-0 group-hover:opacity-20 transition-opacity">
                                         <Plus className="w-4 h-4 rotate-45" />
@@ -708,16 +770,13 @@ export function InvoiceEditor({
                                                     onClick={() => handleSupplierChange(supplier.id)}
                                                     onMouseEnter={() => setFocusIndex(idx)}
                                                     className={cn(
-                                                        "px-4 py-3 cursor-pointer transition-colors",
+                                                        "px-3 py-1.5 cursor-pointer transition-colors",
                                                         idx === focusIndex
                                                             ? "bg-blue-50 text-blue-700"
                                                             : "hover:bg-slate-50 text-slate-700"
                                                     )}
                                                 >
                                                     <div className="font-semibold text-sm">{supplier.name}</div>
-                                                    {supplier.code && (
-                                                        <div className="text-xs text-slate-400 font-mono">{supplier.code}</div>
-                                                    )}
                                                 </div>
                                             ))}
                                         </div>
@@ -725,7 +784,7 @@ export function InvoiceEditor({
                                 </div>
 
                                 <div className="flex items-center gap-1 mt-1">
-                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono opacity-80">
+                                    <span className="text-base font-bold text-slate-400 uppercase tracking-wider font-mono opacity-80">
                                         N°
                                     </span>
                                     <input
@@ -734,37 +793,54 @@ export function InvoiceEditor({
                                         onChange={e => handleNumberChange(e.target.value)}
                                         onFocus={(e) => e.target.select()}
                                         placeholder="---"
-                                        className="bg-transparent text-xs font-bold text-slate-500 uppercase tracking-wider font-mono focus:outline-none focus:text-blue-600 focus:bg-blue-50/50 rounded px-1 transition-all w-full max-w-[200px]"
+                                        className="bg-transparent text-base font-bold text-slate-500 uppercase tracking-wider font-mono focus:outline-none focus:text-blue-600 focus:bg-blue-50/50 rounded px-1 transition-all w-full max-w-[200px]"
                                     />
                                 </div>
                             </div>
                         </div>
 
                         {/* RIGHT: Date Selector */}
+                        {(() => {
+                            const hasCheckPayment = (formData.payments || []).some((p: { mode?: string }) => p.mode === "Chèques");
+                            return (
                         <div className="flex items-center gap-2">
                             <div className="bg-white px-2 py-1 h-16 rounded-2xl flex items-center border border-slate-200 shadow-sm">
-                                <div className="flex flex-col px-4 border-r border-slate-100 hover:bg-slate-50 transition-colors rounded-l-lg group justify-center h-full">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">Date Facture</span>
+                                <div className={cn("flex flex-col px-4 transition-colors group justify-center h-full", hasCheckPayment ? "border-r border-slate-100 hover:bg-slate-50 rounded-l-lg" : "rounded-xl")}>
+                                    <span className="text-[12px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">Date Facture</span>
                                     <DateInput
                                         value={formData.date || ""}
-                                        onChange={val => setFormData({ ...formData, date: val })}
-                                        className="bg-transparent border-none text-lg font-black text-slate-700 focus:outline-none w-40 cursor-pointer p-0 h-auto"
+                                        onChange={(val) => {
+                                            const currentNumber = formData.number || "";
+                                            const shouldGenerateNumber = !currentNumber || currentNumber === "" || currentNumber === "---";
+                                            const newNumber = shouldGenerateNumber ? generateInvoiceNumber(formData.supplierId || "", val) : currentNumber;
+                                            const newData = { ...formData, date: val, number: newNumber };
+                                            setFormData(newData);
+                                            if (onUpdate && invoice) onUpdate({ ...invoice, ...newData } as Invoice);
+                                        }}
+                                        disabled={isSynced}
+                                        className="bg-transparent border-none text-xl font-black text-slate-700 focus:outline-none w-40 cursor-pointer p-0 h-auto"
                                     />
                                 </div>
-                                <div className="flex flex-col px-4 hover:bg-slate-50 transition-colors rounded-r-lg group justify-center h-full">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">Echéance</span>
-                                    <DateInput
-                                        value={formData.date ? new Date(new Date(formData.date).setDate(new Date(formData.date).getDate() + 30)).toISOString().split('T')[0] : ""}
-                                        onChange={() => { }}
-                                        className="bg-transparent border-none text-lg font-black text-slate-300 focus:outline-none w-40 cursor-not-allowed p-0 h-auto"
-                                    />
+                                {hasCheckPayment && (
+                                        <div className="flex flex-col px-4 hover:bg-slate-50 transition-colors rounded-r-lg group justify-center h-full">
+                                            <span className="text-[12px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">Echéance</span>
+                                            <DateInput
+                                                value={formData.date ? new Date(new Date(formData.date).setDate(new Date(formData.date).getDate() + 30)).toISOString().split('T')[0] : ""}
+                                                onChange={() => { }}
+                                                className="bg-transparent border-none text-xl font-black text-slate-300 focus:outline-none w-40 cursor-not-allowed p-0 h-auto"
+                                            />
+                                        </div>
+                                )}
+                            </div>
+                            {hasCheckPayment && (
+                                <div className="h-16 w-16 rounded-2xl flex flex-col items-center justify-center border shadow-sm transition-all bg-[#E5D1BD]/10 border-[#E5D1BD]/30 text-[#5D4037]">
+                                    <span className="text-[26px] font-black leading-none">30</span>
+                                    <span className="text-[12px] font-bold uppercase leading-none mt-1">Jours</span>
                                 </div>
-                            </div>
-                            <div className="h-16 w-16 rounded-2xl flex flex-col items-center justify-center border shadow-sm transition-all bg-[#E5D1BD]/10 border-[#E5D1BD]/30 text-[#5D4037]">
-                                <span className="text-2xl font-black leading-none">30</span>
-                                <span className="text-[10px] font-bold uppercase leading-none mt-1">Jours</span>
-                            </div>
+                            )}
                         </div>
+                            );
+                        })()}
                     </div>
 
                     <div className="flex-1 overflow-y-auto px-6 space-y-6 custom-scrollbar pb-20">
@@ -775,7 +851,7 @@ export function InvoiceEditor({
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
                                     <div className="w-1.5 h-6 bg-[#1E293B] rounded-full" />
-                                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Lignes de Facture</h3>
+                                    <h3 className="text-base font-black text-slate-800 uppercase tracking-widest">Lignes de Facture</h3>
                                 </div>
                                 <button
                                     type="button"
@@ -787,16 +863,16 @@ export function InvoiceEditor({
                                 </button>
                             </div>
                             <div className="bg-white rounded-xl border border-[#1E293B] overflow-visible shadow-md shadow-gray-300">
-                                <table className="w-full text-sm border-separate border-spacing-0">
-                                    <thead className="bg-blue-100 text-[10px] font-bold text-blue-700 uppercase border-b border-blue-200 tracking-wider">
+                                <table className="w-full text-base border-separate border-spacing-0">
+                                    <thead className="bg-blue-100 text-[12px] font-bold text-blue-700 uppercase border-b border-blue-200 tracking-wider">
                                         <tr>
                                             <th className="px-4 py-2 text-left w-[25%] rounded-tl-xl border-r border-slate-200">Désignation</th>
                                             <th className="px-4 py-2 text-left w-[12%] border-r border-slate-200">Détails</th>
                                             <th className="px-2 py-2 text-right w-[7%] border-r border-slate-200">Qté</th>
-                                            <th className="px-2 py-2 text-center w-[12%] border-r border-slate-200">Unité</th>
-                                            <th className="px-2 py-2 text-right w-[8%] border-r border-slate-200">PU HT</th>
-                                            <th className="px-2 py-2 text-right w-[7%] border-r border-slate-200">TVA %</th>
-                                            <th className="px-2 py-2 text-right w-[9%] border-r border-slate-200">Remise %</th>
+                                            <th className="px-2 py-2 text-center w-[11%] border-r border-slate-200">Unité</th>
+                                            <th className="px-2 py-2 text-right w-[11%] border-r border-slate-200">PU HT</th>
+                                            <th className="px-2 py-2 text-right w-[6%] border-r border-slate-200">TVA %</th>
+                                            <th className="px-2 py-2 text-right w-[8%] border-r border-slate-200">Remise %</th>
                                             <th className="px-2 py-2 text-right w-[11%] border-r border-slate-200">Total HT</th>
                                             <th className="px-4 py-2 text-right w-[13%] border-r border-slate-200">Total TTC</th>
                                             <th className="px-2 py-2 w-8 rounded-tr-xl"></th>
@@ -813,6 +889,10 @@ export function InvoiceEditor({
                                                             value={line.articleName}
                                                             onChange={e => handleLineChange(index, "articleName", e.target.value)}
                                                             onKeyDown={(e) => handleArticleKeyDown(e, index)}
+                                                            autoComplete="off"
+                                                            autoCorrect="off"
+                                                            autoCapitalize="off"
+                                                            spellCheck={false}
                                                             className="w-full bg-transparent font-medium text-slate-700 outline-none placeholder:text-slate-300 truncate"
                                                             placeholder="Article..."
                                                             onFocus={() => {
@@ -820,7 +900,7 @@ export function InvoiceEditor({
                                                                 setFilteredArticles(finalArticles);
                                                                 setArticleFocusIndex(-1);
                                                             }}
-                                                            onBlur={() => setTimeout(() => setActiveRow(null), 200)}
+                                                            onBlur={() => handleDesignationBlur(index)}
                                                         />
                                                         {activeRow === index && filteredArticles.length > 0 && (
                                                             <div ref={articleListRef} className="absolute top-full left-0 w-[300px] bg-white shadow-xl rounded-lg border border-slate-200 z-50 max-h-[200px] overflow-y-auto mt-1 custom-scrollbar">
@@ -828,9 +908,10 @@ export function InvoiceEditor({
                                                                     <div
                                                                         key={a.id}
                                                                         className={cn(
-                                                                            "px-3 py-2 text-xs font-semibold cursor-pointer transition-colors border-b border-slate-50 last:border-0",
+                                                                            "px-3 py-2 text-base font-semibold cursor-pointer transition-colors border-b border-slate-50 last:border-0",
                                                                             i === articleFocusIndex ? "bg-[#E5D1BD] text-[#5D4037]" : "hover:bg-slate-50 text-slate-700"
                                                                         )}
+                                                                        onMouseDown={() => { skipDesignationBlurForLineRef.current = index; }}
                                                                         onClick={() => handleSelectArticle(index, a)}
                                                                     >
                                                                         {a.name}
@@ -847,7 +928,7 @@ export function InvoiceEditor({
                                                             onFocus={(e) => setTimeout(() => e.target.select(), 0)}
                                                             onClick={(e) => (e.target as HTMLInputElement).select()}
                                                             onKeyDown={(e) => handleLineKeyDown(e, index, "details")}
-                                                            className="w-full bg-transparent font-normal text-slate-500 italic text-[11px] outline-none placeholder:text-slate-300"
+                                                            className="w-full bg-transparent font-normal text-slate-500 italic text-[13px] outline-none placeholder:text-slate-300"
                                                             placeholder="Détails..."
                                                         />
                                                     </td>
@@ -873,7 +954,7 @@ export function InvoiceEditor({
                                                                 type="achat"
                                                                 variant="invoice"
                                                                 className="w-full"
-                                                                textClassName={isValidated ? "cursor-default" : "hover:border-slate-200 border border-transparent"}
+                                                                textClassName={isSynced ? "cursor-default" : "hover:border-slate-200 border border-transparent"}
                                                             />
                                                         </div>
                                                     </td>
@@ -898,7 +979,7 @@ export function InvoiceEditor({
                                                                 onKeyDown={(e) => handleLineKeyDown(e, index, "vatRate")}
                                                                 className="w-full text-right bg-transparent outline-none font-medium text-slate-500 pr-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                             />
-                                                            <span className="absolute right-0 text-[10px] text-slate-400 font-bold pointer-events-none">%</span>
+                                                            <span className="absolute right-0 text-[12px] text-slate-400 font-bold pointer-events-none">%</span>
                                                         </div>
                                                     </td>
                                                     <td className="px-2 py-1 border-r border-slate-200">
@@ -913,13 +994,13 @@ export function InvoiceEditor({
                                                                 onKeyDown={(e) => handleLineKeyDown(e, index, "discount")}
                                                                 className="w-full text-right bg-transparent outline-none font-medium text-slate-500 pr-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                                             />
-                                                            <span className="absolute right-0 text-[10px] text-slate-400 font-bold pointer-events-none">%</span>
+                                                            <span className="absolute right-0 text-[12px] text-slate-400 font-bold pointer-events-none">%</span>
                                                         </div>
                                                     </td>
-                                                    <td className="px-2 py-1 text-right text-xs font-bold text-slate-600 border-r border-slate-200">
+                                                    <td className="px-2 py-1 text-right text-base font-bold text-slate-600 border-r border-slate-200">
                                                         {ht.toFixed(2)}
                                                     </td>
-                                                    <td className="px-4 py-1 text-right text-xs font-black text-slate-800 border-r border-slate-200">
+                                                    <td className="px-4 py-1 text-right text-base font-black text-slate-800 border-r border-slate-200">
                                                         {line.totalTTC.toFixed(2)}
                                                     </td>
                                                     <td className="px-2 py-1 text-center">
@@ -941,7 +1022,7 @@ export function InvoiceEditor({
                                         })}
                                         {(!formData.lines || formData.lines.length === 0) && (
                                             <tr>
-                                                <td colSpan={10} className="py-8 text-center text-slate-400 italic text-xs">
+                                                <td colSpan={10} className="py-8 text-center text-slate-400 italic text-base">
                                                     Aucune ligne. Cliquez sur le bouton "+".
                                                 </td>
                                             </tr>
@@ -971,7 +1052,10 @@ export function InvoiceEditor({
                         />
                         <InvoiceDocuments
                             comment={formData.comment}
-                            onCommentChange={(comment) => setFormData(prev => ({ ...prev, comment }))}
+                            onCommentChange={(comment) => {
+                                setFormData(prev => ({ ...prev, comment }));
+                                if (onUpdate && invoice) onUpdate({ ...invoice, comment } as Invoice);
+                            }}
                             documentImage={formData.documentImage}
                             onDocumentChange={(documentImage) => {
                                 setFormData(prev => {

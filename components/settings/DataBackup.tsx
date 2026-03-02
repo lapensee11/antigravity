@@ -41,7 +41,8 @@ export default function DataBackup() {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        if (!confirm("Attention : cette opération va écraser TOUTES vos données (paye, structure, articles, ventes). Souhaitez-vous continuer ?")) {
+        const { confirmDialog } = await import("@/lib/utils");
+        if (!(await confirmDialog("Attention : cette opération va écraser TOUTES vos données (paye, structure, articles, ventes). Souhaitez-vous continuer ?"))) {
             return;
         }
 

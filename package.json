@@ -7,11 +7,30 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "cd src-tauri && CI=false node ../node_modules/@tauri-apps/cli/tauri.js build",
+    "tauri:build:intel": "cd src-tauri && CI=false node ../node_modules/@tauri-apps/cli/tauri.js build --target x86_64-apple-darwin",
+    "tauri:build:arm64": "cd src-tauri && CI=false node ../node_modules/@tauri-apps/cli/tauri.js build --target aarch64-apple-darwin",
+    "tauri:build:arm64:app": "cd src-tauri && CI=false node ../node_modules/@tauri-apps/cli/tauri.js build --target aarch64-apple-darwin --bundles app",
+    "tauri:build:intel:app": "cd src-tauri && CI=false node ../node_modules/@tauri-apps/cli/tauri.js build --target x86_64-apple-darwin --bundles app",
+    "build:dmg": "npm run build && npm run tauri:build && node scripts/copy-dmg-to-dist.js",
+    "build:dmg:intel": "npm run build && npm run tauri:build:intel && node scripts/copy-dmg-to-dist.js",
+    "build:dmg:universal": "node scripts/build-universal-dmg.js",
+    "copy-dmg": "node scripts/copy-dmg-to-dist.js",
+    "dmg": "npm run build:dmg",
+    "dmg:intel": "npm run build:dmg:intel",
+    "dmg:universal": "npm run build:dmg:universal",
+    "postinstall": "node scripts/fix-lightningcss.js"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.3.2",
     "@tanstack/react-query": "^5.90.20",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@tauri-apps/plugin-fs": "^2.4.5",
+    "@tauri-apps/plugin-opener": "^2.5.3",
+    "@tauri-apps/plugin-shell": "^2.3.5",
     "clsx": "^2.1.1",
     "dexie": "^4.3.0",
     "dexie-react-hooks": "^4.2.0",
@@ -26,8 +45,12 @@
     "xlsx": "^0.18.5",
     "xlsx-js-style": "^1.2.0"
   },
+  "optionalDependencies": {
+    "lightningcss-darwin-arm64": "^1.30.2"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@tauri-apps/cli": "^2.10.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

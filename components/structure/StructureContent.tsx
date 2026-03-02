@@ -4,7 +4,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TypeColumn } from "@/components/structure/TypeColumn";
 import { StructureType, Family, SubFamily, AccountingAccount } from "@/lib/types";
 import { useState, useEffect } from "react";
-import { cn } from "@/lib/utils";
+import { cn, confirmDialog } from "@/lib/utils";
 import {
     getStructureTypes,
     reconcileStructureWithMaster
@@ -21,23 +21,11 @@ import { useQuery } from "@tanstack/react-query";
 import { db } from "@/lib/db";
 
 import {
-    Wheat,
-    Croissant,
-    Cake,
-    Utensils,
-    Coffee,
-    Zap,
-    Droplet,
-    Truck,
     Package,
     Briefcase,
     Wrench,
-    Shield,
-    Printer,
-    Megaphone,
-    Hammer,
-    Plug,
-    Thermometer,
+    Zap,
+    Truck,
     Palette,
     Settings2,
     Trash2,
@@ -48,29 +36,11 @@ import {
     X,
     FileText,
     Save,
-    RefreshCw
+    RefreshCw,
+    ImagePlus
 } from "lucide-react";
-
-const ICONS = [
-    { id: "wheat", icon: Wheat },
-    { id: "croissant", icon: Croissant },
-    { id: "cake", icon: Cake },
-    { id: "utensils", icon: Utensils },
-    { id: "coffee", icon: Coffee },
-    { id: "zap", icon: Zap },
-    { id: "droplet", icon: Droplet },
-    { id: "truck", icon: Truck },
-    { id: "package", icon: Package },
-    { id: "briefcase", icon: Briefcase },
-    { id: "wrench", icon: Wrench },
-    { id: "shield", icon: Shield },
-    { id: "printer", icon: Printer },
-    { id: "megaphone", icon: Megaphone },
-    { id: "hammer", icon: Hammer },
-    { id: "plug", icon: Plug },
-    { id: "thermometer", icon: Thermometer },
-    { id: "palette", icon: Palette },
-];
+import { ARTICLE_ICONS, StructureIconView, isCustomIconDataUrl } from "@/components/articles/ArticleIcon";
+import { useRef } from "react";
 
 export function StructureContent({
     initialTypes,
@@ -231,6 +201,7 @@ export function StructureContent({
 
     // Form State
     const [formData, setFormData] = useState({ name: "", code: "", icon: "", accountingCode: "" });
+    const iconFileInputRef = useRef<HTMLInputElement>(null);
 
     // Focus State for Keyboard Navigation
     const [focusedFamilyId, setFocusedFamilyId] = useState<string | null>(null);
@@ -365,7 +336,7 @@ export function StructureContent({
     };
 
     const handleDeleteAccount = async (id: string) => {
-        if (confirm("Supprimer ce compte comptable ?")) {
+        if (await confirmDialog("Supprimer ce compte comptable ?")) {
             try {
                 await accountDeletion.mutateAsync(id);
             } catch (error) {
@@ -381,7 +352,7 @@ export function StructureContent({
     );
 
     const handleDeleteFamily = async (id: string) => {
-        if (!window.confirm("Supprimer cette famille ?")) return;
+        if (!(await confirmDialog("Supprimer cette famille ?"))) return;
         try {
             await familyDeletion.mutateAsync(id);
         } catch (error) {
@@ -392,7 +363,7 @@ export function StructureContent({
     };
 
     const handleDeleteSubFamily = async (id: string) => {
-        if (!window.confirm("Supprimer cette sous-famille ?")) return;
+        if (!(await confirmDialog("Supprimer cette sous-famille ?"))) return;
         try {
             await subFamilyDeletion.mutateAsync(id);
         } catch (error) {
@@ -450,7 +421,7 @@ export function StructureContent({
     };
 
     const handleDeletePartner = async (id: string) => {
-        if (confirm("Supprimer ce partenaire ?")) {
+        if (await confirmDialog("Supprimer ce partenaire ?")) {
             try {
                 await partnerDeletion.mutateAsync(id);
             } catch (error) {
@@ -461,12 +432,11 @@ export function StructureContent({
     };
 
     const handleRepairStructure = async () => {
-        if (!confirm("Voulez-vous vérifier l'intégrité de la structure ?\n\nCela ajoute uniquement les familles manquantes (pas les sous-familles).\nVos renommages et créations personnelles sont préservés.")) return;
+        if (!(await confirmDialog("Voulez-vous dédupliquer la structure ?\n\nCela fusionne les familles et sous-familles en double (même code) et réaffecte les articles et recettes. Aucune nouvelle famille, sous-famille ou article ne sera créé."))) return;
 
-        // 1. Sync structures (families only, not sub-families)
         await reconcileStructureWithMaster();
 
-        alert("Structure vérifiée. Seules les familles manquantes ont été ajoutées.\nLes sous-familles doivent être créées manuellement.");
+        alert("Structure dédupliquée. Les doublons ont été fusionnés.");
         window.location.reload();
     };
 
@@ -712,6 +682,10 @@ export function StructureContent({
                                             value={accountingSearch}
                                             onChange={(e) => setAccountingSearch(e.target.value)}
                                             placeholder="Rechercher un code ou libellé..."
+                                            autoComplete="off"
+                                            autoCorrect="off"
+                                            autoCapitalize="off"
+                                            spellCheck={false}
                                             className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold text-slate-600 outline-none focus:ring-4 focus:ring-blue-100 placeholder:font-medium shadow-sm transition-all"
                                         />
                                     </div>
@@ -936,22 +910,67 @@ export function StructureContent({
                                     </p>
                                 </div>
 
-                                {/* Icon Picker */}
+                                {/* Icon Picker : liste + import */}
                                 <div>
                                     <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Icône</label>
+                                    <input
+                                        ref={iconFileInputRef}
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (!file || !file.type.startsWith("image/")) return;
+                                            const reader = new FileReader();
+                                            reader.onload = () => {
+                                                const dataUrl = reader.result as string;
+                                                setFormData((prev) => ({ ...prev, icon: dataUrl }));
+                                            };
+                                            reader.readAsDataURL(file);
+                                            e.target.value = "";
+                                        }}
+                                    />
                                     <div className="grid grid-cols-6 gap-2 bg-slate-50 p-2 rounded-xl">
-                                        {ICONS.map(({ id, icon: Icon }) => (
+                                        {ARTICLE_ICONS.map(({ id, Icon }) => {
+                                            const isSelected = formData.icon === id || (formData.icon && !formData.icon.startsWith("data:") && formData.icon.toLowerCase() === id.toLowerCase());
+                                            return (
+                                                <button
+                                                    key={id}
+                                                    type="button"
+                                                    onClick={() => setFormData({ ...formData, icon: id })}
+                                                    className={`aspect-square flex items-center justify-center rounded-lg transition-all ${isSelected
+                                                        ? "bg-[#D69E2E] text-white shadow-lg scale-110"
+                                                        : "text-slate-400 hover:bg-white hover:text-slate-600"
+                                                        }`}
+                                                    title={id}
+                                                >
+                                                    <Icon className="w-5 h-5" />
+                                                </button>
+                                            );
+                                        })}
+                                        {/* Import : aperçu si image, sinon bouton Importer */}
+                                        {isCustomIconDataUrl(formData.icon) ? (
+                                            <div className="relative aspect-square rounded-lg overflow-hidden bg-white border-2 border-[#D69E2E] group">
+                                                <img src={formData.icon} alt="" className="w-full h-full object-contain" />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setFormData({ ...formData, icon: "" })}
+                                                    className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition-opacity"
+                                                >
+                                                    Supprimer
+                                                </button>
+                                            </div>
+                                        ) : (
                                             <button
-                                                key={id}
-                                                onClick={() => setFormData({ ...formData, icon: id })}
-                                                className={`aspect-square flex items-center justify-center rounded-lg transition-all ${formData.icon === id
-                                                    ? "bg-[#D69E2E] text-white shadow-lg scale-110"
-                                                    : "text-slate-400 hover:bg-white hover:text-slate-600"
-                                                    }`}
+                                                type="button"
+                                                onClick={() => iconFileInputRef.current?.click()}
+                                                className="aspect-square flex flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-slate-300 text-slate-400 hover:border-[#D69E2E] hover:text-[#D69E2E] hover:bg-amber-50/50 transition-all"
+                                                title="Importer une image"
                                             >
-                                                {Icon && <Icon className="w-5 h-5" />}
+                                                <ImagePlus className="w-5 h-5" />
+                                                <span className="text-[9px] font-bold uppercase">Importer</span>
                                             </button>
-                                        ))}
+                                        )}
                                     </div>
                                 </div>
 

@@ -2,14 +2,14 @@
 
 import { useRef, forwardRef } from "react";
 import { GlassCard } from "@/components/ui/GlassComponents";
-import { Invoice, InvoiceLine } from "@/lib/types";
+import { Invoice, InvoiceLine, Article, Tier } from "@/lib/types";
 import { InvoiceDocuments } from "../achats/editor/InvoiceDocuments";
 import { InvoiceFinancials } from "../achats/editor/InvoiceFinancials";
 import { InvoicePayments } from "../achats/editor/InvoicePayments";
 import { DateInput } from "@/components/ui/DateInput";
 import { Trash2, Plus, Check, File, Copy, Files, RefreshCw, CloudUpload, X } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
-import { cn } from "@/lib/utils";
+import { cn, confirmDialog } from "@/lib/utils";
 import { UnitSelector } from "@/components/ui/UnitSelector";
 import { useAccountingAccounts, useArticles, usePartners, useTiers } from "@/lib/hooks/use-data";
 
@@ -611,8 +611,8 @@ export function InvoiceEditor2({
                         )}
                         {onDesync && formData.syncTime && (
                             <button
-                                onClick={() => {
-                                    if (confirm("Êtes-vous sûr de vouloir désynchroniser cette facture ?")) {
+                                onClick={async () => {
+                                    if (await confirmDialog("Êtes-vous sûr de vouloir désynchroniser cette facture ?")) {
                                         onDesync(formData.id!);
                                     }
                                 }}
@@ -657,6 +657,10 @@ export function InvoiceEditor2({
                                         ref={supplierInputRef}
                                         type="text"
                                         value={supplierSearch}
+                                        autoComplete="off"
+                                        autoCorrect="off"
+                                        autoCapitalize="off"
+                                        spellCheck={false}
                                         onChange={(e) => {
                                             const value = e.target.value;
                                             setSupplierSearch(value);

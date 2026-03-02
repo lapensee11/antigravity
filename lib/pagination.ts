@@ -2,6 +2,8 @@
  * Utilitaires et types pour la pagination
  */
 
+import { useState } from "react";
+
 export interface PaginationParams {
     page: number; // Page actuelle (0-indexed)
     pageSize: number; // Nombre d'éléments par page
@@ -49,8 +51,8 @@ export const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
  * Hook pour gérer l'état de pagination dans les composants
  */
 export function usePaginationState(initialPageSize: number = DEFAULT_PAGE_SIZE) {
-    const [page, setPage] = React.useState(0);
-    const [pageSize, setPageSize] = React.useState(initialPageSize);
+    const [page, setPage] = useState(0);
+    const [pageSize, setPageSize] = useState(initialPageSize);
 
     const reset = () => {
         setPage(0);

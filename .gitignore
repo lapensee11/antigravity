@@ -17,8 +17,14 @@
 /.next/
 /out/
 
+# Tauri / Rust build artifacts (plusieurs Go)
+/src-tauri/target/
+
 # production
 /build
+
+# DMG / releases (tous les DMG finaux sont dans dist/dmg/)
+/dist
 
 # misc
 .DS_Store

@@ -182,8 +182,8 @@ export async function archiveOldInvoices(olderThan: Date): Promise<number> {
 
 ### Scénario 100x (Quelques semaines)
 - Factures : ~10,000-100,000
-- Articles : ~10,000-50,000
-- Taille estimée : **100-500 MB**
+"- Articles : ~10,000-50,000
+"- Taille estimée : **100-500 MB**
 
 **Problèmes attendus :**
 - ⚠️ Chargement initial lent (5-10 secondes)

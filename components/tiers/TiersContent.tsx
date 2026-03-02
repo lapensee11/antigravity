@@ -156,13 +156,17 @@ export function TiersContent({ initialTiers }: { initialTiers: Tier[] }) {
 
                         {/* Top Controls Row */}
                         <div className="flex items-center gap-2">
-                            <div className="relative flex-1">
+                            <div className="relative flex-1 rounded-xl border-2 border-blue-500 focus-within:border-blue-600 focus-within:ring-4 focus-within:ring-blue-500/20">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 z-10" />
                                 <GlassInput
                                     placeholder="Rechercher..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="pl-9 py-2"
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    autoCapitalize="off"
+                                    spellCheck={false}
+                                    className="pl-10 py-2 border-0 shadow-none focus:ring-0 focus:border-0 rounded-xl"
                                 />
                                 {searchQuery && (
                                     <button
@@ -180,7 +184,7 @@ export function TiersContent({ initialTiers }: { initialTiers: Tier[] }) {
                                     type: "Fournisseur",
                                     name: "",
                                 } as Tier)}
-                                className="w-10 h-10 bg-white border border-blue-200 text-blue-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 hover:scale-105 active:scale-95 transition-all"
+                                className="w-10 h-10 bg-blue-600 border border-blue-600 text-white rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-blue-600/20 hover:bg-blue-700 hover:border-blue-700 hover:shadow-blue-600/30 hover:scale-105 active:scale-95 transition-all"
                                 title="Ajouter un tiers"
                             >
                                 <Plus className="w-6 h-6" />

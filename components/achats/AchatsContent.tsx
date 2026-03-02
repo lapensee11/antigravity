@@ -14,6 +14,7 @@ import {
     updateArticlePivotPrices
 } from "@/lib/data-service";
 import { useInvoices, useInvoicesPaginated, useArticles, useTiers, useInvoiceMutation, useInvoiceDeletion } from "@/lib/hooks/use-data";
+import { confirmDialog } from "@/lib/utils";
 
 export function AchatsContent() {
     // Pagination state
@@ -28,7 +29,7 @@ export function AchatsContent() {
     const invoices = paginatedData?.invoices || [];
     const totalInvoices = paginatedData?.total || 0;
     
-    // Keep full invoices list for operations that need all invoices (like generateInvoiceNumber)
+    // Keep full invoices list for sync and list operations
     const { data: allInvoices = [] } = useInvoices();
     const { data: articles = [], isLoading: articlesLoading } = useArticles();
     const { data: tiers = [], isLoading: tiersLoading } = useTiers();
@@ -36,6 +37,18 @@ export function AchatsContent() {
     const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
     const [isSummaryOpen, setIsSummaryOpen] = useState(false);
     const queryClient = useQueryClient();
+
+    // Toujours afficher les détails de la première facture de la liste au lieu d'un volet droit vide (sauf si on vient de créer/dupliquer une facture)
+    useEffect(() => {
+        if (invoices.length === 0) return;
+        const currentSelectedId = selectedInvoice?.id ?? null;
+        const isNewOrDuplicate = currentSelectedId?.startsWith("new_") || currentSelectedId?.startsWith("dup_");
+        if (isNewOrDuplicate) return; // garder la nouvelle facture sélectionnée pour pouvoir l'éditer
+        const isSelectedInList = currentSelectedId && invoices.some(inv => inv.id === currentSelectedId);
+        if (!currentSelectedId || !isSelectedInList) {
+            setSelectedInvoice(invoices[0]);
+        }
+    }, [invoices, selectedInvoice?.id]);
     const router = useRouter();
     const invoiceMutation = useInvoiceMutation();
     const invoiceDeletion = useInvoiceDeletion();
@@ -59,46 +72,38 @@ export function AchatsContent() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm("Êtes-vous sûr de vouloir supprimer cette facture ?")) return;
+        if (!(await confirmDialog("Êtes-vous sûr de vouloir supprimer cette facture ?"))) return;
         await invoiceDeletion.mutateAsync(id);
         if (selectedInvoice?.id === id) setSelectedInvoice(null);
     };
 
-    // Generate invoice number: BL-'Code Frs'-'JJ/MM'-'##'
-    const generateInvoiceNumber = (supplierId: string): string => {
+    // Generate invoice number: BL-(5 premières lettres du nom)-JJ (11 caractères dont 2 '-')
+    const generateInvoiceNumber = (supplierId: string, dateStr?: string): string => {
         if (!supplierId) return "";
         const supplier = suppliers.find(s => s.id === supplierId);
-        if (!supplier || !supplier.code) return "";
-        
-        const now = new Date();
-        const day = String(now.getDate()).padStart(2, '0');
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const dateStr = `${day}/${month}`;
-        
-        // Find all invoices for this supplier with the same date prefix
-        // Use allInvoices for this operation to ensure we check all invoices
-        const prefix = `BL-${supplier.code}-${dateStr}-`;
-        const matchingInvoices = allInvoices.filter(inv => {
-            if (!inv.number || !inv.supplierId || inv.supplierId !== supplierId) return false;
-            return inv.number.startsWith(prefix);
-        });
-        
-        // Extract sequence numbers and find the highest
-        let maxSeq = 0;
-        matchingInvoices.forEach(inv => {
-            const suffix = inv.number.replace(prefix, '');
-            const seqMatch = suffix.match(/^(\d+)$/);
-            if (seqMatch) {
-                const seq = parseInt(seqMatch[1], 10);
-                if (seq > maxSeq) maxSeq = seq;
-            }
-        });
-        
-        // Next sequence number
-        const nextSeq = maxSeq + 1;
-        const seqStr = String(nextSeq).padStart(2, '0');
-        
-        return `${prefix}${seqStr}`;
+        if (!supplier) return "";
+
+        const name = (supplier.name || supplier.code || "X").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z]/g, "").toUpperCase();
+        const fiveLetters = name.slice(0, 5).padEnd(5, name[0] || "X");
+        const d = dateStr ? new Date(dateStr) : new Date();
+        const day = String(d.getDate()).padStart(2, "0");
+
+        return `BL-${fiveLetters}-${day}`;
+    };
+
+    const createDefaultInvoiceLines = (count: number): Invoice["lines"] => {
+        const ts = Date.now();
+        return Array.from({ length: count }, (_, i) => ({
+            id: `line_${ts}_${i}`,
+            articleId: "",
+            articleName: "",
+            quantity: 0,
+            unit: "",
+            priceHT: 0,
+            discount: 0,
+            vatRate: 20,
+            totalTTC: 0,
+        }));
     };
 
     const handleCreateNew = (presetSupplierId?: string) => {
@@ -110,7 +115,7 @@ export function AchatsContent() {
             number: newNumber,
             date: new Date().toISOString().split('T')[0],
             status: "Draft",
-            lines: [],
+            lines: createDefaultInvoiceLines(2),
             payments: [],
             totalHT: 0,
             totalTTC: 0,
@@ -149,7 +154,10 @@ export function AchatsContent() {
             deposit: 0,
             balanceDue: 0,
             payments: [],
-            syncTime: undefined
+            syncTime: undefined,
+            comment: undefined,
+            documentImage: undefined,
+            photoImage: undefined
         };
         // Invalidate queries to refresh the list, but keep new invoice in local state
         queryClient.setQueryData<Invoice[]>(["invoices"], (old = []) => [newInv, ...old]);
@@ -171,7 +179,7 @@ export function AchatsContent() {
             number: newNumber,
             date: new Date().toISOString().split("T")[0],
             status: "Draft",
-            lines: [],
+            lines: createDefaultInvoiceLines(2),
             payments: [],
             totalHT: 0,
             totalTTC: 0,
@@ -193,8 +201,14 @@ export function AchatsContent() {
         }
     };
 
+    /** Un clic sur l'icône brouillon dans la liste : passe la facture en déclarée (Validated) */
+    const handleToggleDeclared = async (invoice: Invoice) => {
+        const updated = { ...invoice, status: "Validated" as const };
+        await handleUpdate(updated);
+    };
+
     const handleSync = async (id: string) => {
-        const inv = invoices.find(i => i.id === id);
+        const inv = (selectedInvoice?.id === id ? selectedInvoice : null) || allInvoices.find(i => i.id === id) || invoices.find(i => i.id === id);
         if (!inv) return;
 
         const now = new Date().toISOString();
@@ -218,17 +232,43 @@ export function AchatsContent() {
                 account = p.mode === "Espèces" ? "Caisse" : "Banque";
             }
 
+            // Déterminer le libellé et le N° Pièce selon le mode de paiement
+            let label: string;
+            let pieceNumber: string;
+
+            switch (p.mode) {
+                case "Chèques":
+                    label = "Achat Chèque";
+                    pieceNumber = p.reference || "";
+                    break;
+                case "Virement":
+                    label = "Achat Virement";
+                    pieceNumber = "";
+                    break;
+                case "Prélèvement":
+                    label = "Achat Prélèvement";
+                    pieceNumber = "";
+                    break;
+                case "Espèces":
+                    label = "Achat Espèces";
+                    pieceNumber = "";
+                    break;
+                default:
+                    label = `Achat: ${inv.number}`;
+                    pieceNumber = "";
+            }
+
             return {
                 id: `t_sync_${id}_${p.id}`,
                 date: p.date,
-                label: `Achat: ${inv.number}`,
+                label: label,
                 amount: p.amount,
                 type: "Depense",
                 category: "Achat",
                 account: account,
                 invoiceId: id,
                 tier: supplierName,
-                pieceNumber: p.mode === "Chèques" ? (p.reference || inv.number) : inv.number,
+                pieceNumber: pieceNumber,
                 mode: p.mode,
                 isReconciled: false
             };
@@ -239,7 +279,7 @@ export function AchatsContent() {
     };
 
     const handleDesync = async (id: string) => {
-        const inv = invoices.find(i => i.id === id);
+        const inv = (selectedInvoice?.id === id ? selectedInvoice : null) || allInvoices.find(i => i.id === id) || invoices.find(i => i.id === id);
         if (!inv) return;
 
         // 1. Update Invoice - Remove syncTime
@@ -257,11 +297,11 @@ export function AchatsContent() {
             <Sidebar />
 
             <main className="flex-1 ml-64 min-h-screen flex">
-                <div className="w-[600px] flex flex-col h-full border-r border-slate-200 bg-[#F6F8FC] shrink-0">
+                <div className="w-[720px] flex flex-col h-full border-r border-slate-200 bg-[#F6F8FC] shrink-0">
                     <div className="h-24 min-h-[96px] shrink-0 flex flex-col items-center justify-center border-b border-slate-200 bg-white shadow-[0_1px_10px_rgba(0,0,0,0.03)] z-10 relative">
-                        <h2 className="text-2xl font-extrabold text-slate-800 font-outfit tracking-tight">Factures Achat</h2>
+                        <h2 className="text-[26px] font-extrabold text-slate-800 font-outfit tracking-tight">Factures Achat</h2>
                         <div className="flex items-center gap-2 text-slate-400">
-                            <span className="text-xs font-medium uppercase tracking-wider">Suivi & Paiements</span>
+                            <span className="text-sm font-medium uppercase tracking-wider">Suivi & Paiements</span>
                         </div>
                     </div>
 
@@ -270,6 +310,7 @@ export function AchatsContent() {
                         allInvoices={allInvoices}
                         selectedInvoiceId={selectedInvoice?.id || null}
                         onSelectInvoice={setSelectedInvoice}
+                        onToggleDeclared={handleToggleDeclared}
                         suppliers={suppliers}
                         articles={articles}
                         total={totalInvoices}

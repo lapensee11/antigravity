@@ -4,9 +4,9 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { ArticleEditor } from "@/components/articles/ArticleEditor";
 import { Article, Invoice } from "@/lib/types";
 import { useState, useMemo, useRef, useEffect } from "react";
-import { Search, ChevronDown, Check, Plus, X, Layers, ChefHat, Database, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { getArticles, saveSubFamily } from "@/lib/data-service";
+import { Search, ChevronDown, Check, Plus, X, ChefHat, Database } from "lucide-react";
+import { cn, confirmDialog } from "@/lib/utils";
+import { getArticles, getSubFamilies, saveArticle, saveSubFamily, deleteArticle } from "@/lib/data-service";
 import { GlassCard, GlassInput, GlassButton, GlassBadge } from "@/components/ui/GlassComponents";
 import { useArticles, useInvoices, useFamilies, useSubFamilies, useArticleMutation, useArticleDeletion } from "@/lib/hooks/use-data";
 
@@ -39,7 +39,7 @@ export function ArticlesContent() {
     };
 
     const handleReconcile = async () => {
-        if (!confirm("Voulez-vous synchroniser tous les articles avec la structure actuelle ?\n\nCela corrigera les familles et sous-familles en fonction des codes d'articles.")) return;
+        if (!(await confirmDialog("Voulez-vous synchroniser tous les articles avec la structure actuelle ?\n\nCela corrigera les familles et sous-familles en fonction des codes d'articles."))) return;
 
         const [liveArticles, liveSubFamilies] = await Promise.all([
             getArticles(),
@@ -253,13 +253,17 @@ export function ArticlesContent() {
                             })}
                         </div>
                         <div className="flex items-center gap-2">
-                            <div className="relative flex-1">
+                            <div className="relative flex-1 rounded-xl border-2 border-blue-900/80 bg-white/50 shadow-sm ring-1 ring-blue-900/20">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 z-10" />
                                 <GlassInput
                                     placeholder="Rechercher..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="pl-9 py-2"
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    autoCapitalize="off"
+                                    spellCheck={false}
+                                    className="pl-9 py-2 border-0 bg-transparent focus:ring-2 focus:ring-blue-900/20"
                                 />
                                 {searchQuery && (
                                     <button
@@ -270,53 +274,13 @@ export function ArticlesContent() {
                                     </button>
                                 )}
                             </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                                <button
-                                    onClick={handleReconcile}
-                                    className="w-10 h-10 bg-blue-50 text-blue-500 border border-blue-100 rounded-xl flex items-center justify-center hover:bg-blue-500 hover:text-white transition-all shadow-sm"
-                                    title="Réconcilier avec la Structure"
-                                >
-                                    <Layers className="w-5 h-5" />
-                                </button>
-                                <button
-                                    onClick={async () => {
-                                        const validFamilies = new Set(families.filter(f => f.typeId === "1" || f.typeId === "2" || f.typeId === "3" || f.typeId === "4").map(f => f.id));
-                                        const validSubs = new Set(subFamilies.filter(s => validFamilies.has(s.familyId)).map(s => s.id));
-
-                                        const toDelete = articles.filter(a =>
-                                            a.id === 'a1' ||
-                                            a.id === 'a2' ||
-                                            !validSubs.has(a.subFamilyId)
-                                        );
-
-                                        if (toDelete.length === 0) {
-                                            alert("Aucun ancien article à purger.");
-                                            return;
-                                        }
-
-                                        if (confirm(`Purger ${toDelete.length} articles anciens (Production, Vente et Démos) ?\n\nCela ne gardera que vos nouveaux imports.`)) {
-                                            let count = 0;
-                                            for (const art of toDelete) {
-                                                await deleteArticle(art.id);
-                                                count++;
-                                            }
-                                            alert(`${count} articles purgés avec succès.`);
-                                            window.location.reload();
-                                        }
-                                    }}
-                                    title="Purger les anciens articles"
-                                    className="w-10 h-10 bg-red-50 text-red-500 border border-red-100 rounded-xl flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm"
-                                >
-                                    <Trash2 className="w-5 h-5" />
-                                </button>
-                                <button
-                                    onClick={handleCreateNew}
-                                    className="w-10 h-10 bg-white border border-blue-200 text-blue-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/10 hover:shadow-blue-500/20 hover:scale-105 active:scale-95 transition-all"
-                                    title="Ajouter un article"
-                                >
-                                    <Plus className="w-6 h-6" />
-                                </button>
-                            </div>
+                            <button
+                                onClick={handleCreateNew}
+                                className="w-10 h-10 bg-blue-500 text-white rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-blue-500/20 hover:bg-blue-600 hover:scale-105 active:scale-95 transition-all"
+                                title="Ajouter un article"
+                            >
+                                <Plus className="w-6 h-6" />
+                            </button>
                         </div>
                         <div className="flex flex-col gap-2 bg-white/50 p-3 rounded-2xl border border-white/80 shadow-inner">
                             <div className="flex items-center justify-between px-1">

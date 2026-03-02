@@ -46,7 +46,7 @@ interface DashboardProps {
         staffCount: number;
         chartData: { name: string; revenue: number; margin: number }[];
         monthlyComparison: { month: string; currentYear: number; prevYear: number }[];
-        monthlyFamilySales?: { month: string; families: Record<string, number> }[];
+        monthlyFamilySales?: { month: string; families: Record<string, number>; familiesPrev?: Record<string, number> }[];
         tableCounts?: {
             articles: number;
             tiers: number;
@@ -147,42 +147,31 @@ export function DashboardContent({ data }: DashboardProps) {
         green: { from: "#86efac", to: "#4ade80" },
         cyan: { from: "#67e8f9", to: "#22d3ee" },
     };
+
+    // 2026 (année courante) : tons froids (bleu, indigo, cyan)
+    const annualColorsCurrent = [
+        { from: "#93c5fd", to: "#60a5fa" }, { from: "#818cf8", to: "#6366f1" }, { from: "#67e8f9", to: "#22d3ee" },
+        { from: "#60a5fa", to: "#3b82f6" }, { from: "#a5b4fc", to: "#818cf8" }, { from: "#7dd3fc", to: "#38bdf8" },
+        { from: "#93c5fd", to: "#60a5fa" }, { from: "#818cf8", to: "#6366f1" }, { from: "#67e8f9", to: "#22d3ee" },
+        { from: "#60a5fa", to: "#3b82f6" }, { from: "#a5b4fc", to: "#818cf8" }, { from: "#7dd3fc", to: "#38bdf8" },
+    ];
+    // 2025 (année précédente) : tons chauds (ambre, orange, pierre)
+    const annualColorsPrev = [
+        { from: "#fcd34d", to: "#f59e0b" }, { from: "#fdba74", to: "#fb923c" }, { from: "#d6d3d1", to: "#a8a29e" },
+        { from: "#fbbf24", to: "#f59e0b" }, { from: "#fed7aa", to: "#fdba74" }, { from: "#e7e5e4", to: "#d6d3d1" },
+        { from: "#fcd34d", to: "#f59e0b" }, { from: "#fdba74", to: "#fb923c" }, { from: "#d6d3d1", to: "#a8a29e" },
+        { from: "#fbbf24", to: "#f59e0b" }, { from: "#fed7aa", to: "#fdba74" }, { from: "#e7e5e4", to: "#d6d3d1" },
+    ];
     
-    // Color cycle for annual chart (12 months)
+    // Color cycle for other charts (familles de vente)
     const annualColors = [
         pastelColors.indigo, pastelColors.blue, pastelColors.purple, pastelColors.orange,
         pastelColors.green, pastelColors.cyan, pastelColors.indigo, pastelColors.blue,
         pastelColors.purple, pastelColors.orange, pastelColors.green, pastelColors.cyan
     ];
 
-    // Familles de vente principales - évolution mensuelle (courbes)
-    const monthlyFamilySales = data.monthlyFamilySales || [];
-    const familyLabels: Record<string, string> = {
-        "BOULANGERIE": "Boulangerie",
-        "CROIS.": "Croissants",
-        "VIEN.": "Viennoiseries",
-        "PAT INDIVID.": "Pâtisserie indiv.",
-        "PAT ENTRE.": "Pâtisserie entreprise",
-        "FOURS SECS": "Fours secs",
-        "BELDI": "Beldi",
-        "PRÉ-EMB.": "Pré-emballés",
-        "SALÉS": "Salés",
-        "CONFISERIE": "Confiserie",
-        "PAIN SG": "Pain SG",
-        "GÂTEAUX SG": "Gâteaux SG"
-    };
-    const familyKeys = Object.keys(familyLabels);
-    const familyTotals = familyKeys.reduce((acc, k) => {
-        acc[k] = monthlyFamilySales.reduce((s, m) => s + (m.families[k] || 0), 0);
-        return acc;
-    }, {} as Record<string, number>);
-    const topFamilies = familyKeys
-        .filter(k => familyTotals[k] > 0)
-        .sort((a, b) => familyTotals[b] - familyTotals[a])
-        .slice(0, 6);
-    const familyEvolutionMax = topFamilies.length > 0
-        ? Math.max(...topFamilies.flatMap(f => monthlyFamilySales.map(m => m.families[f] || 0)), 1)
-        : 1;
+    const dayOfMonth = new Date().getDate();
+    const monthNameLong = new Date().toLocaleDateString('fr-FR', { month: 'long' });
 
     return (
         <div className="flex min-h-screen bg-[#F6F8FC] font-outfit">
@@ -287,11 +276,11 @@ export function DashboardContent({ data }: DashboardProps) {
                             </h3>
                             <div className="flex gap-3 text-xs font-bold">
                                 <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-blue-300 rounded-full" />
+                                    <div className="w-3 h-3 rounded-full shadow-sm" style={{ background: "linear-gradient(135deg, #60a5fa, #3b82f6)" }} />
                                     <span className="text-slate-600">{new Date().getFullYear()}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-amber-300 rounded-full opacity-60" />
+                                    <div className="w-3 h-3 rounded-full shadow-sm" style={{ background: "linear-gradient(135deg, #fbbf24, #f59e0b)" }} />
                                     <span className="text-slate-600">{new Date().getFullYear() - 1}</span>
                                 </div>
                             </div>
@@ -315,40 +304,40 @@ export function DashboardContent({ data }: DashboardProps) {
                                             ? Math.max((prevValue / effectiveMax) * containerHeight, 10) // Minimum 10px
                                             : 0;
                                         
-                                        const monthColor = annualColors[idx] || pastelColors.blue;
+                                        const colorCurrent = annualColorsCurrent[idx] || annualColorsCurrent[0];
+                                        const colorPrev = annualColorsPrev[idx] || annualColorsPrev[0];
                                         
                                         return (
                                             <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 group" style={{ height: '100%' }}>
                                                 <div className="w-full flex justify-center items-end gap-1 relative" style={{ height: '100%', alignItems: 'flex-end' }}>
-                                                    {/* Barre année précédente (2025) */}
+                                                    {/* Barre année précédente (2025) - tons ambrés/orange */}
                                                     {prevHeightPx > 0 && (
                                                         <motion.div
                                                             initial={{ height: 0 }}
                                                             animate={{ height: `${prevHeightPx}px` }}
                                                             transition={{ delay: idx * 0.03, duration: 0.5 }}
-                                                            className="w-[45%] rounded-t-md shadow-sm hover:shadow-md transition-all cursor-pointer"
+                                                            className="w-[45%] rounded-t-md shadow-sm hover:shadow-md transition-all cursor-pointer relative"
                                                             style={{ 
-                                                                background: `linear-gradient(to top, ${monthColor.to}, ${monthColor.from})`,
-                                                                opacity: 0.6
+                                                                background: `linear-gradient(to top, ${colorPrev.to}, ${colorPrev.from})`
                                                             }}
                                                         >
-                                                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap z-50 pointer-events-none">
+                                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap z-50 pointer-events-none">
                                                                 {item.prevYear.toLocaleString('fr-FR')} DH
                                                             </div>
                                                         </motion.div>
                                                     )}
-                                                    {/* Barre année courante (2026) */}
+                                                    {/* Barre année courante (2026) - tons bleus/cyan */}
                                                     {currentHeightPx > 0 && (
                                                         <motion.div
                                                             initial={{ height: 0 }}
                                                             animate={{ height: `${currentHeightPx}px` }}
                                                             transition={{ delay: idx * 0.03 + 0.05, duration: 0.5 }}
-                                                            className="w-[45%] rounded-t-md shadow-md hover:shadow-lg transition-all cursor-pointer"
+                                                            className="w-[45%] rounded-t-md shadow-md hover:shadow-lg transition-all cursor-pointer relative"
                                                             style={{ 
-                                                                background: `linear-gradient(to top, ${monthColor.to}, ${monthColor.from})`
+                                                                background: `linear-gradient(to top, ${colorCurrent.to}, ${colorCurrent.from})`
                                                             }}
                                                         >
-                                                            <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap z-50 pointer-events-none">
+                                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap z-50 pointer-events-none">
                                                                 {item.currentYear.toLocaleString('fr-FR')} DH
                                                             </div>
                                                         </motion.div>
@@ -367,38 +356,30 @@ export function DashboardContent({ data }: DashboardProps) {
                         </div>
                     </GlassCard>
 
-                    {/* Évolution des familles de vente principales (courbes) */}
+                    {/* Évolution du CA global – comparatif du 1er au J du mois (2026 vs 2025) */}
                     <GlassCard className="p-6 border-none shadow-xl shadow-slate-200/50">
-                        <div className="flex justify-between items-center mb-6">
+                        <div className="flex justify-between items-center mb-2">
                             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                                 <TrendingUp className="w-5 h-5 text-green-500" />
-                                Évolution familles de vente
+                                Évolution du CA
                             </h3>
-                            <div className="flex flex-wrap gap-2 justify-end text-[10px] font-bold max-w-[280px]">
-                                {topFamilies.map((f, i) => (
-                                    <div key={f} className="flex items-center gap-1.5">
-                                        <div
-                                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                                            style={{
-                                                background: `linear-gradient(135deg, ${annualColors[i % annualColors.length].to}, ${annualColors[i % annualColors.length].from})`
-                                            }}
-                                        />
-                                        <span className="text-slate-600 truncate">{familyLabels[f]}</span>
-                                    </div>
-                                ))}
+                            <div className="flex gap-3 text-xs font-bold">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full shadow-sm" style={{ background: "linear-gradient(135deg, #60a5fa, #3b82f6)" }} />
+                                    <span className="text-slate-600">{new Date().getFullYear()}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 rounded-full shadow-sm border border-amber-300" style={{ background: "linear-gradient(135deg, #fcd34d, #f59e0b)" }} />
+                                    <span className="text-slate-600">{new Date().getFullYear() - 1}</span>
+                                </div>
                             </div>
                         </div>
+                        <p className="text-xs text-slate-500 mb-4">
+                            Comparatif CA du 1<sup>er</sup> au {dayOfMonth} {monthNameLong} — <span className="text-blue-600 font-semibold">{new Date().getFullYear()}</span> vs <span className="text-amber-600 font-semibold">{new Date().getFullYear() - 1}</span>
+                        </p>
                         <div className="h-64 w-full bg-slate-50 rounded-lg p-4 border border-slate-200 relative" style={{ minHeight: '256px' }}>
-                            {monthlyFamilySales.length > 0 && topFamilies.length > 0 ? (
+                            {annualChartData.length > 0 ? (
                                 <svg viewBox="0 0 400 180" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
-                                    <defs>
-                                        {topFamilies.map((f, i) => (
-                                            <linearGradient key={f} id={`grad-fam-${i}`} x1="0%" y1="0%" x2="0%" y2="100%">
-                                                <stop offset="0%" stopColor={annualColors[i % annualColors.length].to} />
-                                                <stop offset="100%" stopColor={annualColors[i % annualColors.length].from} />
-                                            </linearGradient>
-                                        ))}
-                                    </defs>
                                     {/* Grille */}
                                     {[0, 1, 2, 3, 4].map((r) => (
                                         <line key={r} x1={50} y1={20 + r * 32} x2={380} y2={20 + r * 32} stroke="#e2e8f0" strokeWidth="0.5" />
@@ -407,35 +388,45 @@ export function DashboardContent({ data }: DashboardProps) {
                                         <line key={c} x1={50 + c * 30} y1={20} x2={50 + c * 30} y2={160} stroke="#e2e8f0" strokeWidth="0.5" />
                                     ))}
                                     {/* Mois en bas */}
-                                    {monthlyFamilySales.map((m, idx) => (
-                                        <text key={m.month} x={50 + idx * 30 + 15} y={175} textAnchor="middle" fill="#64748b" style={{ fontSize: 9 }}>{m.month}</text>
+                                    {annualChartData.map((item, idx) => (
+                                        <text key={item.month} x={50 + idx * 30 + 15} y={175} textAnchor="middle" fill="#64748b" style={{ fontSize: 9 }}>{item.month}</text>
                                     ))}
-                                    {/* Courbes par famille */}
-                                    {topFamilies.map((famKey, famIdx) => {
-                                        const pts = monthlyFamilySales.map((m, idx) => {
-                                            const v = m.families[famKey] || 0;
-                                            const ratio = familyEvolutionMax > 0 ? v / familyEvolutionMax : 0;
+                                    {/* Courbe 2025 (année précédente) – ambre, pointillés */}
+                                    <path
+                                        d={annualChartData.map((item, idx) => {
+                                            const v = item.prevYear || 0;
+                                            const ratio = annualMaxValue > 0 ? v / annualMaxValue : 0;
                                             const y = 160 - Math.min(ratio * 130, 130);
                                             const x = 50 + idx * 30 + 15;
                                             return `${idx === 0 ? "M" : "L"} ${x} ${y}`;
-                                        });
-                                        const d = pts.join(" ");
-                                            return (
-                                            <path
-                                                key={famKey}
-                                                d={d}
-                                                fill="none"
-                                                stroke={`url(#grad-fam-${famIdx})`}
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                            />
-                                        );
-                                    })}
+                                        }).join(" ")}
+                                        fill="none"
+                                        stroke="#f59e0b"
+                                        strokeWidth="2"
+                                        strokeDasharray="5 4"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        opacity={0.9}
+                                    />
+                                    {/* Courbe 2026 (année courante) – bleu, pleine */}
+                                    <path
+                                        d={annualChartData.map((item, idx) => {
+                                            const v = item.currentYear || 0;
+                                            const ratio = annualMaxValue > 0 ? v / annualMaxValue : 0;
+                                            const y = 160 - Math.min(ratio * 130, 130);
+                                            const x = 50 + idx * 30 + 15;
+                                            return `${idx === 0 ? "M" : "L"} ${x} ${y}`;
+                                        }).join(" ")}
+                                        fill="none"
+                                        stroke="#3b82f6"
+                                        strokeWidth="2.5"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
                                 </svg>
                             ) : (
                                 <div className="h-full flex items-center justify-center">
-                                    <p className="text-slate-400 text-sm">Aucune donnée de vente par famille disponible</p>
+                                    <p className="text-slate-400 text-sm">Aucune donnée disponible</p>
                                 </div>
                             )}
                         </div>

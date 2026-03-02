@@ -6,9 +6,10 @@ interface DateInputProps {
     value?: string; // YYYY-MM-DD
     onChange: (value: string) => void;
     className?: string;
+    disabled?: boolean;
 }
 
-export const DateInput: React.FC<DateInputProps> = ({ value = "", onChange, className }) => {
+export const DateInput: React.FC<DateInputProps> = ({ value = "", onChange, className, disabled }) => {
     return (
         <div className="relative w-full group">
             <input
@@ -17,12 +18,15 @@ export const DateInput: React.FC<DateInputProps> = ({ value = "", onChange, clas
                 onChange={(e) => onChange(e.target.value)}
                 onFocus={(e) => e.target.select()}
                 onClick={(e) => (e.target as HTMLInputElement).select()}
+                disabled={disabled}
                 className={cn(
-                    "w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all cursor-pointer font-outfit uppercase tracking-tight",
+                    "w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-base font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all font-outfit uppercase tracking-tight",
+                    disabled && "opacity-60 cursor-not-allowed",
+                    !disabled && "cursor-pointer",
                     className
                 )}
             />
-            {value && (
+            {value && !disabled && (
                 <button
                     type="button"
                     onClick={(e) => {

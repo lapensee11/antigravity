@@ -5,7 +5,9 @@ export async function getLocalDB() {
 
     try {
         // Use dynamic imports to prevent bundling in client-side static export
+        // @ts-ignore - Server-side only, not available in client build
         const { drizzle } = await import("drizzle-orm/better-sqlite3");
+        // @ts-ignore - Server-side only, not available in client build
         const Database = (await import("better-sqlite3")).default;
 
         const sqlite = new Database("bakery.db");

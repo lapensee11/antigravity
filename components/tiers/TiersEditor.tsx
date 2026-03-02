@@ -3,7 +3,7 @@ import { Tier, TierType, Invoice, ClientInvoice } from "@/lib/types";
 import { Save, User, Building, CreditCard, Phone, Mail, Globe, MapPin, Pencil, Trash2, FileText, Plus, Briefcase } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef, useMemo } from "react";
-import { cn, formatPhoneNumber, formatIce } from "@/lib/utils";
+import { cn, formatPhoneNumber, formatIce, confirmDialog } from "@/lib/utils";
 
 interface TiersEditorProps {
     tier?: Tier | null;
@@ -77,9 +77,9 @@ export function TiersEditor({ tier, purchaseInvoices = [], clientInvoices = [], 
         }
     };
 
-    const handleDelete = () => {
+    const handleDelete = async () => {
         if (!formData.id || formData.id === "new") return;
-        if (confirm("Êtes-vous sûr de vouloir supprimer ce tiers ? Cette action est irréversible.")) {
+        if (await confirmDialog("Êtes-vous sûr de vouloir supprimer ce tiers ? Cette action est irréversible.")) {
             console.log("TiersEditor: Deleting", formData.id);
             if (onDelete) onDelete(formData.id);
         }

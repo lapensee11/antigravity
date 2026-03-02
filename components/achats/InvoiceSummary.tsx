@@ -99,12 +99,12 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
 
                         {/* 1. Brand & Stats Block */}
                         <div className="flex flex-col min-w-[200px] shrink-0">
-                            <h2 className="text-2xl font-black text-white font-outfit tracking-tighter leading-none">
-                                RÉSUMÉ <span className="text-blue-500 text-sm font-bold ml-1 tracking-widest bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">DOCS</span>
+                            <h2 className="text-[26px] font-black text-white font-outfit tracking-tighter leading-none">
+                                RÉSUMÉ <span className="text-blue-500 text-base font-bold ml-1 tracking-widest bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">DOCS</span>
                             </h2>
                             <div className="flex items-center gap-3 mt-2">
                                 <div className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                                <span className="text-[12px] font-black text-slate-400 uppercase tracking-[0.2em]">
                                     {filteredInvoices.length} FACTURES FILTRÉES
                                 </span>
                                 {filteredInvoices.length > 0 && (
@@ -117,7 +117,7 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                     >
                                         <ChevronLeft className="w-4 h-4" />
                                     </button>
-                                    <span className="text-[10px] font-bold text-slate-300 min-w-[80px] text-center">
+                                    <span className="text-[12px] font-bold text-slate-300 min-w-[80px] text-center">
                                         {page * pageSize + 1}-{Math.min((page + 1) * pageSize, filteredInvoices.length)} / {filteredInvoices.length}
                                     </span>
                                     <button
@@ -205,7 +205,7 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                         onChange={(e) => {
                                             setDateRange(prev => ({ ...prev, start: e.target.value }));
                                         }}
-                                        className="bg-transparent text-[10px] font-black text-slate-300 focus:outline-none"
+                                        className="bg-transparent text-[12px] font-black text-slate-300 focus:outline-none"
                                     />
                                     <div className="w-1 h-3 bg-white/5 rounded-full" />
                                     <input
@@ -214,7 +214,7 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                         onChange={(e) => {
                                             setDateRange(prev => ({ ...prev, end: e.target.value }));
                                         }}
-                                        className="bg-transparent text-[10px] font-black text-slate-300 focus:outline-none"
+                                        className="bg-transparent text-[12px] font-black text-slate-300 focus:outline-none"
                                     />
                                 </div>
                             </div>
@@ -224,7 +224,7 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                         <div className="flex items-center gap-3 shrink-0">
                             {/* Export Excel Button */}
                             <button
-                                onClick={() => {
+                                onClick={async () => {
                                     // Prepare data for export
                                     const dataToExport = filteredInvoices.map(inv => {
                                         const supplier = tiers.find(t => t.id === inv.supplierId || t.code === inv.supplierId);
@@ -232,6 +232,8 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                         const isValidated = inv.status === "Validated";
                                         const totalPaid = inv.totalTTC - inv.balanceDue;
                                         
+                                        const paymentModes = inv.payments?.length ? [...new Set(inv.payments.map((p: { mode: string }) => p.mode))].join(", ") : "";
+                                        const paymentRefs = inv.payments?.filter((p: { reference?: string }) => p.reference).map((p: { reference?: string }) => p.reference).join(", ") || "";
                                         return {
                                             "Date": new Date(inv.date).toLocaleDateString('fr-FR'),
                                             "Nom du fournisseur": supplierName,
@@ -240,17 +242,21 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                             "Total TTC": inv.totalTTC,
                                             "Payé": totalPaid > 0 ? totalPaid : 0,
                                             "Reste": inv.balanceDue > 0.05 ? inv.balanceDue : 0,
+                                            "Mode": paymentModes,
+                                            "N° pièce": paymentRefs,
                                             "Synchro": (inv.status === "Synced" || (inv as any).syncTime) ? "Oui" : "Non"
                                         };
                                     });
 
                                     // Add totals row
-                                    const totalsRow: any = { "Date": "TOTAL", "Nom du fournisseur": "", "N° facture": "", "État": "", "Synchro": "" };
+                                    const totalsRow: any = { "Date": "TOTAL", "Nom du fournisseur": "", "N° facture": "", "État": "", "Synchro": "", "Mode": "", "N° pièce": "" };
                                     if (dataToExport.length > 0) {
                                         const keys = Object.keys(dataToExport[0]);
                                         keys.forEach(key => {
-                                            if (key !== "Date" && key !== "Nom du fournisseur" && key !== "N° facture" && key !== "État" && key !== "Synchro") {
+                                            if (key !== "Date" && key !== "Nom du fournisseur" && key !== "N° facture" && key !== "État" && key !== "Synchro" && key !== "Mode" && key !== "N° pièce") {
                                                 totalsRow[key] = dataToExport.reduce((sum, row: any) => sum + (row[key] || 0), 0);
+                                            } else if (key === "Mode" || key === "N° pièce") {
+                                                totalsRow[key] = "";
                                             }
                                         });
                                     }
@@ -293,16 +299,19 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                         { wch: 15 }, // Total TTC
                                         { wch: 15 }, // Payé
                                         { wch: 15 }, // Reste
+                                        { wch: 14 }, // Mode
+                                        { wch: 18 }, // N° pièce
                                         { wch: 10 }  // Synchro
                                     ];
                                     ws['!cols'] = colWidths;
 
-                                    // Create workbook and export
                                     const wb = XLSX.utils.book_new();
                                     XLSX.utils.book_append_sheet(wb, ws, "Factures");
-                                    
                                     const dateStr = new Date().toISOString().split('T')[0];
-                                    XLSX.writeFile(wb, `Factures_Achat_${dateStr}.xlsx`);
+                                    const filename = `Factures_Achat_${dateStr}.xlsx`;
+                                    const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+                                    const { saveExportFile } = await import("@/lib/export-download");
+                                    await saveExportFile(filename, wbout);
                                 }}
                                 className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-white hover:bg-green-500/20 hover:text-green-400 hover:border-green-500/30 transition-all active:scale-95 group shadow-lg"
                                 title="Exporter en Excel"
@@ -317,7 +326,7 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                         setStatusFilter("TOUS");
                                         setPeriod("TOUT");
                                     }}
-                                    className="text-[10px] font-black text-slate-500 hover:text-orange-400 uppercase tracking-widest transition-colors"
+                                    className="text-[12px] font-black text-slate-500 hover:text-orange-400 uppercase tracking-widest transition-colors"
                                 >
                                     Reset
                                 </button>
@@ -338,14 +347,16 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                         <table className="w-full text-left border-collapse">
                             <thead className="sticky top-0 z-10">
                                 <tr className="bg-[#1E293B] border-b-2 border-slate-200">
-                                    <th className="py-2 px-4 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Date</th>
-                                    <th className="py-2 px-4 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Nom du fournisseur</th>
-                                    <th className="py-2 px-4 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">N° facture</th>
-                                    <th className="py-2 px-4 text-center text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">État</th>
-                                    <th className="py-2 px-4 text-right text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Total TTC</th>
-                                    <th className="py-2 px-4 text-right text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Payé</th>
-                                    <th className="py-2 px-4 text-right text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Reste</th>
-                                    <th className="py-2 px-4 text-center text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">Synchro</th>
+                                    <th className="py-2 px-4 text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">Date</th>
+                                    <th className="py-2 px-4 text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">Nom du fournisseur</th>
+                                    <th className="py-2 px-4 text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">N° facture</th>
+                                    <th className="py-2 px-4 text-center text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">État</th>
+                                    <th className="py-2 px-4 text-right text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">Total TTC</th>
+                                    <th className="py-2 px-4 text-right text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">Payé</th>
+                                    <th className="py-2 px-4 text-right text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">Reste</th>
+                                    <th className="py-2 px-4 text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">Mode</th>
+                                    <th className="py-2 px-4 text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">N° pièce</th>
+                                    <th className="py-2 px-4 text-center text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">Synchro</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -382,13 +393,23 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                                 </div>
                                             </td>
                                             <td className="py-2 px-4 text-right text-[13px] font-black text-slate-900 whitespace-nowrap">
-                                                {inv.totalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-40">Dh</span>
+                                                {inv.totalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[12px] opacity-40">Dh</span>
                                             </td>
                                             <td className="py-2 px-4 text-right text-[13px] font-bold text-emerald-600 whitespace-nowrap">
                                                 {totalPaid > 0 ? totalPaid.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
                                             </td>
                                             <td className="py-2 px-4 text-right text-[13px] font-black text-red-500 whitespace-nowrap">
                                                 {inv.balanceDue > 0.05 ? inv.balanceDue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-"}
+                                            </td>
+                                            <td className="py-2 px-4 text-[12px] font-bold text-slate-600">
+                                                {(inv.payments?.length
+                                                    ? [...new Set(inv.payments.map(p => p.mode))].join(", ")
+                                                    : "-")}
+                                            </td>
+                                            <td className="py-2 px-4 text-[12px] font-mono text-slate-500">
+                                                {(inv.payments?.filter(p => p.reference).length
+                                                    ? inv.payments!.map(p => p.reference).filter(Boolean).join(", ")
+                                                    : "-")}
                                             </td>
                                             <td className="py-2 px-4 text-center">
                                                 <button
@@ -412,7 +433,7 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                                 })}
                                 {filteredInvoices.length === 0 && (
                                     <tr>
-                                        <td colSpan={8} className="py-20 text-center">
+                                        <td colSpan={10} className="py-20 text-center">
                                             <div className="flex flex-col items-center opacity-20">
                                                 <Search className="w-12 h-12 mb-4" />
                                                 <p className="text-xl font-black uppercase tracking-widest">Aucune donnée correspondante</p>
@@ -423,13 +444,13 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({
                             </tbody>
                             <tfoot className="sticky bottom-0 z-10">
                                 <tr className="bg-[#1E293B] border-t-2 border-slate-200">
-                                    <td colSpan={4} className="py-3 px-4 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">
+                                    <td colSpan={4} className="py-3 px-4 text-[12px] font-black text-slate-300 uppercase tracking-[0.2em]">
                                         Total TTC
                                     </td>
                                     <td className="py-3 px-4 text-right text-[13px] font-black text-white whitespace-nowrap">
-                                        {sumTotalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] opacity-60">Dh</span>
+                                        {sumTotalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[12px] opacity-60">Dh</span>
                                     </td>
-                                    <td colSpan={3} className="py-3 px-4" />
+                                    <td colSpan={5} className="py-3 px-4" />
                                 </tr>
                             </tfoot>
                         </table>

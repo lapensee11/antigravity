@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Check, X, Clock, ChevronUp, ChevronDown, RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatFr, parseFrInput } from "@/lib/utils";
 import { Partner } from "@/lib/types";
 
 interface SalesInputModalProps {
@@ -94,6 +94,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
 
     // Form State
     const [sales, setSales] = useState<Record<string, string>>({});
+    const [notes, setNotes] = useState("");
     const [supplements, setSupplements] = useState({ traiteurs: "", caisse: "" });
     const [payments, setPayments] = useState({ nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" });
     const [subTotalInput, setSubTotalInput] = useState(""); // Manual Subtotal
@@ -115,6 +116,8 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
 
     // Refs for Focus Management
     const boulangerieRef = useRef<HTMLInputElement>(null);
+    /** Quand un champ numérique a le focus, on affiche la valeur brute pour la saisie ; sinon on affiche formatFr (séparateur de milliers + virgule, 2 décimales). */
+    const [focusedNumericField, setFocusedNumericField] = useState<string | null>(null);
 
     // Ref for Data State (Always Fresh for Escape Key)
     const formDataRef = useRef<any>({});
@@ -128,6 +131,11 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             formDataRef.current.sales = next; // SYNC UPDATE
             return next;
         });
+    };
+
+    const updateNotes = (value: string) => {
+        setNotes(value);
+        formDataRef.current.notes = value; // SYNC UPDATE
     };
 
     const updateSupplements = (field: 'traiteurs' | 'caisse', value: string) => {
@@ -249,6 +257,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             // Sync inputs to ref (backwards compatibility for save)
             formDataRef.current.sales = sales;
             formDataRef.current.payments = payments;
+            formDataRef.current.notes = notes;
             formDataRef.current.supplements = supplements;
             formDataRef.current.glovo = glovo;
             formDataRef.current.hours = hours;
@@ -257,7 +266,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
             formDataRef.current.coeffExo = coeffExo;
             formDataRef.current.coeffImp = coeffImp;
         }
-    }, [sales, payments, supplements, glovo, hours, subTotalInput, nbTickets, coeffExo, coeffImp, valExo, valImpHT, totalHT, totalTTC, valRemise, valEsp, mtCmi, mtChq, glovoNet]);
+    }, [sales, notes, payments, supplements, glovo, hours, subTotalInput, nbTickets, coeffExo, coeffImp, valExo, valImpHT, totalHT, totalTTC, valRemise, valEsp, mtCmi, mtChq, glovoNet]);
 
     // Auto-focus Boulangerie logic
     useEffect(() => {
@@ -281,6 +290,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
         if (isOpening || isDateChanging) {
             if (initialData) {
                 setSales(initialData.sales || {});
+                setNotes(initialData.notes || "");
                 setSupplements(initialData.supplements || { traiteurs: "", caisse: "" });
                 setPayments(initialData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" });
                 setSubTotalInput(initialData.subTotalInput || "");
@@ -334,6 +344,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
 
                 formDataRef.current = {
                     sales: initialData.sales || {},
+                    notes: initialData.notes || "",
                     supplements: initialData.supplements || { traiteurs: "", caisse: "" },
                     payments: initialData.payments || { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" },
                     subTotalInput: initialData.subTotalInput || "",
@@ -366,6 +377,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
 
                 formDataRef.current = {
                     sales: {},
+                    notes: "",
                     supplements: { traiteurs: "", caisse: "" },
                     payments: { nbCmi: "", mtCmi: "", nbChq: "", mtChq: "", especes: "" },
                     subTotalInput: "",
@@ -525,6 +537,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
 
             onSave({
                 sales: currentData.sales,
+                notes: currentData.notes || "",
                 supplements: currentData.supplements,
                 payments: currentData.payments,
                 subTotalInput: currentData.subTotalInput,
@@ -548,37 +561,45 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            {/* Backdrop */}
+        <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+            style={{ fontFamily: "var(--font-outfit), system-ui, sans-serif" }}
+        >
+            {/* Backdrop - Save & close like the Fermer button */}
             <div
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in"
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity animate-in fade-in cursor-pointer"
+                onClick={() => handleSave(initialData?.status !== 'synced')}
             />
 
-            {/* Modal Card */}
-            <div className={cn(
-                "relative z-10 w-full max-w-[1100px] bg-[#FDFBF7] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]",
-                isModalDeclared && "border-2 border-[#451a03]"
-            )}>
+            {/* Modal Card - Outfit pour Saisie (Réel) et Déclaré */}
+            <div 
+                className={cn(
+                    "relative z-10 w-full max-w-[1100px] bg-[#FDFBF7] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]",
+                    isModalDeclared && "border-2 border-[#451a03]"
+                )}
+                style={{ fontFamily: "var(--font-outfit), system-ui, sans-serif" }}
+                onClick={(e) => e.stopPropagation()}
+            >
 
                 {/* 1. Header */}
                 <div className={cn("px-8 py-4 flex justify-between items-center text-white flex-shrink-0", headerColor)}>
-                    <h2 className="text-xl font-bold italic font-serif tracking-wide">{capitalizedDate}</h2>
+                    <h2 className="text-[21px] font-bold italic tracking-wide">{capitalizedDate}</h2>
 
                     <div className="flex items-center gap-6">
                         <div className="flex flex-col items-end">
-                            <span className="text-[10px] uppercase tracking-widest font-bold opacity-60">Total HT</span>
-                            <span className="text-xl font-bold tracking-tight">{totalHT.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh</span>
+                            <span className="text-[11px] uppercase tracking-widest font-bold opacity-60">Total HT</span>
+                            <span className="text-[21px] font-bold tracking-tight">{formatFr(totalHT)} Dh</span>
                         </div>
                         <div className="flex flex-col items-end mr-4">
-                            <span className="text-[10px] uppercase tracking-widest font-bold opacity-60">Total TTC</span>
-                            <span className="text-xl font-bold tracking-tight">{totalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Dh</span>
+                            <span className="text-[11px] uppercase tracking-widest font-bold opacity-60">Total TTC</span>
+                            <span className="text-[21px] font-bold tracking-tight">{formatFr(totalTTC)} Dh</span>
                         </div>
 
                         {/* Last Sync Display */}
                         {initialData?.lastSyncAt && (
                             <div className="flex flex-col items-end mr-6 opacity-80">
-                                <span className="text-[9px] uppercase tracking-widest font-bold opacity-60">Synchronisé le</span>
-                                <span className="text-xs font-mono font-bold">
+                                <span className="text-[10px] uppercase tracking-widest font-bold opacity-60">Synchronisé le</span>
+                                <span className="text-[13px] font-bold">
                                     {new Date(initialData.lastSyncAt).toLocaleString('fr-FR', {
                                         day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
                                     })}
@@ -597,8 +618,8 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     title="Re-synchroniser"
                                 >
                                     <div className="flex flex-col items-end">
-                                        <span className="text-[9px] font-bold text-green-400 uppercase tracking-widest leading-none mb-0.5">Synchronisé</span>
-                                        <span className="text-[10px] font-mono font-bold text-white leading-none">
+                                        <span className="text-[10px] font-bold text-green-400 uppercase tracking-widest leading-none mb-0.5">Synchronisé</span>
+                                        <span className="text-[11px] font-bold text-white leading-none">
                                             {initialData?.lastSyncAt ? new Date(initialData.lastSyncAt).toLocaleString('fr-FR', {
                                                 day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
                                             }) : "--"}
@@ -612,7 +633,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     onClick={() => handleSave(false)}
                                     className="group flex items-center gap-3 bg-white/10 hover:bg-white/20 border border-white/10 hover:border-orange-400/50 rounded-xl px-4 py-2 transition-all duration-300"
                                 >
-                                    <span className="text-sm font-bold text-orange-400 uppercase tracking-widest group-hover:text-orange-300 transition-colors">Prêt</span>
+                                    <span className="text-[15px] font-bold text-orange-400 uppercase tracking-widest group-hover:text-orange-300 transition-colors">Prêt</span>
                                     <div className="relative">
                                         <RefreshCw className="w-5 h-5 text-orange-400 group-hover:rotate-180 transition-transform duration-700 ease-in-out" />
                                         <div className="absolute inset-0 bg-orange-400/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -635,21 +656,23 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 <div className="space-y-1">
                                     {group.items.map((fam) => (
                                         <div key={fam} className="flex justify-between items-center group">
-                                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide group-hover:text-slate-700 transition-colors w-1/2 truncate leading-tight">
+                                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide group-hover:text-slate-700 transition-colors w-1/2 truncate leading-tight">
                                                 {fam}
                                             </span>
                                             <div className="w-1/2 border-b border-slate-100 group-hover:border-slate-300 transition-colors relative">
                                                 <input
                                                     ref={fam === "BOULANGERIE" ? boulangerieRef : null}
                                                     type="text"
-                                                    value={sales[fam] || ""}
+                                                    value={focusedNumericField === `sales_${fam}` ? (sales[fam] ?? "") : (sales[fam] ? formatFr(sales[fam]) : "")}
                                                     readOnly={isDeclared} // READ ONLY IN DECLARED
                                                     className={cn(
-                                                        "w-full text-right bg-transparent focus:outline-none font-bold text-xs py-0.5 font-mono",
+                                                        "w-full text-right bg-transparent focus:outline-none font-bold text-[13px] py-0.5",
                                                         isDeclared ? "text-slate-500 cursor-not-allowed" : "text-slate-800"
                                                     )}
                                                     placeholder="-"
-                                                    onChange={(e) => updateSales(fam, e.target.value)}
+                                                    onFocus={() => setFocusedNumericField(`sales_${fam}`)}
+                                                    onBlur={() => setFocusedNumericField(null)}
+                                                    onChange={(e) => updateSales(fam, parseFrInput(e.target.value))}
                                                 />
                                             </div>
                                         </div>
@@ -667,47 +690,64 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                             {isDeclared ? (
                                 // DECLARED: Show Total TTC Only
                                 <div className="flex flex-col flex-1">
-                                    <span className="text-[9px] font-bold text-orange-300 uppercase tracking-widest mb-0.5">Total TTC (D)</span>
-                                    <span className="text-2xl font-bold tracking-tight font-mono leading-none text-white">
-                                        {totalTTC.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    <span className="text-[10px] font-bold text-orange-300 uppercase tracking-widest mb-0.5">Total TTC (D)</span>
+                                    <span className="text-[25px] font-bold tracking-tight leading-none text-white">
+                                        {formatFr(totalTTC)}
                                     </span>
                                 </div>
                             ) : (
                                 // REAL: Show SubTotal/Remise
                                 <>
                                     <div className="flex flex-col flex-1">
-                                        <span className="text-[9px] font-bold opacity-60 uppercase tracking-widest mb-0.5">Sous-Total (Saisi)</span>
+                                        <span className="text-[10px] font-bold opacity-60 uppercase tracking-widest mb-0.5">Sous-Total (Saisi)</span>
                                         <input
                                             type="text"
-                                            value={subTotalInput}
-                                            onChange={(e) => updateSubTotal(e.target.value)}
-                                            className="bg-transparent border-none p-0 text-xl font-bold tracking-tight font-mono leading-none text-white focus:ring-0 placeholder:text-white/20 w-full"
-                                            placeholder="0.00"
+                                            value={focusedNumericField === "subTotal" ? subTotalInput : (subTotalInput ? formatFr(subTotalInput) : "")}
+                                            onChange={(e) => updateSubTotal(parseFrInput(e.target.value))}
+                                            onFocus={() => setFocusedNumericField("subTotal")}
+                                            onBlur={() => setFocusedNumericField(null)}
+                                            className="bg-transparent border-none p-0 text-[19px] font-bold tracking-tight leading-none text-white focus:ring-0 placeholder:text-white/20 w-full"
+                                            placeholder="0,00"
                                         />
                                     </div>
 
                                     <div className="flex flex-col flex-1 border-l border-white/10 pl-4">
-                                        <span className="text-[9px] font-bold text-orange-300 uppercase tracking-widest mb-0.5">Remise (Calc)</span>
-                                        <span className="text-xl font-bold tracking-tight font-mono leading-none text-orange-400">
-                                            {valRemise.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        <span className="text-[10px] font-bold text-orange-300 uppercase tracking-widest mb-0.5">Remise (Calc)</span>
+                                        <span className="text-[19px] font-bold tracking-tight leading-none text-orange-400">
+                                            {formatFr(valRemise)}
                                         </span>
                                     </div>
                                 </>
                             )}
 
                             <div className="flex flex-col items-end border-l border-white/20 pl-4">
-                                <span className={cn("text-[9px] font-bold uppercase tracking-widest mb-1", isDeclared && "text-slate-400")}>Nb Tickets</span>
+                                <span className={cn("text-[10px] font-bold uppercase tracking-widest mb-1", isDeclared && "text-slate-400")}>Nb Tickets</span>
                                 <input
-                                    value={nbTickets}
+                                    value={focusedNumericField === "nbTickets" ? nbTickets : (nbTickets ? formatFr(nbTickets, 0) : "")}
                                     readOnly={isDeclared}
-                                    onChange={(e) => updateNbTickets(e.target.value)}
-                                    className={cn("w-12 border-none rounded text-center text-sm font-bold focus:ring-1 h-7 font-mono",
+                                    onFocus={() => setFocusedNumericField("nbTickets")}
+                                    onBlur={() => setFocusedNumericField(null)}
+                                    onChange={(e) => updateNbTickets(parseFrInput(e.target.value))}
+                                    className={cn("w-12 border-none rounded text-center text-[15px] font-bold focus:ring-1 h-7",
                                         isDeclared ? "bg-white/5 text-slate-300 cursor-not-allowed focus:ring-0" : "bg-white/10 text-white focus:ring-white/30"
                                     )}
                                     placeholder="0"
                                 />
                             </div>
                         </div>
+
+                        {/* Notes Field - Separate Element */}
+                        {!isDeclared && (
+                            <div className="bg-white rounded-xl p-2 shadow-sm border border-slate-100/60 transition-all duration-300">
+                                <textarea
+                                    value={notes}
+                                    onChange={(e) => updateNotes(e.target.value)}
+                                    className="w-full bg-slate-50 rounded-md border-none focus:ring-1 focus:ring-indigo-200 text-[13px] font-medium text-slate-700 py-1.5 px-2 resize-none"
+                                    placeholder="Notes..."
+                                    rows={1}
+                                />
+                            </div>
+                        )}
 
                         {/* Supplements OR Coefficients (MOVED DOWN) */}
                         <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-100/60 transition-all duration-300">
@@ -716,14 +756,16 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 <div className="flex items-center justify-between gap-4 h-full">
                                     {/* Exo */}
                                     <div className="flex-1 flex flex-col gap-1">
-                                        <span className="text-[9px] font-bold text-purple-600 uppercase tracking-wider pl-1">Coeff Exo</span>
+                                        <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider pl-1">Coeff Exo</span>
                                         <div className="relative flex items-center bg-purple-50/50 rounded-lg border border-purple-100 p-1 group hover:border-purple-300 transition-colors">
                                             <input
                                                 type="text"
-                                                value={coeffExo}
-                                                onChange={(e) => updateCoeffState('exo', e.target.value)}
+                                                value={focusedNumericField === "coeffExo" ? coeffExo : (coeffExo ? formatFr(coeffExo) : "")}
+                                                onFocus={() => setFocusedNumericField("coeffExo")}
+                                                onBlur={() => setFocusedNumericField(null)}
+                                                onChange={(e) => updateCoeffState('exo', parseFrInput(e.target.value))}
                                                 onKeyDown={(e) => handleCoeffKeyDown(e, 'exo')}
-                                                className="w-full bg-transparent border-none text-center font-mono font-bold text-lg text-purple-700 p-0 focus:ring-0"
+                                                className="w-full bg-transparent border-none text-center font-bold text-[21px] text-purple-700 p-0 focus:ring-0"
                                             />
                                             <div className="flex flex-col border-l border-purple-200/50 pl-1 ml-1 gap-px opacity-50 group-hover:opacity-100 transition-opacity">
                                                 <button
@@ -748,14 +790,16 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
 
                                     {/* Imp */}
                                     <div className="flex-1 flex flex-col gap-1">
-                                        <span className="text-[9px] font-bold text-purple-600 uppercase tracking-wider pl-1">Coeff Imp</span>
+                                        <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider pl-1">Coeff Imp</span>
                                         <div className="relative flex items-center bg-purple-50/50 rounded-lg border border-purple-100 p-1 group hover:border-purple-300 transition-colors">
                                             <input
                                                 type="text"
-                                                value={coeffImp}
-                                                onChange={(e) => updateCoeffState('imp', e.target.value)}
+                                                value={focusedNumericField === "coeffImp" ? coeffImp : (coeffImp ? formatFr(coeffImp) : "")}
+                                                onFocus={() => setFocusedNumericField("coeffImp")}
+                                                onBlur={() => setFocusedNumericField(null)}
+                                                onChange={(e) => updateCoeffState('imp', parseFrInput(e.target.value))}
                                                 onKeyDown={(e) => handleCoeffKeyDown(e, 'imp')}
-                                                className="w-full bg-transparent border-none text-center font-mono font-bold text-lg text-purple-700 p-0 focus:ring-0"
+                                                className="w-full bg-transparent border-none text-center font-bold text-[21px] text-purple-700 p-0 focus:ring-0"
                                             />
                                             <div className="flex flex-col border-l border-purple-200/50 pl-1 ml-1 gap-px opacity-50 group-hover:opacity-100 transition-opacity">
                                                 <button
@@ -780,23 +824,27 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 // SUPPLEMENTS UI (Normal)
                                 <div className="space-y-4">
                                     <div className="flex justify-between items-center">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Supp Traiteurs</span>
+                                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Supp Traiteurs</span>
                                         <input
                                             type="text"
-                                            value={supplements.traiteurs}
-                                            onChange={(e) => updateSupplements('traiteurs', e.target.value)}
-                                            className="w-20 text-right bg-slate-50 rounded-md border-none focus:ring-1 focus:ring-indigo-200 text-xs font-bold text-slate-700 py-1 px-2 font-mono"
-                                            placeholder="0.00"
+                                            value={focusedNumericField === "supp_traiteurs" ? supplements.traiteurs : (supplements.traiteurs ? formatFr(supplements.traiteurs) : "")}
+                                            onChange={(e) => updateSupplements('traiteurs', parseFrInput(e.target.value))}
+                                            onFocus={() => setFocusedNumericField("supp_traiteurs")}
+                                            onBlur={() => setFocusedNumericField(null)}
+                                            className="w-20 text-right bg-slate-50 rounded-md border-none focus:ring-1 focus:ring-indigo-200 text-[13px] font-bold text-slate-700 py-1 px-2"
+                                            placeholder="0,00"
                                         />
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Supp Caisse</span>
+                                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Supp Caisse</span>
                                         <input
                                             type="text"
-                                            value={supplements.caisse}
-                                            onChange={(e) => updateSupplements('caisse', e.target.value)}
-                                            className="w-20 text-right bg-slate-50 rounded-md border-none focus:ring-1 focus:ring-indigo-200 text-xs font-bold text-slate-700 py-1 px-2 font-mono"
-                                            placeholder="0.00"
+                                            value={focusedNumericField === "supp_caisse" ? supplements.caisse : (supplements.caisse ? formatFr(supplements.caisse) : "")}
+                                            onChange={(e) => updateSupplements('caisse', parseFrInput(e.target.value))}
+                                            onFocus={() => setFocusedNumericField("supp_caisse")}
+                                            onBlur={() => setFocusedNumericField(null)}
+                                            className="w-20 text-right bg-slate-50 rounded-md border-none focus:ring-1 focus:ring-indigo-200 text-[13px] font-bold text-slate-700 py-1 px-2"
+                                            placeholder="0,00"
                                         />
                                     </div>
                                 </div>
@@ -809,25 +857,29 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 {/* CMI */}
                                 <div className="flex gap-2 items-end">
                                     <div className="flex-1 space-y-0.5">
-                                        <label className="text-[9px] font-bold text-slate-400 uppercase">Nb CMI</label>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Nb CMI</label>
                                         <input
-                                            value={payments.nbCmi}
+                                            value={focusedNumericField === "nbCmi" ? payments.nbCmi : (payments.nbCmi ? formatFr(payments.nbCmi, 0) : "")}
                                             readOnly={isDeclared}
-                                            onChange={(e) => setPayments(prev => ({ ...prev, nbCmi: e.target.value }))}
-                                            className={cn("w-full bg-white rounded-lg border-none h-8 px-2 font-bold text-slate-700 shadow-sm text-xs",
+                                            onFocus={() => setFocusedNumericField("nbCmi")}
+                                            onBlur={() => setFocusedNumericField(null)}
+                                            onChange={(e) => setPayments(prev => ({ ...prev, nbCmi: parseFrInput(e.target.value) }))}
+                                            className={cn("w-full bg-white rounded-lg border-none h-8 px-2 font-bold text-slate-700 shadow-sm text-[13px]",
                                                 isDeclared && "opacity-50 cursor-not-allowed bg-slate-100")}
                                         />
                                     </div>
                                     <div className="flex-1 space-y-0.5 text-right">
-                                        <label className="text-[9px] font-bold text-blue-500 uppercase">Mt CMI</label>
+                                        <label className="text-[10px] font-bold text-blue-500 uppercase">Mt CMI</label>
                                         <div className={cn("w-full border-b border-blue-200 pb-0.5", isDeclared && "border-slate-200")}>
                                             <input
-                                                value={payments.mtCmi}
+                                                value={focusedNumericField === "mtCmi" ? payments.mtCmi : (payments.mtCmi ? formatFr(payments.mtCmi) : "")}
                                                 readOnly={isDeclared}
-                                                onChange={(e) => setPayments(prev => ({ ...prev, mtCmi: e.target.value }))}
-                                                className={cn("w-full text-right bg-transparent border-none p-0 font-bold text-slate-700 focus:ring-0 font-mono text-sm",
+                                                onFocus={() => setFocusedNumericField("mtCmi")}
+                                                onBlur={() => setFocusedNumericField(null)}
+                                                onChange={(e) => setPayments(prev => ({ ...prev, mtCmi: parseFrInput(e.target.value) }))}
+                                                className={cn("w-full text-right bg-transparent border-none p-0 font-bold text-slate-700 focus:ring-0 text-[15px]",
                                                     isDeclared && "text-slate-500 cursor-not-allowed")}
-                                                placeholder="0.00"
+                                                placeholder="0,00"
                                             />
                                         </div>
                                     </div>
@@ -836,25 +888,29 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                 {/* CHQ */}
                                 <div className="flex gap-2 items-end">
                                     <div className="flex-1 space-y-0.5">
-                                        <label className="text-[9px] font-bold text-slate-400 uppercase">Nb CHQ</label>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase">Nb CHQ</label>
                                         <input
-                                            value={payments.nbChq}
+                                            value={focusedNumericField === "nbChq" ? payments.nbChq : (payments.nbChq ? formatFr(payments.nbChq, 0) : "")}
                                             readOnly={isDeclared}
-                                            onChange={(e) => setPayments(prev => ({ ...prev, nbChq: e.target.value }))}
-                                            className={cn("w-full bg-white rounded-lg border-none h-8 px-2 font-bold text-slate-700 shadow-sm text-xs",
+                                            onFocus={() => setFocusedNumericField("nbChq")}
+                                            onBlur={() => setFocusedNumericField(null)}
+                                            onChange={(e) => setPayments(prev => ({ ...prev, nbChq: parseFrInput(e.target.value) }))}
+                                            className={cn("w-full bg-white rounded-lg border-none h-8 px-2 font-bold text-slate-700 shadow-sm text-[13px]",
                                                 isDeclared && "opacity-50 cursor-not-allowed bg-slate-100")}
                                         />
                                     </div>
                                     <div className="flex-1 space-y-0.5 text-right">
-                                        <label className="text-[9px] font-bold text-emerald-500 uppercase">Mt CHQ</label>
+                                        <label className="text-[10px] font-bold text-emerald-500 uppercase">Mt CHQ</label>
                                         <div className={cn("w-full border-b border-emerald-200 pb-0.5", isDeclared && "border-slate-200")}>
                                             <input
-                                                value={payments.mtChq}
+                                                value={focusedNumericField === "mtChq" ? payments.mtChq : (payments.mtChq ? formatFr(payments.mtChq) : "")}
                                                 readOnly={isDeclared}
-                                                onChange={(e) => setPayments(prev => ({ ...prev, mtChq: e.target.value }))}
-                                                className={cn("w-full text-right bg-transparent border-none p-0 font-bold text-slate-700 focus:ring-0 font-mono text-sm",
+                                                onFocus={() => setFocusedNumericField("mtChq")}
+                                                onBlur={() => setFocusedNumericField(null)}
+                                                onChange={(e) => setPayments(prev => ({ ...prev, mtChq: parseFrInput(e.target.value) }))}
+                                                className={cn("w-full text-right bg-transparent border-none p-0 font-bold text-slate-700 focus:ring-0 text-[15px]",
                                                     isDeclared && "text-slate-500 cursor-not-allowed")}
-                                                placeholder="0.00"
+                                                placeholder="0,00"
                                             />
                                         </div>
                                     </div>
@@ -862,9 +918,9 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                             </div>
 
                             <div className="mt-2 flex justify-between items-end border-t border-[#E8DCC8] pt-2">
-                                <span className="text-xs font-bold text-[#D4A674] uppercase tracking-wider">Espèces</span>
-                                <span className={cn("text-xl font-bold tracking-tight font-mono", isDeclared ? "text-slate-400" : "text-slate-800")}>
-                                    {valEsp.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                <span className="text-[13px] font-bold text-[#D4A674] uppercase tracking-wider">Espèces</span>
+                                <span className={cn("text-[21px] font-bold tracking-tight", isDeclared ? "text-slate-400" : "text-slate-800")}>
+                                    {formatFr(valEsp)}
                                 </span>
                             </div>
                         </div>
@@ -887,7 +943,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     value={hours.startH}
                                     onChange={(e) => updateHours('startH', e.target.value)}
                                     onKeyDown={(e) => handleTimeKeyDown(e, 'startH', 24)}
-                                    className="w-6 bg-transparent border-none p-0 font-mono font-bold text-slate-700 text-center text-sm cursor-pointer outline-none hover:bg-white/50 rounded"
+                                    className="w-6 bg-transparent border-none p-0 font-bold text-slate-700 text-center text-[15px] cursor-pointer outline-none hover:bg-white/50 rounded"
                                 />
                                 <span className="text-slate-400 font-bold">:</span>
                                 <input
@@ -895,7 +951,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     value={hours.startM}
                                     onChange={(e) => updateHours('startM', e.target.value)}
                                     onKeyDown={(e) => handleTimeKeyDown(e, 'startM', 60)}
-                                    className="w-6 bg-transparent border-none p-0 font-mono font-bold text-slate-700 text-center text-sm cursor-pointer outline-none hover:bg-white/50 rounded"
+                                    className="w-6 bg-transparent border-none p-0 font-bold text-slate-700 text-center text-[15px] cursor-pointer outline-none hover:bg-white/50 rounded"
                                 />
                             </div>
 
@@ -912,7 +968,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     value={hours.endH}
                                     onChange={(e) => updateHours('endH', e.target.value)}
                                     onKeyDown={(e) => handleTimeKeyDown(e, 'endH', 24)}
-                                    className="w-6 bg-transparent border-none p-0 font-mono font-bold text-slate-700 text-center text-sm cursor-pointer outline-none hover:bg-white/50 rounded"
+                                    className="w-6 bg-transparent border-none p-0 font-bold text-slate-700 text-center text-[15px] cursor-pointer outline-none hover:bg-white/50 rounded"
                                 />
                                 <span className="text-slate-400 font-bold">:</span>
                                 <input
@@ -920,7 +976,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     value={hours.endM}
                                     onChange={(e) => updateHours('endM', e.target.value)}
                                     onKeyDown={(e) => handleTimeKeyDown(e, 'endM', 60)}
-                                    className="w-6 bg-transparent border-none p-0 font-mono font-bold text-slate-700 text-center text-sm cursor-pointer outline-none hover:bg-white/50 rounded"
+                                    className="w-6 bg-transparent border-none p-0 font-bold text-slate-700 text-center text-[15px] cursor-pointer outline-none hover:bg-white/50 rounded"
                                 />
                             </div>
                         </div>
@@ -931,22 +987,24 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                             <div className="flex items-center gap-2 mb-4 justify-between">
                                 <div className="flex items-center gap-2">
                                     <div className="w-5 h-5 rounded-full bg-[#FFC107] flex items-center justify-center">
-                                        <span className="text-[10px] font-bold text-black">G</span>
+                                        <span className="text-[11px] font-bold text-black">G</span>
                                     </div>
-                                    <span className="font-serif font-bold text-[#5D4037] text-sm">GLOVO</span>
+                                    <span className="font-bold text-[#5D4037] text-[15px]">GLOVO</span>
                                 </div>
                                 {/* DISCREET RATES INPUTS */}
                                 <div className="flex gap-1 items-center opacity-70 hover:opacity-100 transition-opacity">
                                     <div className="flex flex-col items-center">
-                                        <label className="text-[8px] uppercase font-bold text-slate-400 leading-none">HT</label>
+                                        <label className="text-[7px] uppercase font-bold text-slate-400 leading-none">HT</label>
                                         <input
-                                            value={rates.commHT}
+                                            value={focusedNumericField === "commHT" ? rates.commHT : (rates.commHT ? formatFr(rates.commHT) : "")}
+                                            onFocus={() => setFocusedNumericField("commHT")}
+                                            onBlur={() => setFocusedNumericField(null)}
                                             onChange={e => {
-                                                const newHT = e.target.value;
+                                                const newHT = parseFrInput(e.target.value);
                                                 const newHTVal = parseFloat(newHT || "0");
                                                 const newTTC = (newHTVal * 1.2).toFixed(2); // Auto Calc TTC
 
-                                                setRates(prev => ({ ...prev, commHT: newHT, commTTC: newTTC }));
+                                                setRates(prev => ({ ...prev, commHT: newHT || "", commTTC: newTTC }));
                                                 setGlovo(prev => {
                                                     const next = {
                                                         ...prev,
@@ -957,28 +1015,30 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                                     return next;
                                                 });
                                             }}
-                                            className="w-8 h-4 text-[10px] font-mono text-center bg-white/50 border border-[#FBC02D]/30 rounded focus:bg-white focus:border-[#FBC02D] outline-none text-[#5D4037]"
+                                            className="w-8 h-4 text-[11px] text-center bg-white/50 border border-[#FBC02D]/30 rounded focus:bg-white focus:border-[#FBC02D] outline-none text-[#5D4037]"
                                             tabIndex={-1}
                                         />
                                     </div>
                                     <div className="flex flex-col items-center">
-                                        <label className="text-[8px] uppercase font-bold text-slate-400 leading-none">TTC</label>
+                                        <label className="text-[7px] uppercase font-bold text-slate-400 leading-none">TTC</label>
                                         <input
-                                            value={rates.commTTC}
+                                            value={rates.commTTC ? formatFr(rates.commTTC) : ""}
                                             readOnly // READ ONLY
                                             disabled
-                                            className="w-8 h-4 text-[10px] font-mono text-center bg-slate-100/50 border border-slate-200 rounded text-slate-500 cursor-not-allowed"
+                                            className="w-8 h-4 text-[11px] text-center bg-slate-100/50 border border-slate-200 rounded text-slate-500 cursor-not-allowed"
                                             title="Calculé (HT * 1.2)"
                                             tabIndex={-1}
                                         />
                                     </div>
                                     <div className="flex flex-col items-center">
-                                        <label className="text-[8px] uppercase font-bold text-slate-400 leading-none">Imp</label>
+                                        <label className="text-[7px] uppercase font-bold text-slate-400 leading-none">Imp</label>
                                         <input
-                                            value={rates.imp}
+                                            value={focusedNumericField === "ratesImp" ? rates.imp : (rates.imp ? formatFr(rates.imp) : "")}
+                                            onFocus={() => setFocusedNumericField("ratesImp")}
+                                            onBlur={() => setFocusedNumericField(null)}
                                             onChange={e => {
-                                                const newImp = e.target.value;
-                                                setRates(prev => ({ ...prev, imp: newImp }));
+                                                const newImp = parseFrInput(e.target.value);
+                                                setRates(prev => ({ ...prev, imp: newImp || "" }));
                                                 // Trigger Recalc of Breakdown
                                                 const val = parseFloat(glovo.brut) || 0;
                                                 const pImpVal = parseFloat(newImp || "90") / 100;
@@ -993,17 +1053,19 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                                     return next;
                                                 });
                                             }}
-                                            className="w-8 h-4 text-[10px] font-mono text-center bg-white/50 border border-[#FBC02D]/30 rounded focus:bg-white focus:border-[#FBC02D] outline-none text-[#5D4037]"
+                                            className="w-8 h-4 text-[11px] text-center bg-white/50 border border-[#FBC02D]/30 rounded focus:bg-white focus:border-[#FBC02D] outline-none text-[#5D4037]"
                                             tabIndex={-1}
                                         />
                                     </div>
                                     <div className="flex flex-col items-center">
-                                        <label className="text-[8px] uppercase font-bold text-slate-400 leading-none">Exo</label>
+                                        <label className="text-[7px] uppercase font-bold text-slate-400 leading-none">Exo</label>
                                         <input
-                                            value={rates.exo}
+                                            value={focusedNumericField === "ratesExo" ? rates.exo : (rates.exo ? formatFr(rates.exo) : "")}
+                                            onFocus={() => setFocusedNumericField("ratesExo")}
+                                            onBlur={() => setFocusedNumericField(null)}
                                             onChange={e => {
-                                                const newExo = e.target.value;
-                                                setRates(prev => ({ ...prev, exo: newExo }));
+                                                const newExo = parseFrInput(e.target.value);
+                                                setRates(prev => ({ ...prev, exo: newExo || "" }));
                                                 // Trigger Recalc of Breakdown
                                                 const val = parseFloat(glovo.brut) || 0;
                                                 const pExoVal = parseFloat(newExo || "10") / 100;
@@ -1018,7 +1080,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                                     return next;
                                                 });
                                             }}
-                                            className="w-8 h-4 text-[10px] font-mono text-center bg-white/50 border border-[#FBC02D]/30 rounded focus:bg-white focus:border-[#FBC02D] outline-none text-[#5D4037]"
+                                            className="w-8 h-4 text-[11px] text-center bg-white/50 border border-[#FBC02D]/30 rounded focus:bg-white focus:border-[#FBC02D] outline-none text-[#5D4037]"
                                             tabIndex={-1}
                                         />
                                     </div>
@@ -1027,12 +1089,14 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
 
                             <div className="space-y-2 relative z-10 flex-1">
                                 <div className="flex justify-between items-center">
-                                    <span className="text-[10px] font-bold text-[#8D6E63] uppercase">Brut</span>
+                                    <span className="text-[11px] font-bold text-[#8D6E63] uppercase">Brut</span>
                                     <input
-                                        value={glovo.brut}
+                                        value={focusedNumericField === "glovoBrut" ? glovo.brut : (glovo.brut ? formatFr(glovo.brut) : "")}
                                         readOnly={isDeclared}
+                                        onFocus={() => setFocusedNumericField("glovoBrut")}
+                                        onBlur={() => setFocusedNumericField(null)}
                                         onChange={(e) => {
-                                            const valStr = e.target.value;
+                                            const valStr = parseFrInput(e.target.value);
                                             const val = parseFloat(valStr) || 0;
 
                                             // Auto-calc Breakdown using resolved rates (Snapshot or Current)
@@ -1042,7 +1106,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                             setGlovo(prev => {
                                                 const next = {
                                                     ...prev,
-                                                    brut: valStr,
+                                                    brut: valStr || "",
                                                     brutImp: imp.toFixed(2),
                                                     brutExo: exo.toFixed(2),
                                                     // PERSIST SNAPSHOTS from explicit inputs
@@ -1055,7 +1119,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                                 return next;
                                             });
                                         }}
-                                        className={cn("w-20 h-7 bg-white/60 border-none rounded-md text-right font-bold text-[#5D4037] px-2 font-mono text-sm", isDeclared && "bg-white/30 opacity-60 cursor-not-allowed")}
+                                        className={cn("w-20 h-7 bg-white/60 border-none rounded-md text-right font-bold text-[#5D4037] px-2 text-[15px]", isDeclared && "bg-white/30 opacity-60 cursor-not-allowed")}
                                     />
                                 </div>
 
@@ -1063,50 +1127,54 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                                     {/* Side-by-Side Layout for Imp/Exo */}
                                     <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-[#F9E79F]/50">
                                         <div className="space-y-1">
-                                            <span className="text-[9px] font-bold text-[#8D6E63] uppercase opacity-70">Imp. HT ({Math.round(pImp * 100)}%)</span>
+                                            <span className="text-[10px] font-bold text-[#8D6E63] uppercase opacity-70">Imp. HT ({Math.round(pImp * 100)}%)</span>
                                             <input
-                                                value={glovo.brutImp}
+                                                value={glovo.brutImp ? formatFr(glovo.brutImp) : ""}
                                                 tabIndex={-1} // NO TAB
                                                 readOnly={true} // Always Read Only (Calculated)
-                                                className={cn("w-full h-6 bg-white/40 border-none rounded text-right font-bold text-[#5D4037]/80 px-2 text-xs font-mono", "opacity-80 cursor-not-allowed")}
+                                                className={cn("w-full h-6 bg-white/40 border-none rounded text-right font-bold text-[#5D4037]/80 px-2 text-[13px]", "opacity-80 cursor-not-allowed")}
                                             />
                                         </div>
                                         <div className="space-y-1">
-                                            <span className="text-[9px] font-bold text-[#8D6E63] uppercase opacity-70">Exo ({Math.round(pExo * 100)}%)</span>
+                                            <span className="text-[10px] font-bold text-[#8D6E63] uppercase opacity-70">Exo ({Math.round(pExo * 100)}%)</span>
                                             <input
-                                                value={glovo.brutExo}
+                                                value={glovo.brutExo ? formatFr(glovo.brutExo) : ""}
                                                 tabIndex={-1} // NO TAB
                                                 readOnly={true} // Always Read Only (Calculated)
-                                                className={cn("w-full h-6 bg-white/40 border-none rounded text-right font-bold text-[#5D4037]/80 px-2 text-xs font-mono", "opacity-80 cursor-not-allowed")}
+                                                className={cn("w-full h-6 bg-white/40 border-none rounded text-right font-bold text-[#5D4037]/80 px-2 text-[13px]", "opacity-80 cursor-not-allowed")}
                                             />
                                         </div>
                                     </div>
                                 </div>
 
                                 <div className="flex justify-between items-center pt-1">
-                                    <span className="text-[10px] font-bold text-red-400 uppercase">Incid.</span>
+                                    <span className="text-[11px] font-bold text-red-400 uppercase">Incid.</span>
                                     <input
-                                        value={glovo.incid}
+                                        value={focusedNumericField === "glovoIncid" ? glovo.incid : (glovo.incid ? formatFr(glovo.incid) : "")}
                                         readOnly={isDeclared}
-                                        onChange={(e) => updateGlovo('incid', e.target.value)}
-                                        className={cn("w-20 h-7 bg-white/60 border-none rounded-md text-right font-bold text-red-500 px-2 font-mono text-sm", isDeclared && "bg-white/30 opacity-60 cursor-not-allowed")}
+                                        onFocus={() => setFocusedNumericField("glovoIncid")}
+                                        onBlur={() => setFocusedNumericField(null)}
+                                        onChange={(e) => updateGlovo('incid', parseFrInput(e.target.value))}
+                                        className={cn("w-20 h-7 bg-white/60 border-none rounded-md text-right font-bold text-red-500 px-2 text-[15px]", isDeclared && "bg-white/30 opacity-60 cursor-not-allowed")}
                                     />
                                 </div>
                                 <div className="flex justify-between items-center">
-                                    <span className="text-[10px] font-bold text-[#8D6E63] uppercase">Cash</span>
+                                    <span className="text-[11px] font-bold text-[#8D6E63] uppercase">Cash</span>
                                     <input
-                                        value={glovo.cash}
+                                        value={focusedNumericField === "glovoCash" ? glovo.cash : (glovo.cash ? formatFr(glovo.cash) : "")}
                                         readOnly={isDeclared}
-                                        onChange={(e) => updateGlovo('cash', e.target.value)}
-                                        className={cn("w-20 h-7 bg-white/60 border-none rounded-md text-right font-bold text-[#5D4037] px-2 font-mono text-sm", isDeclared && "bg-white/30 opacity-60 cursor-not-allowed")}
+                                        onFocus={() => setFocusedNumericField("glovoCash")}
+                                        onBlur={() => setFocusedNumericField(null)}
+                                        onChange={(e) => updateGlovo('cash', parseFrInput(e.target.value))}
+                                        className={cn("w-20 h-7 bg-white/60 border-none rounded-md text-right font-bold text-[#5D4037] px-2 text-[15px]", isDeclared && "bg-white/30 opacity-60 cursor-not-allowed")}
                                     />
                                 </div>
                             </div>
 
                             {/* Compact Net Display */}
                             <div className="flex justify-between items-end border-t border-[#FBC02D]/20 pt-1 mt-1">
-                                <span className="text-xs font-bold text-[#795548] uppercase tracking-wider">Net</span>
-                                <span className="text-xl font-bold text-[#3E2723] tracking-tight font-mono">{glovoNet.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                <span className="text-[13px] font-bold text-[#795548] uppercase tracking-wider">Net</span>
+                                <span className="text-[21px] font-bold text-[#3E2723] tracking-tight">{formatFr(glovoNet)}</span>
                             </div>
                         </div>
 
@@ -1121,7 +1189,7 @@ export function SalesInputModal({ isOpen, onClose, onSave, date, isDeclared, ini
                             title="Enregistrer et Fermer"
                         >
                             <X className="w-8 h-8 text-orange-400 group-hover:rotate-90 transition-transform duration-300" />
-                            <span className="font-bold uppercase tracking-widest text-lg text-orange-400">Fermer</span>
+                            <span className="font-bold uppercase tracking-widest text-[21px] text-orange-400">Fermer</span>
                         </button>
 
                     </div>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
     getArticles, saveArticle, deleteArticle,
@@ -14,10 +15,10 @@ import {
     getPartners, savePartner, deletePartner,
     getRecipes, saveRecipe, deleteRecipe,
     invalidateRecipeCache,
-    getClients, getClientInvoices, saveClientInvoice, deleteClientInvoice
+    getClients, getClientInvoices, saveClientInvoice, deleteClientInvoice,
+    getUnits, saveUnits, type UnitType
 } from "@/lib/data-service";
 import { InvoiceStatus } from "@/lib/types";
-import { keepPreviousData } from "@tanstack/react-query";
 import { Article, Invoice, StaffMember, Family, SubFamily, Recipe } from "@/lib/types";
 
 // --- ARTICLES ---
@@ -45,7 +46,7 @@ export function useArticlesPaginated(params: UseArticlesPaginatedParams) {
     return useQuery({
         queryKey: ["articles", "paginated", page, pageSize, filters],
         queryFn: () => getArticlesPaginated(page, pageSize, filters),
-        keepPreviousData: true,
+        placeholderData: (previousData) => previousData,
         staleTime: 30 * 1000,
     });
 }
@@ -286,6 +287,8 @@ export function useInvoices() {
     return useQuery({
         queryKey: ["invoices"],
         queryFn: getInvoices,
+        staleTime: 0, // Toujours considérer les données comme périmées pour forcer le rechargement
+        gcTime: 0, // Ne pas garder en cache pour éviter les problèmes de tri
     });
 }
 
@@ -308,7 +311,8 @@ export function useInvoicesPaginated(params: UseInvoicesPaginatedParams) {
         queryKey: ["invoices", "paginated", page, pageSize, filters],
         queryFn: () => getInvoicesPaginated(page, pageSize, filters),
         placeholderData: (previousData) => previousData, // Garde les données précédentes pendant le chargement
-        staleTime: 30 * 1000, // Considère les données fraîches pendant 30 secondes
+        staleTime: 0, // Toujours considérer les données comme périmées pour forcer le rechargement avec le bon tri
+        gcTime: 0, // Ne pas garder en cache pour éviter les problèmes de tri
     });
 }
 
@@ -536,6 +540,24 @@ export function useRecipeDeletion() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["recipes"] });
             queryClient.invalidateQueries({ queryKey: ["articles"] }); // Articles include recipes
+        },
+    });
+}
+
+// --- UNITS (IndexedDB-backed, permanent) ---
+export function useUnits(type: UnitType) {
+    return useQuery({
+        queryKey: ["units", type],
+        queryFn: () => getUnits(type),
+    });
+}
+
+export function useUnitsMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: ({ type, units }: { type: UnitType; units: string[] }) => saveUnits(type, units),
+        onSuccess: (_, { type }) => {
+            queryClient.invalidateQueries({ queryKey: ["units", type] });
         },
     });
 }

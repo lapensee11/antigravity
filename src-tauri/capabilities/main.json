@@ -1,0 +1,23 @@
+{
+  "identifier": "main-capability",
+  "windows": ["main"],
+  "permissions": [
+    "dialog:allow-confirm",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    {
+      "identifier": "fs:scope",
+      "allow": [{"path": "$DOWNLOAD"}, {"path": "$DOWNLOAD/BAKO"}, {"path": "$DOWNLOAD/BAKO/*"}]
+    },
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{"path": "$DOWNLOAD/BAKO/*"}]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [{"name": "open-print", "cmd": "open", "args": true}]
+    }
+  ]
+}

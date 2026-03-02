@@ -32,7 +32,7 @@ interface InvoicePaymentsProps {
     onExit?: () => void;
 }
 
-const MODES = ["Chèques", "Espèces", "Virement", "Prélèvement"];
+const MODES = ["Espèces", "Chèques", "Virement", "Prélèvement"];
 
 // Helper Component for Strict Decimal Formatting (fr-FR)
 const DecimalInput = forwardRef<HTMLInputElement, any>(({ value, onChange, className, ...props }, ref) => {
@@ -144,7 +144,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
         const newPayment = {
             id: `pay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             amount: 0,
-            mode: "Chèques",
+            mode: "Espèces",
             date: new Date().toISOString().split('T')[0],
             account: "Caisse"
         };
@@ -164,7 +164,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
             <div className="flex items-center justify-between mb-4 mt-8">
                 <div className="flex items-center gap-3">
                     <div className="w-1.5 h-6 bg-[#1E293B] rounded-full" />
-                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Paiements & Echéances</h3>
+                    <h3 className="text-base font-black text-slate-800 uppercase tracking-widest">Paiements & Echéances</h3>
                 </div>
                 <button
                     onClick={handleAddPayment}
@@ -177,8 +177,8 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
 
             <div className="bg-white rounded-xl border border-[#1E293B] overflow-hidden shadow-md shadow-gray-300">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead className="bg-blue-100 text-[10px] font-bold text-blue-700 uppercase border-b border-blue-200 tracking-wider">
+                    <table className="w-full text-base">
+                        <thead className="bg-blue-100 text-[12px] font-bold text-blue-700 uppercase border-b border-blue-200 tracking-wider">
                             <tr>
                                 <th className="px-4 py-3 text-left w-32">Date</th>
                                 <th className="px-4 py-3 text-right w-32">Montant</th>
@@ -322,7 +322,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                         }
                                                     }}
                                                     className={cn(
-                                                        "w-full text-center bg-transparent outline-none text-xs font-medium cursor-pointer py-1 border rounded transition-colors",
+                                                        "w-full text-center bg-transparent outline-none text-sm font-medium cursor-pointer py-1 border rounded transition-colors",
                                                         activePaymentRow === index 
                                                             ? "border-blue-400 bg-blue-50" 
                                                             : "border-transparent hover:border-slate-200 focus:border-blue-500 focus:bg-blue-50"
@@ -346,7 +346,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                             <div
                                                                 key={mode}
                                                                 className={cn(
-                                                                    "px-3 py-2 text-xs font-semibold cursor-pointer transition-colors border-b border-slate-50 last:border-0",
+                                                                    "px-3 py-2 text-sm font-semibold cursor-pointer transition-colors border-b border-slate-50 last:border-0",
                                                                     i === paymentModeFocusIndex ? "bg-blue-100 text-blue-700" : "hover:bg-slate-50 text-slate-700"
                                                                 )}
                                                                 onClick={(e) => {
@@ -385,7 +385,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
 
                                                 return (
                                                     <div className={cn(
-                                                        "mx-auto w-20 py-1 rounded-md border text-[10px] font-bold uppercase tracking-wider select-none",
+                                                        "mx-auto w-20 py-1 rounded-md border text-[12px] font-bold uppercase tracking-wider select-none",
                                                         colorClass
                                                     )}>
                                                         {account}
@@ -413,7 +413,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                         paymentModeRefs.current[index]?.focus();
                                                     }
                                                 }}
-                                                className="w-full bg-transparent border-b border-slate-200 focus:border-blue-400 focus:bg-blue-50 outline-none text-xs placeholder:text-slate-300 rounded px-1"
+                                                className="w-full bg-transparent border-b border-slate-200 focus:border-blue-400 focus:bg-blue-50 outline-none text-sm placeholder:text-slate-300 rounded px-1"
                                             />
                                             ) : (
                                                 <span className="block w-full border-b border-transparent">&nbsp;</span>
@@ -444,7 +444,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                                                         }
                                                     }
                                                 }}
-                                                className="w-full bg-transparent border-b border-slate-100 focus:border-blue-400 focus:bg-blue-50 outline-none text-xs placeholder:text-slate-300 rounded px-1"
+                                                className="w-full bg-transparent border-b border-slate-100 focus:border-blue-400 focus:bg-blue-50 outline-none text-sm placeholder:text-slate-300 rounded px-1"
                                             />
                                         </td>
 
@@ -477,7 +477,7 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                             })}
                             {(payments.length === 0) && (
                                 <tr>
-                                    <td colSpan={8} className="py-6 text-center text-slate-400 italic text-xs">
+                                    <td colSpan={8} className="py-6 text-center text-slate-400 italic text-sm">
                                         Aucun paiement. Cliquez sur le bouton "+".
                                     </td>
                                 </tr>
@@ -492,14 +492,17 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
                     amount={payments[checkPrintPaymentIndex].amount}
                     ordre={supplierName}
                     onClose={() => setCheckPrintPaymentIndex(null)}
-                    onPrint={(data) => {
+                    onPrint={async (data) => {
                         try {
                             const blob = generateCheckPdf(data);
-                            const url = URL.createObjectURL(blob);
-                            window.open(url, "_blank", "noopener,noreferrer");
+                            const safeOrdre = (data.ordre || "ordre").replace(/[/\\?%*:|"]/g, "_").slice(0, 40);
+                            const dateStr = new Date().toISOString().split("T")[0];
+                            const filename = `Cheque_${safeOrdre}_${dateStr}.pdf`;
+                            const { saveExportFileAndOpen } = await import("@/lib/export-download");
+                            await saveExportFileAndOpen(filename, blob);
                         } catch (err) {
                             console.error("Erreur impression chèque:", err);
-                            alert("Erreur lors de la génération du PDF.");
+                            alert("Erreur lors de la génération ou l'ouverture du PDF.");
                         }
                     }}
                 />
@@ -509,16 +512,16 @@ export const InvoicePayments: React.FC<InvoicePaymentsProps> = ({
             <div className="flex justify-end -mt-3">
                 <div className="bg-[#1E293B] text-white rounded-xl py-3 px-6 flex items-center gap-8 shadow-lg shadow-gray-400/20 h-16">
                     <div className="flex flex-col items-center">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Payé</span>
-                        <span className="text-lg font-black text-emerald-400 leading-none">
-                            {(deposit || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs opacity-60 font-medium">Dh</span>
+                        <span className="text-[12px] font-bold text-slate-400 uppercase tracking-widest">Total Payé</span>
+                        <span className="text-xl font-black text-emerald-400 leading-none">
+                            {(deposit || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm opacity-60 font-medium">Dh</span>
                         </span>
                     </div>
                     <div className="w-px h-10 bg-white/20" />
                     <div className="flex flex-col items-center">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Reste à Payer</span>
-                        <span className="text-lg font-black text-red-400 leading-none">
-                            {(balanceDue || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-xs opacity-60 font-medium">Dh</span>
+                        <span className="text-[12px] font-bold text-slate-400 uppercase tracking-widest">Reste à Payer</span>
+                        <span className="text-xl font-black text-red-400 leading-none">
+                            {(balanceDue || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-sm opacity-60 font-medium">Dh</span>
                         </span>
                     </div>
                 </div>

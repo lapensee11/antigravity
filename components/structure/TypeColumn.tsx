@@ -3,6 +3,7 @@ import { StructureType, Family, SubFamily } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Plus, ChevronRight, ChevronDown, PenLine, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { StructureIconView } from "@/components/articles/ArticleIcon";
 
 interface PastelTheme {
     headerBg: string;
@@ -117,14 +118,21 @@ export function TypeColumn({
                                 onClick={(e) => toggleFamily(family.id, e)}
                             >
                                 <div className="flex items-center gap-3 overflow-hidden">
-                                    {/* Code Pill on Left */}
-                                    <span className={cn(
-                                        "px-2 py-1 rounded text-[11px] font-bold font-mono tracking-wider min-w-[50px] text-center",
-                                        pastelTheme.codeBg,
-                                        pastelTheme.codeText
-                                    )}>
-                                        {family.code}
-                                    </span>
+                                    {/* Icon + Code Pill */}
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        {family.icon && (
+                                            <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center overflow-hidden">
+                                                <StructureIconView icon={family.icon} size={18} />
+                                            </div>
+                                        )}
+                                        <span className={cn(
+                                            "px-2 py-1 rounded text-[11px] font-bold font-mono tracking-wider min-w-[50px] text-center",
+                                            pastelTheme.codeBg,
+                                            pastelTheme.codeText
+                                        )}>
+                                            {family.code}
+                                        </span>
+                                    </div>
 
                                     {/* Name - Truncated */}
                                     <span className={cn(
@@ -169,14 +177,21 @@ export function TypeColumn({
                                     {mySubs.map(sub => (
                                         <div key={sub.id} className="flex items-center justify-between bg-white px-3 py-2 rounded-lg border border-slate-100 shadow-sm group/sub hover:border-indigo-100 transition-colors">
                                             <div className="flex items-center gap-3 overflow-hidden">
-                                                {/* Code Pill */}
-                                                <span className={cn(
-                                                    "text-[10px] px-1.5 py-0.5 rounded font-mono font-bold tracking-wider min-w-[40px] text-center scale-75 origin-left hover:scale-100 transition-all cursor-default",
-                                                    pastelTheme.codeBg,
-                                                    pastelTheme.codeText
-                                                )}>
-                                                    {sub.code}
-                                                </span>
+                                                {/* Icon + Code Pill */}
+                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                    {sub.icon && (
+                                                        <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center overflow-hidden">
+                                                            <StructureIconView icon={sub.icon} size={14} />
+                                                        </div>
+                                                    )}
+                                                    <span className={cn(
+                                                        "text-[10px] px-1.5 py-0.5 rounded font-mono font-bold tracking-wider min-w-[40px] text-center scale-75 origin-left hover:scale-100 transition-all cursor-default",
+                                                        pastelTheme.codeBg,
+                                                        pastelTheme.codeText
+                                                    )}>
+                                                        {sub.code}
+                                                    </span>
+                                                </div>
                                                 {/* Name */}
                                                 <span className="font-bold text-slate-600 text-xs truncate">{sub.name} ({articleCounts.bySubFamily[sub.id] || 0})</span>
                                             </div>

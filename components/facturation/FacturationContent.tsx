@@ -15,7 +15,7 @@ import { useClientInvoices, useClients, useClientInvoiceMutation, useClientInvoi
 import { generateClientInvoicePdf } from "@/lib/client-invoice-pdf";
 import { ClientInvoiceList } from "./ClientInvoiceList";
 import { Plus, FileText, Trash2, Download, Copy, File, Check, Printer, X } from "lucide-react";
-import { cn, formatIce, formatDateJjMmAaaa, numberToFrenchWords } from "@/lib/utils";
+import { cn, formatIce, formatDateJjMmAaaa, numberToFrenchWords, confirmDialog } from "@/lib/utils";
 import { createPortal } from "react-dom";
 
 const DEFAULT_TVA = 20;
@@ -49,7 +49,7 @@ export function FacturationContent() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm("Supprimer cette facture client ?")) return;
+        if (!(await confirmDialog("Supprimer cette facture client ?"))) return;
         await deletion.mutateAsync(id);
         if (selectedInvoice?.id === id) setSelectedInvoice(null);
     };
@@ -69,15 +69,12 @@ export function FacturationContent() {
         setSelectedInvoice(newInv);
     };
 
-    const handleExportPdf = (inv: ClientInvoice) => {
+    const handleExportPdf = async (inv: ClientInvoice) => {
         const client = clients.find(c => c.id === inv.clientId);
         const blob = generateClientInvoicePdf(inv, client);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `Facture_${inv.number.replace(/\//g, "-")}.pdf`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const filename = `Facture_${inv.number.replace(/\//g, "-")}.pdf`;
+        const { saveExportFile } = await import("@/lib/export-download");
+        await saveExportFile(filename, blob);
     };
 
     // Depuis Tiers : clientId=... → créer une nouvelle facture client pour ce client
@@ -358,6 +355,10 @@ function ClientInvoiceEditor({ invoice, clients, onSave, onDelete, onExportPdf, 
                                         ref={clientInputRef}
                                         type="text"
                                         value={clientSearch}
+                                        autoComplete="off"
+                                        autoCorrect="off"
+                                        autoCapitalize="off"
+                                        spellCheck={false}
                                         onChange={(e) => {
                                             setClientSearch(e.target.value);
                                             setClientFocusIndex(-1);

@@ -24,7 +24,7 @@ import {
     ImagePlus
 } from "lucide-react";
 import { useEffect, useState, useRef, useMemo } from "react";
-import { cn } from "@/lib/utils";
+import { cn, confirmDialog } from "@/lib/utils";
 import { Recipe, Family, SubFamily, Ingredient, Article, Invoice } from "@/lib/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRecipes, useArticles, useInvoices, useFamilies, useSubFamilies, useRecipeMutation, useRecipeDeletion } from "@/lib/hooks/use-data";
@@ -456,8 +456,8 @@ export function ProductionContent() {
         if (!selectedRecipeId) return;
         const rec = recipes.find(r => r.id === selectedRecipeId);
         const name = rec?.name || "cette recette";
-        if (!window.confirm(`Voulez-vous supprimer la recette « ${name} » ?`)) return;
-        if (!window.confirm("Cette action est irréversible. Confirmer définitivement la suppression ?")) return;
+        if (!(await confirmDialog(`Voulez-vous supprimer la recette « ${name} » ?`))) return;
+        if (!(await confirmDialog("Cette action est irréversible. Confirmer définitivement la suppression ?"))) return;
         try {
             await recipeDeletion.mutateAsync(selectedRecipeId);
             queryClient.invalidateQueries({ queryKey: ["articleCounts"] });
@@ -612,8 +612,10 @@ export function ProductionContent() {
                 })(),
             };
             const blob = await pdf(<RecipePdfA4 data={data} />).toBlob();
-            const url = URL.createObjectURL(blob);
-            window.open(url, "_blank", "noopener,noreferrer");
+            const safeName = (recipe.name || "recette").replace(/[/\\?%*:|"]/g, "_").slice(0, 50);
+            const filename = `Fiche_Recette_${safeName}_A4.pdf`;
+            const { saveExportFileAndOpen } = await import("@/lib/export-download");
+            await saveExportFileAndOpen(filename, blob);
         } else {
             const data = {
                 name: recipe.name,
@@ -657,8 +659,10 @@ export function ProductionContent() {
                 })(),
             };
             const blob = await pdf(<RecipePdfA5 data={data} />).toBlob();
-            const url = URL.createObjectURL(blob);
-            window.open(url, "_blank", "noopener,noreferrer");
+            const safeName = (recipe.name || "recette").replace(/[/\\?%*:|"]/g, "_").slice(0, 50);
+            const filename = `Fiche_Recette_${safeName}_A5.pdf`;
+            const { saveExportFileAndOpen } = await import("@/lib/export-download");
+            await saveExportFileAndOpen(filename, blob);
         }
     };
 
@@ -692,6 +696,10 @@ export function ProductionContent() {
                                         }}
                                         onFocus={() => setShowFamilyDropdown(true)}
                                         onBlur={() => setTimeout(() => setShowFamilyDropdown(false), 200)}
+                                        autoComplete="off"
+                                        autoCorrect="off"
+                                        autoCapitalize="off"
+                                        spellCheck={false}
                                         onKeyDown={(e) => {
                                             if (e.key === "ArrowDown") {
                                                 e.preventDefault();
@@ -790,6 +798,10 @@ export function ProductionContent() {
                                         }}
                                         onFocus={() => setShowSubFamilyDropdown(true)}
                                         onBlur={() => setTimeout(() => setShowSubFamilyDropdown(false), 200)}
+                                        autoComplete="off"
+                                        autoCorrect="off"
+                                        autoCapitalize="off"
+                                        spellCheck={false}
                                         onKeyDown={(e) => {
                                             if (e.key === "ArrowDown") {
                                                 e.preventDefault();
@@ -882,6 +894,10 @@ export function ProductionContent() {
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                         placeholder="Rechercher une recette..."
+                                        autoComplete="off"
+                                        autoCorrect="off"
+                                        autoCapitalize="off"
+                                        spellCheck={false}
                                         className="w-full bg-white border border-slate-200 rounded-xl pl-10 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100 transition-all shadow-sm placeholder:text-slate-300"
                                     />
                                     {searchQuery && (
@@ -1254,6 +1270,10 @@ export function ProductionContent() {
                                                                                         value={ing.name}
                                                                                         onFocus={() => setActiveRowSearch(idx)}
                                                                                         placeholder="Matière première..."
+                                                                                        autoComplete="off"
+                                                                                        autoCorrect="off"
+                                                                                        autoCapitalize="off"
+                                                                                        spellCheck={false}
                                                                                         onKeyDown={(e) => {
                                                                                             const results = getFilteredArticles(ing.name);
                                                                                             if (e.key === "ArrowDown") {

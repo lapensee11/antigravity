@@ -7,7 +7,7 @@ import {
     Save, UserPlus, CreditCard, Clock, Activity, Briefcase, Hash, Phone, MapPin,
     Calendar as CalendarIcon, Heart, Baby, LogOut, Users, Minus, User, DollarSign, Mail, Building2, UserCircle, Calculator, Edit3, Table, ArrowRight, Cake, Banknote, Gift, RefreshCw, Lock, Unlock
 } from "lucide-react";
-import { cn, formatPhoneNumber } from "@/lib/utils";
+import { cn, formatPhoneNumber, confirmDialog } from "@/lib/utils";
 import {
     getEmployees,
     saveEmployee,
@@ -468,7 +468,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         if (!selectedEmployee || !selectedEmployee.history) return;
 
         // Confirm before deleting
-        if (!confirm("Voulez-vous vraiment supprimer cet événement de l'historique ?")) return;
+        if (!(await confirmDialog("Voulez-vous vraiment supprimer cet événement de l'historique ?"))) return;
 
         const updatedHistory = [...selectedEmployee.history];
         updatedHistory.splice(index, 1);
@@ -543,7 +543,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
     const handleDeleteEmployee = async () => {
         if (selectedEmployeeId === null) return;
-        if (confirm("Supprimer cet employé ?")) {
+        if (await confirmDialog("Supprimer cet employé ?")) {
             await deleteEmployee(selectedEmployeeId);
             const newEmployees = employees.filter(e => e.id !== selectedEmployeeId);
             setLocalEmployees(newEmployees);
@@ -760,7 +760,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
     };
 
-    const handleExportExcel = () => {
+    const handleExportExcel = async () => {
         const dataToExport = sortedEmployees.map(emp => {
             const mData = getMonthlyData(emp);
             const netAtPay = calculateNet(emp);
@@ -853,12 +853,11 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
         ws['!cols'] = colWidths;
 
         const wb = XLSX.utils.book_new();
-
-
         XLSX.utils.book_append_sheet(wb, ws, journalSubView);
-
         const fileName = `Journal_Paye_${journalSubView}_${currentMonth}_${currentYear}.xlsx`;
-        XLSX.writeFile(wb, fileName);
+        const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+        const { saveExportFile } = await import("@/lib/export-download");
+        await saveExportFile(fileName, wbout);
     };
 
     const totals = useMemo(() => {
@@ -899,14 +898,14 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
     const handleCloseMonthToggle = async () => {
         const key = `${currentMonth}_${currentYear}`;
         if (isMonthClosed) {
-            if (confirm("Attention: La réouverture du mois supprimera les transactions financières générées. Voulez-vous continuer ?")) {
+            if (await confirmDialog("Attention: La réouverture du mois supprimera les transactions financières générées. Voulez-vous continuer ?")) {
                 await unclosePayrollMonth(key);
                 // Refresh
                 const emps = await getEmployees();
                 setLocalEmployees(emps);
             }
         } else {
-            if (confirm(`Confirmez-vous la clôture de ${currentMonth} ${currentYear} ?\n\n- Les paiements seront verrouillés.\n- Les retenues sur prêt seront appliquées sur la dette.\n- Les transactions financières (Banque/Caisse/Coffre) seront générées.\n- Le mois suivant sera initialisé.`)) {
+            if (await confirmDialog(`Confirmez-vous la clôture de ${currentMonth} ${currentYear} ?\n\n- Les paiements seront verrouillés.\n- Les retenues sur prêt seront appliquées sur la dette.\n- Les transactions financières (Banque/Caisse/Coffre) seront générées.\n- Le mois suivant sera initialisé.`)) {
                 // Calculate Next Month Key
                 const currentIdx = MONTHS.indexOf(currentMonth);
                 let nextMonthName = "";
@@ -1150,12 +1149,12 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                 {/* === TOP BANDEAU (IMAGE STYLE) === */}
                 <div className="h-20 bg-white border-b border-slate-100 flex items-center justify-between px-10 z-30 shrink-0 shadow-sm">
                     <div className="flex items-center gap-0">
-                        <div className="w-[356px] text-2xl font-black text-slate-800 tracking-tight">Paye</div>
+                        <div className="w-[356px] text-[26px] font-black text-slate-800 tracking-tight">Paye</div>
                         <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-100">
                             <button
                                 onClick={() => { setViewMode("JOURNAL"); setJournalSubView("SAISIE"); }}
                                 className={cn(
-                                    "px-6 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                                    "px-6 py-2 rounded-lg text-[12px] font-bold uppercase tracking-widest transition-all",
                                     (viewMode === "JOURNAL" && journalSubView === "SAISIE") ? "bg-white text-blue-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
                                 )}
                             >
@@ -1164,7 +1163,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                             <button
                                 onClick={() => { setViewMode("JOURNAL"); setJournalSubView("COMPTABLE"); }}
                                 className={cn(
-                                    "px-6 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                                    "px-6 py-2 rounded-lg text-[12px] font-bold uppercase tracking-widest transition-all",
                                     (viewMode === "JOURNAL" && journalSubView === "COMPTABLE") ? "bg-white text-blue-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
                                 )}
                             >
@@ -1173,7 +1172,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                             <button
                                 onClick={() => setViewMode("BASE")}
                                 className={cn(
-                                    "px-6 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                                    "px-6 py-2 rounded-lg text-[12px] font-bold uppercase tracking-widest transition-all",
                                     viewMode === "BASE" ? "bg-white text-blue-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
                                 )}
                             >
@@ -1221,7 +1220,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                     <button onClick={() => setCurrentYear(prev => prev - 1)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors">
                                         <ChevronLeft className="w-5 h-5 text-slate-400" />
                                     </button>
-                                    <span className="text-xl font-black text-slate-800 tracking-tighter">{currentYear}</span>
+                                    <span className="text-[22px] font-black text-slate-800 tracking-tighter">{currentYear}</span>
                                     <button onClick={() => setCurrentYear(prev => prev + 1)} className="p-2 hover:bg-slate-50 rounded-xl transition-colors">
                                         <ChevronRight className="w-5 h-5 text-slate-400" />
                                     </button>
@@ -1236,7 +1235,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                 setIsDatePickerOpen(false);
                                             }}
                                             className={cn(
-                                                "py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                                "py-3 rounded-xl text-[12px] font-black uppercase tracking-widest transition-all",
                                                 currentMonth === m
                                                     ? "bg-blue-600 text-white shadow-lg shadow-blue-100"
                                                     : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
@@ -1251,14 +1250,14 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                     </div>
 
                     <div className="flex items-center gap-3">
-                        <button className="flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-slate-50 border border-slate-100 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:bg-white hover:text-orange-500 hover:border-orange-100 transition-all shadow-sm">
+                        <button className="flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-slate-50 border border-slate-100 text-slate-400 font-black text-[12px] uppercase tracking-widest hover:bg-white hover:text-orange-500 hover:border-orange-100 transition-all shadow-sm">
                             <RefreshCw className="w-3.5 h-3.5" />
                             Reset Futurs
                         </button>
                         <button
                             onClick={handleCloseMonthToggle}
                             className={cn(
-                                "flex items-center gap-2 px-8 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-xl shadow-slate-200/50",
+                                "flex items-center gap-2 px-8 py-2.5 rounded-2xl font-black text-[12px] uppercase tracking-widest transition-all shadow-xl shadow-slate-200/50",
                                 isMonthClosed
                                     ? "bg-slate-800 hover:bg-slate-700 text-orange-500"
                                     : "bg-[#2D3748] hover:bg-slate-700 text-white"
@@ -1270,7 +1269,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
                         <button
                             onClick={handleExportExcel}
-                            className="flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-600 font-black text-[10px] uppercase tracking-widest hover:bg-blue-50 hover:text-blue-600 hover:border-blue-100 transition-all shadow-sm"
+                            className="flex items-center gap-2 px-6 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-600 font-black text-[12px] uppercase tracking-widest hover:bg-blue-50 hover:text-blue-600 hover:border-blue-100 transition-all shadow-sm"
                         >
                             <Download className="w-3.5 h-3.5" />
                             Excel
@@ -1349,7 +1348,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                     <>
                                                         {/* Matr */}
                                                         <div className="w-[3.5%] flex items-center gap-1.5 h-full">
-                                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{emp.matricule || `M00${emp.id}`}</div>
+                                                            <div className="text-[12px] font-bold text-slate-400 uppercase tracking-tighter">{emp.matricule || `M00${emp.id}`}</div>
                                                             <div className={cn(
                                                                 "w-1.5 h-1.5 rounded-full shrink-0",
                                                                 emp.gender === 'H' || emp.gender === 'M' || emp.gender === 'Male' ? "bg-blue-400" : "bg-red-400"
@@ -1503,7 +1502,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     : ((emp.creditInfo?.remaining || 0) - (mData.monthlyDeduction || 0));
 
                                                                 return projected > 0 && (
-                                                                    <div className="text-[9px] font-bold bg-orange-500 text-white px-1.5 py-px rounded mt-0.5 shadow-sm">
+                                                                    <div className="text-[11px] font-bold bg-orange-500 text-white px-1.5 py-px rounded mt-0.5 shadow-sm">
                                                                         {projected.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="opacity-70 text-[8px]">Dh</span>
                                                                     </div>
                                                                 );
@@ -1539,7 +1538,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                     <div className="flex items-stretch h-16 w-full px-4 transition-colors">
                                                         {/* Matr */}
                                                         <div className="w-[5%] flex items-center gap-1.5 h-full">
-                                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{emp.matricule || `M00${emp.id}`}</span>
+                                                            <span className="text-[12px] font-bold text-slate-400 uppercase tracking-tighter">{emp.matricule || `M00${emp.id}`}</span>
                                                             <div className={cn(
                                                                 "w-1.5 h-1.5 rounded-full shrink-0",
                                                                 emp.gender === 'H' || emp.gender === 'M' || emp.gender === 'Male' ? "bg-blue-400" : "bg-red-400"
@@ -1618,7 +1617,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
                                                         {/* Salaire Net */}
                                                         <div className="w-[11%] flex items-center justify-end pr-4 text-[13px] font-black text-[#A67C00]">
-                                                            {calculateCompta(emp).salaireNet.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[9px] opacity-70">Dh</span>
+                                                            {calculateCompta(emp).salaireNet.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[11px] opacity-70">Dh</span>
                                                         </div>
 
                                                     </div>
@@ -1637,14 +1636,14 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         {/* Salarié */}
                                         <div className="w-[13.5%] flex items-center gap-2 pl-4 border-r border-[#34495E]">
                                             <Users className="w-4 h-4 text-slate-400" />
-                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{employees.length} Salaries</span>
+                                            <span className="text-[12px] font-black text-slate-400 uppercase tracking-widest">{employees.length} Salaries</span>
                                         </div>
 
                                         {/* Net Cible Total */}
                                         <div className="w-[7.5%] text-center">
                                             <div className="text-[11px] font-black text-[#2ECC71]">
                                                 {totals.netCible.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
+                                                <span className="text-[11px] ml-0.5 opacity-70">Dh</span>
                                             </div>
                                         </div>
 
@@ -1654,7 +1653,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Masse</span>
                                                 <div className="text-[11px] font-black text-white">
                                                     {(totals.netPayer + totals.retenuePret + totals.avances + totals.virement).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                    <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
+                                                    <span className="text-[11px] ml-0.5 opacity-70">Dh</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -1675,7 +1674,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         <div className="w-[7%] text-center">
                                             <div className="text-[11px] font-black text-[#F39C12]">
                                                 {totals.virement.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
+                                                <span className="text-[11px] ml-0.5 opacity-70">Dh</span>
                                             </div>
                                         </div>
 
@@ -1683,7 +1682,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         <div className="w-[7%] text-center">
                                             <div className="text-[11px] font-black text-[#F39C12]">
                                                 {totals.avances.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
+                                                <span className="text-[11px] ml-0.5 opacity-70">Dh</span>
                                             </div>
                                         </div>
 
@@ -1691,7 +1690,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         <div className="w-[8%] text-center border-r border-[#34495E]">
                                             <div className="text-[11px] font-black text-[#F39C12]">
                                                 {totals.retenuePret.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                <span className="text-[9px] ml-0.5 opacity-70">Dh</span>
+                                                <span className="text-[11px] ml-0.5 opacity-70">Dh</span>
                                             </div>
                                         </div>
 
@@ -1699,7 +1698,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         <div className="w-[8%] text-right pr-4">
                                             <div className="text-[13px] font-black text-white">
                                                 {totals.netPayer.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                <span className="text-[10px] ml-0.5 opacity-70 italic font-medium">Dh</span>
+                                                <span className="text-[12px] ml-0.5 opacity-70 italic font-medium">Dh</span>
                                             </div>
                                         </div>
 
@@ -1714,7 +1713,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         {/* Salarié */}
                                         <div className="w-[14%] flex items-center gap-2 border-r border-[#8C6900]">
                                             <Users className="w-4 h-4 text-white/70" />
-                                            <span className="text-[9px] font-black uppercase tracking-widest">{employees.length} Salaries</span>
+                                            <span className="text-[11px] font-black uppercase tracking-widest">{employees.length} Salaries</span>
                                         </div>
 
                                         {/* Net Cible Total */}
@@ -1735,38 +1734,38 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                         <div className="w-[6%]" />
 
                                         {/* Brut Total */}
-                                        <div className="w-[7%] flex items-center justify-center text-[10px] font-bold opacity-80">
+                                        <div className="w-[7%] flex items-center justify-center text-[12px] font-bold opacity-80">
                                             {totals.brut.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
                                         {/* Brut Imp */}
-                                        <div className="w-[8%] flex items-center justify-center text-[10px] font-bold opacity-80">
+                                        <div className="w-[8%] flex items-center justify-center text-[12px] font-bold opacity-80">
                                             {totals.brutImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
                                         {/* Net Imp */}
-                                        <div className="w-[8%] flex items-center justify-center text-[10px] font-bold opacity-80 border-r border-[#8C6900]/30">
+                                        <div className="w-[8%] flex items-center justify-center text-[12px] font-bold opacity-80 border-r border-[#8C6900]/30">
                                             {totals.netImposable.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
                                         {/* CNSS */}
-                                        <div className="w-[6%] flex items-center justify-center text-[10px] font-bold opacity-80">
+                                        <div className="w-[6%] flex items-center justify-center text-[12px] font-bold opacity-80">
                                             {totals.cnss.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
                                         {/* AMO */}
-                                        <div className="w-[6%] flex items-center justify-center text-[10px] font-bold opacity-80">
+                                        <div className="w-[6%] flex items-center justify-center text-[12px] font-bold opacity-80">
                                             {totals.amo.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
                                         {/* IR */}
-                                        <div className="w-[6%] flex items-center justify-center text-[10px] font-bold opacity-80 border-r border-[#8C6900]/30">
+                                        <div className="w-[6%] flex items-center justify-center text-[12px] font-bold opacity-80 border-r border-[#8C6900]/30">
                                             {totals.ir.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </div>
 
                                         {/* Salaire Net */}
                                         <div className="w-[11%] flex items-center justify-end pr-4 text-[13px] font-black text-white">
-                                            {totals.salaireNet.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[9px] opacity-70">Dh</span>
+                                            {totals.salaireNet.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[11px] opacity-70">Dh</span>
                                         </div>
                                     </div>
                                 )}
@@ -1781,7 +1780,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                 {/* Sidebar Column Card */}
                                 <div className="w-[360px] bg-[#F6F8FC] border-r border-slate-200 flex flex-col shrink-0 overflow-hidden">
                                     <div className="p-5 pb-2">
-                                        <h2 className="text-3xl font-black text-slate-800 tracking-tight">Personnel</h2>
+                                        <h2 className="text-[32px] font-black text-slate-800 tracking-tight">Personnel</h2>
                                         <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mt-1 mb-8">Base de données RH</p>
 
                                         {/* Filtres : 3 Pill Tabs */}
@@ -1791,7 +1790,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                     key={f}
                                                     onClick={() => setFilterStatus(f as any)}
                                                     className={cn(
-                                                        "flex-1 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all",
+                                                        "flex-1 py-2 rounded-xl text-[12px] font-black tracking-widest transition-all",
                                                         filterStatus === f
                                                             ? "bg-slate-800 text-white shadow-md"
                                                             : "text-slate-400 hover:text-slate-600 hover:bg-slate-100/50"
@@ -1810,7 +1809,11 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                     value={searchQuery}
                                                     onChange={(e) => setSearchQuery(e.target.value)}
                                                     placeholder="Rechercher..."
-                                                    className="w-full bg-white border-none rounded-2xl pl-12 pr-10 py-3 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-100 shadow-sm shadow-slate-200/50 transition-all placeholder:text-slate-300"
+                                                    autoComplete="off"
+                                                    autoCorrect="off"
+                                                    autoCapitalize="off"
+                                                    spellCheck={false}
+                                                    className="w-full bg-white border-none rounded-2xl pl-12 pr-10 py-3 text-base font-bold focus:outline-none focus:ring-2 focus:ring-blue-100 shadow-sm shadow-slate-200/50 transition-all placeholder:text-slate-300"
                                                 />
                                                 {searchQuery && (
                                                     <button
@@ -1880,7 +1883,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     {emp.lastName} {emp.firstName}
                                                                 </span>
                                                                 <div className="flex flex-col items-end gap-0.5 shrink-0">
-                                                                    <span className="text-[10px] font-black text-slate-400 tracking-widest">
+                                                                    <span className="text-[12px] font-black text-slate-400 tracking-widest">
                                                                         {emp.matricule || `M00${emp.id}`}
                                                                     </span>
                                                                     {emp.declarationStatus === "ND" && (
@@ -1896,7 +1899,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                 </div>
                                                             </div>
                                                             <div className="flex items-center justify-between mt-0.5">
-                                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{emp.role}</span>
+                                                                <span className="text-[12px] font-bold text-slate-400 uppercase tracking-wider">{emp.role}</span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1904,7 +1907,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                             );
                                         })}
                                     </div>
-                                    <div className="p-4 border-t border-slate-200 bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
+                                    <div className="p-4 border-t border-slate-200 bg-slate-50 text-[12px] font-black text-slate-400 uppercase tracking-widest text-center">
                                         {filteredEmployees.length} Salarié{filteredEmployees.length > 1 ? 's' : ''} : <span className="text-blue-600">{filteredEmployees.filter(e => e.gender !== 'F').length} H</span>, <span className="text-red-600">{filteredEmployees.filter(e => e.gender === 'F').length} F</span>
                                     </div>
                                 </div>
@@ -1988,9 +1991,9 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     <div className="ml-auto flex items-center gap-3">
                                                                         {/* Delete Employee Button - Red Contrast Style */}
                                                                         <button
-                                                                            onClick={(e) => {
+                                                                            onClick={async (e) => {
                                                                                 e.stopPropagation();
-                                                                                if (confirm(`Êtes-vous sûr de vouloir supprimer définitivement ${selectedEmployee.lastName} ${selectedEmployee.firstName} ?`)) {
+                                                                                if (await confirmDialog(`Êtes-vous sûr de vouloir supprimer définitivement ${selectedEmployee.lastName} ${selectedEmployee.firstName} ?`)) {
                                                                                     handleDeleteEmployee();
                                                                                 }
                                                                             }}
@@ -2049,7 +2052,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     </div>
                                                                     {selectedEmployee.declarationStatus === "ND" && (
                                                                         <span className={cn(
-                                                                            "px-1.5 py-0.5 rounded-[4px] border text-[9px] font-black uppercase tracking-wider",
+                                                                            "px-1.5 py-0.5 rounded-[4px] border text-[11px] font-black uppercase tracking-wider",
                                                                             selectedEmployee.gender === "F"
                                                                                 ? "bg-red-100 text-red-600 border-red-200"
                                                                                 : "bg-blue-100 text-blue-600 border-blue-200"
@@ -2066,7 +2069,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     <button
                                                                         onClick={() => handleEmployeeChange(selectedEmployee.id, 'declarationStatus', 'D')}
                                                                         className={cn(
-                                                                            "px-2 py-0.5 rounded-md text-[9px] font-black transition-all",
+                                                                            "px-2 py-0.5 rounded-md text-[11px] font-black transition-all",
                                                                             (selectedEmployee.declarationStatus || "D") === "D"
                                                                                 ? "bg-white text-emerald-600 shadow-sm border border-slate-100"
                                                                                 : "text-slate-400 hover:text-slate-600"
@@ -2077,7 +2080,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                     <button
                                                                         onClick={() => handleEmployeeChange(selectedEmployee.id, 'declarationStatus', 'ND')}
                                                                         className={cn(
-                                                                            "px-2 py-0.5 rounded-md text-[9px] font-black transition-all",
+                                                                            "px-2 py-0.5 rounded-md text-[11px] font-black transition-all",
                                                                             selectedEmployee.declarationStatus === "ND"
                                                                                 ? "bg-white text-red-600 shadow-sm border border-slate-100"
                                                                                 : "text-slate-400 hover:text-slate-600"
@@ -2100,7 +2103,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                         onChange={() => handleEmployeeChange(selectedEmployee.id, 'gender', 'M')}
                                                                         className="w-3.5 h-3.5 text-blue-600 focus:ring-blue-500 border-slate-300 transition-all cursor-pointer"
                                                                     />
-                                                                    <span className="text-[10px] font-black text-slate-400 group-hover/radio:text-blue-600 uppercase transition-colors">Homme</span>
+                                                                    <span className="text-[12px] font-black text-slate-400 group-hover/radio:text-blue-600 uppercase transition-colors">Homme</span>
                                                                 </label>
                                                                 <label className="flex items-center gap-2 cursor-pointer group/radio">
                                                                     <input
@@ -2111,7 +2114,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                         onChange={() => handleEmployeeChange(selectedEmployee.id, 'gender', 'F')}
                                                                         className="w-3.5 h-3.5 text-red-600 focus:ring-red-500 border-slate-300 transition-all cursor-pointer"
                                                                     />
-                                                                    <span className="text-[10px] font-black text-slate-400 group-hover/radio:text-red-600 uppercase transition-colors">Femme</span>
+                                                                    <span className="text-[12px] font-black text-slate-400 group-hover/radio:text-red-600 uppercase transition-colors">Femme</span>
                                                                 </label>
                                                             </div>
                                                         )}
@@ -2165,7 +2168,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                     <span className="text-base font-black text-slate-800 tracking-tight">{formatDate(selectedEmployee.birthDate)}</span>
                                                                                     {age !== null && (
                                                                                         <span className={cn(
-                                                                                            "text-[10px] font-black px-2 py-0.5 rounded-lg border transition-colors duration-300",
+                                                                                            "text-[12px] font-black px-2 py-0.5 rounded-lg border transition-colors duration-300",
                                                                                             selectedEmployee.contract?.exitDate
                                                                                                 ? "bg-slate-50 text-slate-400 border-slate-200"
                                                                                                 : selectedEmployee.gender === "F"
@@ -2451,16 +2454,16 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                             return (
                                                                 <div className="grid grid-cols-3 gap-2 mb-4">
                                                                     <div className="bg-emerald-50 border border-emerald-100 rounded-full aspect-square w-32 mx-auto flex flex-col items-center justify-center shadow-sm">
-                                                                        <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Congés</span>
-                                                                        <span className="text-xl font-black text-emerald-700 leading-none">{totalLeave}J</span>
+                                                                        <span className="text-[12px] font-black text-emerald-600 uppercase tracking-widest mb-1">Congés</span>
+                                                                        <span className="text-[22px] font-black text-emerald-700 leading-none">{totalLeave}J</span>
                                                                     </div>
                                                                     <div className="bg-slate-50 border border-slate-100 rounded-2xl p-6 flex flex-col justify-center items-center shadow-[0_4px_6px_-1px_rgba(100,116,139,0.2)] relative overflow-hidden">
-                                                                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Dernier Salaire</span>
-                                                                        <span className="text-2xl font-black text-slate-800 leading-none">{(selectedEmployee.contract?.baseSalary || 0).toLocaleString()} <span className="text-[12px] opacity-70">Dh</span></span>
+                                                                        <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">Dernier Salaire</span>
+                                                                        <span className="text-[26px] font-black text-slate-800 leading-none">{(selectedEmployee.contract?.baseSalary || 0).toLocaleString()} <span className="text-[12px] opacity-70">Dh</span></span>
                                                                     </div>
                                                                     <div className="bg-emerald-50 border border-emerald-100 rounded-full aspect-square w-32 mx-auto flex flex-col items-center justify-center shadow-sm">
-                                                                        <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Taux Anc.</span>
-                                                                        <span className="text-xl font-black text-emerald-700 leading-none">
+                                                                        <span className="text-[12px] font-black text-emerald-600 uppercase tracking-widest mb-1">Taux Anc.</span>
+                                                                        <span className="text-[22px] font-black text-emerald-700 leading-none">
                                                                             {seniorityRate}%
                                                                         </span>
                                                                     </div>
@@ -2470,43 +2473,43 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                         <div className="col-span-3 bg-slate-50 border border-slate-100 rounded-2xl p-4 shadow-[0_4px_6px_-1px_rgba(100,116,139,0.2)]">
                                                             <div className="grid grid-cols-3 gap-2">
                                                                 <div className="flex flex-col items-center justify-center">
-                                                                    <span className="text-[10px] font-black text-slate-400 uppercase mb-2">Montant Prêté</span>
+                                                                    <span className="text-[12px] font-black text-slate-400 uppercase mb-2">Montant Prêté</span>
                                                                     {isEditing ? (
                                                                         <input
                                                                             type="number"
                                                                             value={selectedEmployee.creditInfo?.loanAmount || 0}
                                                                             onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'creditInfo.loanAmount', Number(e.target.value))}
-                                                                            className="bg-transparent text-lg font-black text-slate-800 focus:outline-none text-center w-full"
+                                                                            className="bg-transparent text-[22px] font-black text-slate-800 focus:outline-none text-center w-full"
                                                                         />
                                                                     ) : (
-                                                                        <span className="text-lg font-black text-slate-800">
-                                                                            {(selectedEmployee.creditInfo?.loanAmount || 0).toLocaleString('fr-FR')} <span className="text-xs opacity-50">Dh</span>
+                                                                        <span className="text-[22px] font-black text-slate-800">
+                                                                            {(selectedEmployee.creditInfo?.loanAmount || 0).toLocaleString('fr-FR')} <span className="text-[14px] opacity-50">Dh</span>
                                                                         </span>
                                                                     )}
                                                                 </div>
 
                                                                 <div className="flex flex-col items-center justify-center">
-                                                                    <span className="text-[10px] font-black text-blue-600 uppercase mb-2">Remboursé</span>
+                                                                    <span className="text-[12px] font-black text-blue-600 uppercase mb-2">Remboursé</span>
                                                                     {isEditing ? (
                                                                         <input
                                                                             type="number"
                                                                             value={selectedEmployee.creditInfo?.payments || 0}
                                                                             onChange={(e) => handleEmployeeChange(selectedEmployee.id, 'creditInfo.payments', Number(e.target.value))}
-                                                                            className="bg-transparent text-lg font-black text-blue-600 focus:outline-none text-center w-full"
+                                                                            className="bg-transparent text-[22px] font-black text-blue-600 focus:outline-none text-center w-full"
                                                                         />
                                                                     ) : (
-                                                                        <span className="text-lg font-black text-blue-600">
-                                                                            {(selectedEmployee.creditInfo?.payments || 0).toLocaleString('fr-FR')} <span className="text-xs opacity-50">Dh</span>
+                                                                        <span className="text-[22px] font-black text-blue-600">
+                                                                            {(selectedEmployee.creditInfo?.payments || 0).toLocaleString('fr-FR')} <span className="text-[14px] opacity-50">Dh</span>
                                                                         </span>
                                                                     )}
                                                                 </div>
 
                                                                 <div className="flex flex-col items-center justify-center">
-                                                                    <span className="text-[10px] font-black text-red-500 uppercase mb-2">Reste Dû</span>
-                                                                    <span className="text-xl font-black text-red-600">
+                                                                    <span className="text-[12px] font-black text-red-500 uppercase mb-2">Reste Dû</span>
+                                                                    <span className="text-[22px] font-black text-red-600">
                                                                         {(selectedEmployee.creditInfo?.remaining ||
                                                                             ((selectedEmployee.creditInfo?.loanAmount || 0) - (selectedEmployee.creditInfo?.payments || 0))
-                                                                        ).toLocaleString('fr-FR')} <span className="text-xs opacity-50">Dh</span>
+                                                                        ).toLocaleString('fr-FR')} <span className="text-[14px] opacity-50">Dh</span>
                                                                     </span>
                                                                 </div>
                                                             </div>
@@ -2571,7 +2574,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                 {isEditing && !isAddingNewHistory && editingHistoryIndex === null && (
                                                                     <button
                                                                         onClick={handleStartAdding}
-                                                                        className="w-full mb-4 py-2 border-2 border-dashed border-blue-200 rounded-xl text-blue-400 text-[10px] font-black uppercase tracking-widest hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
+                                                                        className="w-full mb-4 py-2 border-2 border-dashed border-blue-200 rounded-xl text-blue-400 text-[12px] font-black uppercase tracking-widest hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
                                                                     >
                                                                         <Plus className="w-3.5 h-3.5" />
                                                                         Ajouter un événement
@@ -2580,7 +2583,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
 
                                                                 {isAddingNewHistory && (
                                                                     <div className="relative p-3.5 rounded-2xl bg-blue-50/50 border border-blue-100 ring-4 ring-blue-50 mb-6">
-                                                                        <div className="absolute -left-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-[10px] font-black shadow-sm z-10 border-4 border-white">
+                                                                        <div className="absolute -left-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-[12px] font-black shadow-sm z-10 border-4 border-white">
                                                                             <Plus className="w-3 h-3" />
                                                                         </div>
                                                                         {/* --- MODE SAISIE (INLINE FORM) --- */}
@@ -2590,7 +2593,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                 <select
                                                                                     value={newHistoryType}
                                                                                     onChange={(e) => setNewHistoryType(e.target.value)}
-                                                                                    className="w-[85px] bg-transparent text-[9px] font-black uppercase text-blue-600 focus:outline-none pl-1"
+                                                                                    className="w-[85px] bg-transparent text-[11px] font-black uppercase text-blue-600 focus:outline-none pl-1"
                                                                                 >
                                                                                     <option value="AUGMENTATION">AUGMENTATION</option>
                                                                                     <option value="PRIMES">PRIMES</option>
@@ -2601,7 +2604,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                 <DateInput
                                                                                     value={newHistoryDate}
                                                                                     onChange={setNewHistoryDate}
-                                                                                    className="w-[70px] text-[9px] h-4 leading-none border-none p-0 focus:ring-0"
+                                                                                    className="w-[70px] text-[11px] h-4 leading-none border-none p-0 focus:ring-0"
                                                                                 />
                                                                             </div>
                                                                             {/* Row 2: Salary / Prime / Buttons */}
@@ -2611,7 +2614,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                         type="number"
                                                                                         value={newHistoryAmount}
                                                                                         onChange={(e) => setNewHistoryAmount(Number(e.target.value))}
-                                                                                        className="w-full bg-white border border-blue-200 rounded-lg pl-7 pr-2 py-1 text-[10px] font-bold text-slate-700 h-8"
+                                                                                        className="w-full bg-white border border-blue-200 rounded-lg pl-7 pr-2 py-1 text-[12px] font-bold text-slate-700 h-8"
                                                                                         placeholder="Sal."
                                                                                     />
                                                                                     <Banknote className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
@@ -2621,7 +2624,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                         type="number"
                                                                                         value={newHistoryUndeclaredBonus}
                                                                                         onChange={(e) => setNewHistoryUndeclaredBonus(Number(e.target.value))}
-                                                                                        className="w-full bg-white border border-blue-200 rounded-lg pl-7 pr-2 py-1 text-[10px] font-bold text-slate-700 h-8"
+                                                                                        className="w-full bg-white border border-blue-200 rounded-lg pl-7 pr-2 py-1 text-[12px] font-bold text-slate-700 h-8"
                                                                                         placeholder="Pri."
                                                                                     />
                                                                                     <Gift className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
@@ -2689,7 +2692,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                         <select
                                                                                             value={newHistoryType}
                                                                                             onChange={(e) => setNewHistoryType(e.target.value)}
-                                                                                            className="w-[85px] bg-transparent text-[9px] font-black uppercase text-blue-600 focus:outline-none pl-1"
+                                                                                            className="w-[85px] bg-transparent text-[11px] font-black uppercase text-blue-600 focus:outline-none pl-1"
                                                                                         >
                                                                                             <option value="AUGMENTATION">AUGMENTATION</option>
                                                                                             <option value="PRIMES">PRIMES</option>
@@ -2700,7 +2703,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                         <DateInput
                                                                                             value={newHistoryDate}
                                                                                             onChange={setNewHistoryDate}
-                                                                                            className="w-[70px] text-[9px] h-4 leading-none border-none p-0 focus:ring-0"
+                                                                                            className="w-[70px] text-[11px] h-4 leading-none border-none p-0 focus:ring-0"
                                                                                         />
                                                                                     </div>
                                                                                     {/* Row 2: Salary / Prime / Buttons */}
@@ -2710,7 +2713,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                                 type="number"
                                                                                                 value={newHistoryAmount}
                                                                                                 onChange={(e) => setNewHistoryAmount(Number(e.target.value))}
-                                                                                                className="w-full bg-white border border-blue-200 rounded-lg pl-7 pr-2 py-1 text-[10px] font-bold text-slate-700 h-8"
+                                                                                                className="w-full bg-white border border-blue-200 rounded-lg pl-7 pr-2 py-1 text-[12px] font-bold text-slate-700 h-8"
                                                                                                 placeholder="Sal."
                                                                                             />
                                                                                             <Banknote className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
@@ -2720,7 +2723,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                                 type="number"
                                                                                                 value={newHistoryUndeclaredBonus}
                                                                                                 onChange={(e) => setNewHistoryUndeclaredBonus(Number(e.target.value))}
-                                                                                                className="w-full bg-white border border-blue-200 rounded-lg pl-7 pr-2 py-1 text-[10px] font-bold text-slate-700 h-8"
+                                                                                                className="w-full bg-white border border-blue-200 rounded-lg pl-7 pr-2 py-1 text-[12px] font-bold text-slate-700 h-8"
                                                                                                 placeholder="Pri."
                                                                                             />
                                                                                             <Gift className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
@@ -2747,7 +2750,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                     {/* Row 1: Type / Date */}
                                                                                     <div className="flex items-center justify-between">
                                                                                         <span className={cn(
-                                                                                            "text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border",
+                                                                                            "text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border",
                                                                                             isLatest
                                                                                                 ? (selectedEmployee.contract?.exitDate
                                                                                                     ? "bg-slate-500 text-white border-slate-400"
@@ -2756,7 +2759,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                         )}>
                                                                                             {(event as any).type}
                                                                                         </span>
-                                                                                        <span className={cn("text-[10px] font-bold", isLatest ? "text-white/80" : "text-slate-400")}>
+                                                                                        <span className={cn("text-[12px] font-bold", isLatest ? "text-white/80" : "text-slate-400")}>
                                                                                             {formatDate(event.date)}
                                                                                         </span>
                                                                                     </div>
@@ -2773,8 +2776,8 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                                 )}>
                                                                                                     <Banknote className="w-3 h-3" />
                                                                                                 </div>
-                                                                                                <span className={cn("text-sm font-black tracking-tight", isLatest ? "text-white" : "text-slate-800")}>
-                                                                                                    {event.amount.toLocaleString()} <span className="text-[9px] font-bold opacity-70">Dh</span>
+                                                                                                <span className={cn("text-base font-black tracking-tight", isLatest ? "text-white" : "text-slate-800")}>
+                                                                                                    {event.amount.toLocaleString()} <span className="text-[11px] font-bold opacity-70">Dh</span>
                                                                                                 </span>
                                                                                             </div>
                                                                                             {/* Bonus */}
@@ -2786,12 +2789,12 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                                     <Gift className="w-3 h-3" />
                                                                                                 </div>
                                                                                                 <span className={cn(
-                                                                                                    "text-xs font-black",
+                                                                                                    "text-[14px] font-black",
                                                                                                     ((event as any).undeclaredBonus ?? (event as any).bonus ?? 0) > 0
                                                                                                         ? (isLatest ? "text-yellow-300" : "text-amber-500")
                                                                                                         : (isLatest ? "text-white/30" : "text-slate-300")
                                                                                                 )}>
-                                                                                                    {((event as any).undeclaredBonus ?? (event as any).bonus ?? 0).toLocaleString()} <span className="text-[9px] font-bold opacity-70">Dh</span>
+                                                                                                    {((event as any).undeclaredBonus ?? (event as any).bonus ?? 0).toLocaleString()} <span className="text-[11px] font-bold opacity-70">Dh</span>
                                                                                                 </span>
                                                                                             </div>
                                                                                         </div>
@@ -2801,8 +2804,8 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                                                                                 <div className="w-px bg-white/20 mx-4" />
                                                                                                 <div className="flex flex-col items-end justify-center py-1">
                                                                                                     <span className="text-[8px] font-black uppercase text-white/50 tracking-tighter mb-0.5">Total Global</span>
-                                                                                                    <span className="text-xl font-black text-white leading-none">
-                                                                                                        {((event as any).total ?? event.amount).toLocaleString()} <span className="text-[10px] opacity-70 font-bold">Dh</span>
+                                                                                                    <span className="text-[22px] font-black text-white leading-none">
+                                                                                                        {((event as any).total ?? event.amount).toLocaleString()} <span className="text-[12px] opacity-70 font-bold">Dh</span>
                                                                                                     </span>
                                                                                                 </div>
                                                                                             </>
@@ -2848,7 +2851,7 @@ export function PayeContent({ initialEmployees = [], defaultViewMode = "JOURNAL"
                                             <div className="w-20 h-20 bg-white shadow-xl shadow-slate-100 rounded-3xl flex items-center justify-center mb-6 border border-slate-50">
                                                 <Users className="w-10 h-10 text-slate-200" />
                                             </div>
-                                            <p className="font-black text-xl text-slate-400 tracking-tight">Sélectionnez un agent pour voir son profil</p>
+                                            <p className="font-black text-[22px] text-slate-400 tracking-tight">Sélectionnez un agent pour voir son profil</p>
                                         </div>
                                     )}
                                 </div>
