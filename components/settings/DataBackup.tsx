@@ -41,6 +41,9 @@ export default function DataBackup() {
         const file = e.target.files?.[0];
         if (!file) return;
 
+        // Reset input so the same file can be re-selected after an error
+        e.target.value = '';
+
         const { confirmDialog } = await import("@/lib/utils");
         if (!(await confirmDialog("Attention : cette opération va écraser TOUTES vos données (paye, structure, articles, ventes). Souhaitez-vous continuer ?"))) {
             return;
@@ -48,32 +51,54 @@ export default function DataBackup() {
 
         const reader = new FileReader();
         reader.onload = async (event) => {
-            try {
-                const data = JSON.parse(event.target?.result as string);
+            const errors: string[] = [];
 
-                // Full Reset: delete and reopen
-                await db.delete();
-                await db.open();
+            try {
+                const raw = event.target?.result as string;
+                let data: any;
+
+                try {
+                    data = JSON.parse(raw);
+                } catch {
+                    alert("Fichier invalide : impossible de lire le JSON.");
+                    return;
+                }
 
                 const tables = [
                     'invoices', 'employees', 'articles', 'tiers', 'recipes',
                     'families', 'subFamilies', 'structureTypes', 'transactions',
                     'salesData', 'accountingNatures', 'accounting_accounts',
-                    'settings', 'partners'
+                    'settings', 'partners', 'cmi_entries', 'clientInvoices', 'cashOutflows'
                 ];
 
+                // Clear then repopulate each table individually (safer than delete/open)
                 for (const table of tables) {
-                    if (data[table] && (db as any)[table]) {
-                        // Use put to avoid collisions, although delete/open should clear everything
-                        await (db as any)[table].bulkPut(data[table]);
+                    const tableStore = (db as any)[table];
+                    if (!tableStore) continue;
+
+                    try {
+                        await tableStore.clear();
+                        if (data[table] && Array.isArray(data[table]) && data[table].length > 0) {
+                            await tableStore.bulkPut(data[table]);
+                        }
+                    } catch (err: any) {
+                        const msg = `Table "${table}" : ${err?.message ?? err}`;
+                        errors.push(msg);
+                        console.error(`[Import] ${msg}`, err);
                     }
                 }
 
-                alert("Restauration complète réussie ! L'application va se recharger.");
+                if (errors.length > 0) {
+                    const detail = errors.join('\n');
+                    alert(`Restauration terminée avec ${errors.length} erreur(s) :\n\n${detail}\n\nLes autres tables ont été restaurées. L'application va se recharger.`);
+                } else {
+                    alert("Restauration complète réussie ! L'application va se recharger.");
+                }
+
                 window.location.reload();
-            } catch (err) {
-                console.error("Import failed", err);
-                alert("Erreur lors de la restauration. Vérifiez le format du fichier.");
+            } catch (err: any) {
+                console.error("[Import] Fatal error", err);
+                alert(`Erreur critique lors de la restauration :\n${err?.message ?? err}`);
             }
         };
         reader.readAsText(file);

@@ -35,10 +35,10 @@ export function Sidebar() {
     const pathname = usePathname();
 
     return (
-        <aside className="fixed left-0 top-0 bottom-0 w-64 flex flex-col z-50 bg-[#F6F8FC] border-r border-slate-200">
+        <aside className="fixed left-0 top-0 bottom-0 w-64 flex flex-col z-50 bg-[#F6F8FC] dark:bg-[#1C1C1E] border-r border-slate-200 dark:border-[#3A3A3C] transition-colors duration-200">
             <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Logo Area - cliquable → Dashboard */}
-                <Link href="/" className="p-6 border-b border-[#E8E2D2] flex justify-center hover:bg-white/30 transition-colors cursor-pointer">
+                <Link href="/" className="p-6 border-b border-[#E8E2D2] dark:border-[#3A3A3C] flex justify-center hover:bg-white/30 dark:hover:bg-white/5 transition-colors cursor-pointer">
                     <div className="w-full max-w-[120px]">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
@@ -62,11 +62,11 @@ export function Sidebar() {
                                 className={cn(
                                     "flex items-center gap-4 px-8 py-4 transition-all duration-200 group font-medium text-sm border-l-4",
                                     isActive
-                                        ? "bg-white border-[#9A1B1F] text-[#9A1B1F] shadow-sm"
-                                        : "border-transparent text-[#5C5C5C] hover:bg-white/50 hover:text-[#9A1B1F]"
+                                        ? "bg-white dark:bg-[#2C2C2E] border-[#9A1B1F] text-[#9A1B1F] shadow-sm"
+                                        : "border-transparent text-[#5C5C5C] dark:text-slate-400 hover:bg-white/50 dark:hover:bg-white/5 hover:text-[#9A1B1F]"
                                 )}
                             >
-                                <Icon className={cn("w-5 h-5 transition-colors", isActive ? "text-[#9A1B1F]" : "text-[#8C8C8C] group-hover:text-[#9A1B1F]")} />
+                                <Icon className={cn("w-5 h-5 transition-colors", isActive ? "text-[#9A1B1F]" : "text-[#8C8C8C] dark:text-slate-500 group-hover:text-[#9A1B1F]")} />
                                 {item.label}
                             </Link>
                         );
@@ -74,12 +74,12 @@ export function Sidebar() {
                 </nav>
 
                 {/* Footer / Settings */}
-                <div className="p-4 border-t border-[#E8E2D2] mt-auto space-y-1">
+                <div className="p-4 border-t border-[#E8E2D2] dark:border-[#3A3A3C] mt-auto space-y-1">
                     <Link
                         href="/settings"
-                        className="flex items-center gap-3 px-4 py-3 rounded-xl text-[#5C5C5C] hover:bg-[#9A1B1F]/[0.11] hover:text-[#9A1B1F] transition-all font-medium text-sm"
+                        className="flex items-center gap-3 px-4 py-3 rounded-xl text-[#5C5C5C] dark:text-slate-400 hover:bg-[#9A1B1F]/[0.11] hover:text-[#9A1B1F] transition-all font-medium text-sm"
                     >
-                        <Settings className="w-5 h-5 text-[#8C8C8C] group-hover:text-[#9A1B1F]" />
+                        <Settings className="w-5 h-5 text-[#8C8C8C] dark:text-slate-500 group-hover:text-[#9A1B1F]" />
                         Paramètres
                     </Link>
                     <button

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-background: #F2F2F7;
   --color-foreground: #1C1C1E;
@@ -23,10 +25,35 @@
   --background: #F2F2F7;
   --foreground: #1C1C1E;
 
+  --surface: #FFFFFF;
+  --surface-secondary: #F2F2F7;
+  --surface-tertiary: #E5E5EA;
+  --border-color: #E5E5EA;
+
+  --text-primary: #1C1C1E;
+  --text-secondary: #3C3C43;
+  --text-muted: #8E8E93;
+
   --buddy-green: #34C759;
   --buddy-purple: #5856D6;
   --buddy-orange: #FF9500;
   --buddy-card-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
+}
+
+.dark {
+  --background: #1C1C1E;
+  --foreground: #F2F2F7;
+
+  --surface: #2C2C2E;
+  --surface-secondary: #1C1C1E;
+  --surface-tertiary: #3A3A3C;
+  --border-color: #3A3A3C;
+
+  --text-primary: #F2F2F7;
+  --text-secondary: #EBEBF5;
+  --text-muted: #8E8E93;
+
+  --buddy-card-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
 }
 
 body {
@@ -34,6 +61,7 @@ body {
   color: var(--foreground);
   font-family: var(--font-outfit), system-ui, sans-serif;
   min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Police Outfit pour les modules (ex. Ventes, Paye) - héritée par les enfants */
@@ -43,31 +71,31 @@ body {
 
 /* Buddy Card Style */
 .glass-card {
-  background-color: #FFFFFF;
+  background-color: var(--surface);
   border-radius: 1.5rem;
-  /* rounded-3xl */
   box-shadow: var(--buddy-card-shadow);
-  border: none;
+  border: 1px solid var(--border-color);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 /* Buddy Input Style */
 .glass-input {
-  background-color: #F2F2F7;
+  background-color: var(--surface-secondary);
   border: none;
   border-radius: 1rem;
   padding: 0.75rem 1rem;
-  color: #1C1C1E;
+  color: var(--text-primary);
   transition: all 0.2s ease;
 }
 
 .glass-input:focus {
-  background-color: #FFFFFF;
+  background-color: var(--surface);
   box-shadow: 0 0 0 2px var(--buddy-purple);
   outline: none;
 }
 
 .glass-input::placeholder {
-  color: #8E8E93;
+  color: var(--text-muted);
 }
 
 /* Input number sans flèches (spinners) */
@@ -98,6 +126,100 @@ body {
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #AEAEB2;
   }
+}
+
+/* =============================================
+   DARK MODE — GLOBAL OVERRIDES
+   Unlayered rules always beat @layer utilities
+   ============================================= */
+
+/* Page wrappers — every page has min-h-screen */
+.dark .min-h-screen {
+  background-color: var(--background);
+}
+
+/* White surfaces */
+.dark .bg-white {
+  background-color: var(--surface);
+}
+.dark .bg-white\/70,
+.dark .bg-white\/80,
+.dark .bg-white\/50,
+.dark .bg-white\/30 {
+  background-color: color-mix(in srgb, var(--surface) 90%, transparent);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Slate backgrounds */
+.dark .bg-slate-50 {
+  background-color: var(--background);
+}
+.dark .bg-slate-50\/50 {
+  background-color: color-mix(in srgb, var(--background) 50%, transparent);
+}
+.dark .bg-slate-100,
+.dark .bg-slate-100\/50 {
+  background-color: var(--surface-tertiary);
+}
+.dark .bg-slate-200 {
+  background-color: var(--surface-tertiary);
+}
+.dark .hover\:bg-white\/50:hover,
+.dark .hover\:bg-white\/80:hover,
+.dark .hover\:bg-white:hover {
+  background-color: var(--surface-tertiary);
+}
+.dark .hover\:bg-slate-50:hover {
+  background-color: var(--surface);
+}
+
+/* Slate text */
+.dark .text-slate-900 { color: #F2F2F7; }
+.dark .text-slate-800 { color: #E5E5EA; }
+.dark .text-slate-700 { color: #D1D1D6; }
+.dark .text-slate-600 { color: #C7C7CC; }
+.dark .text-slate-500 { color: #8E8E93; }
+.dark .text-slate-400 { color: #636366; }
+
+/* Slate borders */
+.dark .border-slate-50  { border-color: #2C2C2E; }
+.dark .border-slate-100 { border-color: #3A3A3C; }
+.dark .border-slate-200 { border-color: #48484A; }
+.dark .border-slate-300 { border-color: #636366; }
+.dark .border-white,
+.dark .border-white\/40,
+.dark .border-white\/60 {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Tables */
+.dark table thead tr {
+  background-color: var(--surface);
+}
+.dark table tbody tr:hover {
+  background-color: var(--surface-tertiary);
+}
+.dark table td,
+.dark table th {
+  border-color: #3A3A3C;
+  color: #E5E5EA;
+}
+
+/* Inputs */
+.dark input:not([type="range"]),
+.dark textarea,
+.dark select {
+  background-color: var(--surface-tertiary);
+  color: var(--text-primary);
+  border-color: #48484A;
+}
+
+/* Shadows */
+.dark .shadow-\[0_8px_32px_0_rgba\(31\,38\,135\,0\.07\)\] {
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+}
+.dark .shadow-sm {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 /* Impression : uniquement les pages A4/A5 (recettes), masquer le reste */

@@ -3,6 +3,12 @@ import { ClientInvoice } from "./types";
 import { Tier } from "./types";
 import { formatIce, formatDateJjMmAaaa, numberToFrenchWords } from "./utils";
 
+function fmtMoney(value: number): string {
+    return value
+        .toLocaleString("fr-FR", { minimumFractionDigits: 2 })
+        .replace(/[\u00A0\u202F\/]/g, " ");
+}
+
 export function generateClientInvoicePdf(invoice: ClientInvoice, client?: Tier | null): Blob {
     const doc = new jsPDF({
         orientation: "p",
@@ -66,16 +72,17 @@ export function generateClientInvoicePdf(invoice: ClientInvoice, client?: Tier |
     doc.line(marginH, y, marginH + contentW, y);
     y += 8;
 
-    // Lignes de facture : Qté, Désignation (réduit), PU HT, TVA, Total TTC
-    const colW = [12, 35, 22, 12, 23];
+    // Lignes de facture : Qté, Désignation, PU HT, TVA, Total TTC
+    const colW = [12, 50, 28, 12, 26];
     const headers = ["Qté", "Désignation", "PU HT", "TVA", "Total TTC"];
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     let x = marginH;
-    for (let i = 0; i < headers.length; i++) {
+    for (let i = 0; i < headers.length - 1; i++) {
         doc.text(headers[i], x, y);
         x += colW[i];
     }
+    doc.text("Total TTC", marginH + contentW, y, { align: "right" });
     y += 5;
 
     doc.setDrawColor(200, 200, 200);
@@ -99,13 +106,13 @@ export function generateClientInvoicePdf(invoice: ClientInvoice, client?: Tier |
         x = marginH;
         doc.text(line ? String(line.qty || 0) : "", x, y);
         x += colW[0];
-        doc.text(line ? (line.designation || "-").substring(0, 25) : "", x, y);
+        doc.text(line ? (line.designation || "-").substring(0, 40) : "", x, y);
         x += colW[1];
-        doc.text(line ? (puHt(line)).toLocaleString("fr-FR", { minimumFractionDigits: 2 }) : "", x, y);
+        doc.text(line ? fmtMoney(puHt(line)) + " Dh" : "", x, y);
         x += colW[2];
         doc.text(line ? String(line.tauxTva ?? 20) + "%" : "", x, y);
         x += colW[3];
-        doc.text(line ? (line.totalTtc || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 }) : "", x, y);
+        doc.text(line ? fmtMoney(line.totalTtc || 0) + " Dh" : "", marginH + contentW, y, { align: "right" });
         y += 6;
     }
 
@@ -119,10 +126,10 @@ export function generateClientInvoicePdf(invoice: ClientInvoice, client?: Tier |
     doc.setFontSize(12);
     const totX = marginH + contentW - 60;
     doc.text("Total HT :", totX, y);
-    doc.text(`${(invoice.totalHt || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DH`, marginH + contentW - 20, y);
+    doc.text(fmtMoney(invoice.totalHt || 0) + " Dh", marginH + contentW, y, { align: "right" });
     y += 6;
     doc.text("Total TTC :", totX, y);
-    doc.text(`${(invoice.totalTtc || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 })} DH`, marginH + contentW - 20, y);
+    doc.text(fmtMoney(invoice.totalTtc || 0) + " Dh", marginH + contentW, y, { align: "right" });
     y += 10;
 
     // Arrêté la présente facture...

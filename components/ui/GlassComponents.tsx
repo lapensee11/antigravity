@@ -12,11 +12,11 @@ export const GlassCard: React.FC<GlassCardProps> = ({ children, className = '', 
             onClick={onClick}
             className={`
         relative overflow-hidden
-        bg-white/70 backdrop-blur-xl border border-white/40
-        shadow-[0_8px_32px_0_rgba(31,38,135,0.07)]
+        bg-white/70 dark:bg-[#2C2C2E] backdrop-blur-xl border border-white/40 dark:border-[#3A3A3C]
+        shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] dark:shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]
         rounded-2xl p-6
         transition-all duration-300
-        ${onClick ? 'cursor-pointer hover:bg-white/80 hover:shadow-[0_8px_32px_0_rgba(31,38,135,0.12)] active:scale-[0.98]' : ''}
+        ${onClick ? 'cursor-pointer hover:bg-white/80 dark:hover:bg-[#3A3A3C] hover:shadow-[0_8px_32px_0_rgba(31,38,135,0.12)] dark:hover:shadow-[0_8px_32px_0_rgba(0,0,0,0.4)] active:scale-[0.98]' : ''}
         ${className}
       `}
         >
@@ -78,9 +78,9 @@ export const GlassButton = React.forwardRef<HTMLButtonElement, GlassButtonProps>
 }, ref) => {
     const variants = {
         primary: 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-blue-500/20 hover:shadow-blue-500/40 hover:-translate-y-0.5',
-        secondary: 'bg-white/80 text-slate-700 border border-white hover:bg-white hover:shadow-md hover:-translate-y-0.5',
+        secondary: 'bg-white/80 dark:bg-[#3A3A3C] text-slate-700 dark:text-slate-200 border border-white dark:border-[#48484A] hover:bg-white dark:hover:bg-[#48484A] hover:shadow-md hover:-translate-y-0.5',
         danger: 'bg-gradient-to-br from-rose-500 to-red-600 text-white shadow-red-500/20 hover:shadow-red-500/40 hover:-translate-y-0.5',
-        ghost: 'bg-transparent text-slate-600 hover:bg-white/40',
+        ghost: 'bg-transparent text-slate-600 dark:text-slate-400 hover:bg-white/40 dark:hover:bg-white/10',
     };
 
     const sizes = {
